@@ -1,0 +1,807 @@
+"""Admin user handlers."""
+
+import re
+import socket
+from datetime import datetime, timedelta, timezone
+from urllib.parse import urlparse
+
+import html
+import httpx
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+from aiogram import Router, F
+from aiogram.types import CallbackQuery, Message
+from aiogram.fsm.context import FSMContext
+
+from app.services.access import check_admin_access
+from app.services.users import user_service
+from app.services.subscription_db import (
+    upsert_subscription_expire,
+    upsert_subscription_telegram_id,
+    delete_subscription_user,
+)
+from app.states.admin import UserCreateState, UserEditState, UserDeleteState
+
+router = Router(name="admin_users")
+
+USERNAME_RE = re.compile(r"^\d{5,20}$")
+DATE_FOREVER = datetime(2099, 1, 1, tzinfo=timezone.utc)
+
+
+def _skip_keyboard(step: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⏭️ Пропустить", callback_data=f"admin:new_user:skip:{step}")]
+        ]
+    )
+
+
+def _expire_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="♾️ Навсегда", callback_data="admin:new_user:expire:forever"),
+                InlineKeyboardButton(text="🗓️ Месяц", callback_data="admin:new_user:expire:month")
+            ],
+            [InlineKeyboardButton(text="📅 Неделя", callback_data="admin:new_user:expire:week")],
+            [InlineKeyboardButton(text="⏭️ Пропустить", callback_data="admin:new_user:expire:skip")]
+        ]
+    )
+
+
+def _edit_start_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📋 Показать список", callback_data="admin:edit_user:list"),
+                InlineKeyboardButton(text="✍️ Ввести username", callback_data="admin:edit_user:username")
+            ]
+        ]
+    )
+
+
+def _edit_field_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="Username", callback_data="admin:edit_user:field:username"),
+                InlineKeyboardButton(text="Срок (expire)", callback_data="admin:edit_user:field:expire_at")
+            ],
+            [
+                InlineKeyboardButton(text="Лимит (ГБ)", callback_data="admin:edit_user:field:traffic_limit_bytes"),
+                InlineKeyboardButton(text="Tag", callback_data="admin:edit_user:field:tag")
+            ],
+            [
+                InlineKeyboardButton(text="HWID лимит", callback_data="admin:edit_user:field:hwid_device_limit")
+            ]
+        ]
+    )
+
+
+def _parse_iso_datetime(value: str) -> datetime | None:
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _pagination_keyboard(prefix: str, page: int, total: int, size: int) -> InlineKeyboardMarkup:
+    max_page = max(1, (total + size - 1) // size)
+    prev_page = max(1, page - 1)
+    next_page = min(max_page, page + 1)
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="⬅️", callback_data=f"{prefix}:{prev_page}"),
+                InlineKeyboardButton(text=f"{page}/{max_page}", callback_data="noop"),
+                InlineKeyboardButton(text="➡️", callback_data=f"{prefix}:{next_page}")
+            ],
+            [InlineKeyboardButton(text="◀️ В меню", callback_data="admin:menu")]
+        ]
+    )
+
+
+def _users_list_keyboard(users: list[dict], page: int, total: int, size: int) -> InlineKeyboardMarkup:
+    max_page = max(1, (total + size - 1) // size)
+    prev_page = max(1, page - 1)
+    next_page = min(max_page, page + 1)
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=user.get("username", "unknown"),
+                callback_data=f"admin:edit_user:select_uuid:{user.get('uuid')}"
+            )
+        ]
+        for user in users if user.get("uuid")
+    ]
+    rows.append(
+        [
+            InlineKeyboardButton(text="⬅️", callback_data=f"admin:edit_user:list:{prev_page}"),
+            InlineKeyboardButton(text=f"{page}/{max_page}", callback_data="noop"),
+            InlineKeyboardButton(text="➡️", callback_data=f"admin:edit_user:list:{next_page}")
+        ]
+    )
+    rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="admin:menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _edit_expire_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="♾️ Навсегда", callback_data="admin:edit_user:expire:forever"),
+                InlineKeyboardButton(text="🗓️ Месяц", callback_data="admin:edit_user:expire:month")
+            ],
+            [InlineKeyboardButton(text="📅 Неделя", callback_data="admin:edit_user:expire:week")],
+            [InlineKeyboardButton(text="✍️ Ввести дни", callback_data="admin:edit_user:expire:custom")]
+        ]
+    )
+
+
+def _days_left(expire_at: str) -> str:
+    try:
+        value = expire_at.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(value)
+    except Exception:
+        return "-"
+    if dt.year >= 2099:
+        return "∞"
+    now = datetime.now(timezone.utc)
+    delta = dt.date() - now.date()
+    return str(delta.days)
+
+
+def _format_user_line(user: dict, name_w: int, tg_w: int, days_w: int) -> str:
+    username = user.get("username", "unknown")
+    telegram_id = user.get("telegramId") or user.get("telegram_id") or "-"
+    expire_at = user.get("expireAt") or user.get("expire_at") or ""
+    days_left = _days_left(expire_at) if expire_at else "-"
+    return f"{username:<{name_w}} | {str(telegram_id):<{tg_w}} | {days_left:>{days_w}}"
+
+
+def _is_online(user: dict) -> bool:
+    return bool(user.get("onlineAt") or user.get("online_at"))
+
+
+@router.callback_query(F.data == "admin:new_user")
+async def callback_new_user(callback: CallbackQuery, state: FSMContext):
+    """Start new user creation flow."""
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        return
+
+    await state.set_state(UserCreateState.username)
+    await callback.message.answer(
+        "Введите username для нового пользователя.\n"
+        "Требования: только цифры (Telegram ID)."
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:edit_user")
+async def callback_edit_user(callback: CallbackQuery, state: FSMContext):
+    """Start edit user flow."""
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        return
+
+    await state.clear()
+    await callback.message.answer(
+        "Выберите способ поиска пользователя:",
+        reply_markup=_edit_start_keyboard()
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:delete_user")
+async def callback_delete_user(callback: CallbackQuery, state: FSMContext):
+    """Start delete user flow."""
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        return
+
+    await state.set_state(UserDeleteState.username)
+    await callback.message.answer("Введите username пользователя для удаления:")
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:stats")
+async def callback_stats(callback: CallbackQuery):
+    """Show users stats and list."""
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        return
+
+    try:
+        page = 1
+        size = 20
+        response = await user_service.list_users(page=page, size=size)
+        data = response.get("response", {})
+        users = data.get("users", [])
+        total = data.get("total", len(users))
+        online = sum(1 for user in users if _is_online(user))
+
+        usernames = [user.get("username", "unknown") for user in users]
+        telegram_ids = [str(user.get("telegramId") or user.get("telegram_id") or "-") for user in users]
+        days_values = [_days_left(user.get("expireAt") or user.get("expire_at") or "") for user in users]
+
+        name_w = max(8, *(len(value) for value in usernames)) if users else 8
+        tg_w = max(11, *(len(value) for value in telegram_ids)) if users else 11
+        days_w = max(4, *(len(value) for value in days_values)) if users else 4
+
+        header = f"{'username':<{name_w}} | {'telegram_id':<{tg_w}} | {'days':>{days_w}}"
+        divider = "-" * len(header)
+
+        lines = [
+            "📊 Статистика:",
+            f"Всего пользователей: {total}",
+            f"Онлайн (из выборки): {online}",
+            "",
+            "Список пользователей (первые 50):",
+            header,
+            divider
+        ]
+        lines.extend(_format_user_line(user, name_w, tg_w, days_w) for user in users)
+        safe_text = html.escape("\n".join(lines))
+        await callback.message.answer(
+            f"<pre>{safe_text}</pre>",
+            reply_markup=_pagination_keyboard("admin:stats:page", page, total, size)
+        )
+        await callback.answer()
+    except Exception as e:
+        await callback.message.answer(f"❌ Ошибка: {str(e)}")
+        await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin:stats:page:"))
+async def callback_stats_page(callback: CallbackQuery):
+    """Paginated stats view."""
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        return
+
+    try:
+        page = int(callback.data.split(":")[-1])
+        size = 20
+        response = await user_service.list_users(page=page, size=size)
+        data = response.get("response", {})
+        users = data.get("users", [])
+        total = data.get("total", len(users))
+        online = sum(1 for user in users if _is_online(user))
+
+        usernames = [user.get("username", "unknown") for user in users]
+        telegram_ids = [str(user.get("telegramId") or user.get("telegram_id") or "-") for user in users]
+        days_values = [_days_left(user.get("expireAt") or user.get("expire_at") or "") for user in users]
+
+        name_w = max(8, *(len(value) for value in usernames)) if users else 8
+        tg_w = max(11, *(len(value) for value in telegram_ids)) if users else 11
+        days_w = max(4, *(len(value) for value in days_values)) if users else 4
+
+        header = f"{'username':<{name_w}} | {'telegram_id':<{tg_w}} | {'days':>{days_w}}"
+        divider = "-" * len(header)
+
+        lines = [
+            "📊 Статистика:",
+            f"Всего пользователей: {total}",
+            f"Онлайн (из выборки): {online}",
+            "",
+            "Список пользователей (страница):",
+            header,
+            divider
+        ]
+        lines.extend(_format_user_line(user, name_w, tg_w, days_w) for user in users)
+        safe_text = html.escape("\n".join(lines))
+        await callback.message.edit_text(
+            f"<pre>{safe_text}</pre>",
+            reply_markup=_pagination_keyboard("admin:stats:page", page, total, size)
+        )
+        await callback.answer()
+    except Exception as e:
+        await callback.message.answer(f"❌ Ошибка: {str(e)}")
+        await callback.answer()
+
+
+@router.callback_query(F.data == "admin:edit_user:list")
+async def edit_user_list(callback: CallbackQuery, state: FSMContext):
+    """Show users list."""
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        return
+
+    try:
+        page = 1
+        size = 10
+        response = await user_service.list_users(page=page, size=size)
+        users = response.get("response", {}).get("users", [])
+        total = response.get("response", {}).get("total", len(users))
+        if not users:
+            await callback.message.answer("📭 Пользователи не найдены.")
+            await callback.answer()
+            return
+
+        await callback.message.answer(
+            "Выберите пользователя:",
+            reply_markup=_users_list_keyboard(users, page, total, size)
+        )
+        await callback.answer()
+    except Exception as e:
+        await callback.message.answer(f"❌ Ошибка: {str(e)}")
+        await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin:edit_user:list:"))
+async def edit_user_list_page(callback: CallbackQuery, state: FSMContext):
+    """Paginated users list for editing."""
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        return
+
+    try:
+        page = int(callback.data.split(":")[-1])
+        size = 10
+        response = await user_service.list_users(page=page, size=size)
+        users = response.get("response", {}).get("users", [])
+        total = response.get("response", {}).get("total", len(users))
+
+        await callback.message.edit_text(
+            "Выберите пользователя:",
+            reply_markup=_users_list_keyboard(users, page, total, size)
+        )
+        await callback.answer()
+    except Exception as e:
+        await callback.message.answer(f"❌ Ошибка: {str(e)}")
+        await callback.answer()
+
+
+@router.callback_query(F.data == "admin:edit_user:username")
+async def edit_user_by_username_prompt(callback: CallbackQuery, state: FSMContext):
+    """Ask for username input."""
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        return
+
+    await state.set_state(UserEditState.username)
+    await callback.message.answer("Введите username пользователя для редактирования:")
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin:edit_user:select_uuid:"))
+async def edit_user_select(callback: CallbackQuery, state: FSMContext):
+    """Select user from list."""
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        return
+
+    user_uuid = callback.data.split(":")[-1]
+    try:
+        user_response = await user_service.get_user_by_uuid(user_uuid)
+        user = user_response.get("response", user_response)
+        username = user.get("username")
+        telegram_id = user.get("telegramId") or user.get("telegram_id")
+        if not telegram_id and username and str(username).isdigit():
+            telegram_id = int(username)
+        expire_at = user.get("expireAt") or user.get("expire_at")
+        if not username:
+            await callback.message.answer("❌ Не удалось получить пользователя.")
+            await callback.answer()
+            return
+        await state.update_data(
+            user_uuid=user_uuid,
+            username=username,
+            telegram_id=telegram_id,
+            expire_at=expire_at
+        )
+        await state.set_state(UserEditState.field)
+        await callback.message.answer(
+            f"Пользователь: {username}\n"
+            "Выберите поле для редактирования:",
+            reply_markup=_edit_field_keyboard()
+        )
+        await callback.answer()
+    except Exception as e:
+        await callback.message.answer(f"❌ Ошибка: {str(e)}")
+        await callback.answer()
+
+
+@router.message(UserEditState.username)
+async def edit_user_username_input(message: Message, state: FSMContext):
+    """Handle manual username input."""
+    if not await check_admin_access(message.from_user.id):
+        await message.answer("❌ Доступ запрещен.")
+        await state.clear()
+        return
+
+    username = (message.text or "").strip()
+    try:
+        user = await user_service.get_user_by_username(username)
+        user_uuid = user.get("uuid")
+        telegram_id = user.get("telegramId") or user.get("telegram_id")
+        if not telegram_id and username.isdigit():
+            telegram_id = int(username)
+        expire_at = user.get("expireAt") or user.get("expire_at")
+        if not user_uuid:
+            await message.answer("❌ Пользователь не найден.")
+            return
+        await state.update_data(
+            user_uuid=user_uuid,
+            username=username,
+            telegram_id=telegram_id,
+            expire_at=expire_at
+        )
+        await state.set_state(UserEditState.field)
+        await message.answer(
+            f"Пользователь: {username}\n"
+            "Выберите поле для редактирования:",
+            reply_markup=_edit_field_keyboard()
+        )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {str(e)}")
+
+
+@router.message(UserDeleteState.username)
+async def delete_user_by_username(message: Message, state: FSMContext):
+    """Delete user by username in panel and DB."""
+    if not await check_admin_access(message.from_user.id):
+        await message.answer("❌ Доступ запрещен.")
+        await state.clear()
+        return
+
+    username = (message.text or "").strip()
+    try:
+        user = await user_service.get_user_by_username(username)
+        user_uuid = user.get("uuid")
+        telegram_id = user.get("telegramId") or user.get("telegram_id")
+        if not telegram_id and username.isdigit():
+            telegram_id = int(username)
+        if not user_uuid:
+            await message.answer("❌ Пользователь не найден.")
+            return
+
+        await user_service.delete_user(user_uuid)
+        if telegram_id:
+            await delete_subscription_user(int(telegram_id))
+
+        await message.answer(f"✅ Пользователь {username} удален.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка при удалении: {str(e)}")
+    finally:
+        await state.clear()
+
+
+@router.callback_query(F.data.startswith("admin:edit_user:field:"))
+async def edit_user_field(callback: CallbackQuery, state: FSMContext):
+    """Select field to edit."""
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        await state.clear()
+        return
+
+    field = callback.data.split(":")[-1]
+    await state.update_data(field=field)
+    await state.set_state(UserEditState.value)
+
+    if field == "expire_at":
+        await callback.message.answer(
+            "Выберите новый срок действия:",
+            reply_markup=_edit_expire_keyboard()
+        )
+    elif field == "traffic_limit_bytes":
+        await callback.message.answer("Введите лимит трафика в ГБ (например 1 или 1.5):")
+    elif field == "hwid_device_limit":
+        await callback.message.answer("Введите лимит устройств HWID:")
+    else:
+        await callback.message.answer("Введите новое значение:")
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin:edit_user:expire:"))
+async def edit_user_expire(callback: CallbackQuery, state: FSMContext):
+    """Handle expire preset for edit."""
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        await state.clear()
+        return
+
+    action = callback.data.split(":")[-1]
+    if action == "forever":
+        expire_at = DATE_FOREVER
+        await _apply_user_update(callback.message, state, {"expire_at": expire_at})
+    elif action == "month":
+        expire_at = datetime.now(timezone.utc) + timedelta(days=30)
+        await _apply_user_update(callback.message, state, {"expire_at": expire_at})
+    elif action == "week":
+        expire_at = datetime.now(timezone.utc) + timedelta(days=7)
+        await _apply_user_update(callback.message, state, {"expire_at": expire_at})
+    else:
+        await callback.message.answer("Введите количество дней до окончания:")
+    await callback.answer()
+
+
+@router.message(UserEditState.value)
+async def edit_user_value_input(message: Message, state: FSMContext):
+    """Handle new value input for selected field."""
+    if not await check_admin_access(message.from_user.id):
+        await message.answer("❌ Доступ запрещен.")
+        await state.clear()
+        return
+
+    data = await state.get_data()
+    field = data.get("field")
+    text = (message.text or "").strip()
+
+    if field == "traffic_limit_bytes":
+        try:
+            gb_value = float(text.replace(",", "."))
+        except ValueError:
+            await message.answer("❌ Введите число в ГБ (например 1 или 1.5).")
+            return
+        bytes_value = int(gb_value * 1024**3)
+        await _apply_user_update(message, state, {"traffic_limit_bytes": bytes_value})
+        return
+
+    if field == "hwid_device_limit":
+        if not text.isdigit():
+            await message.answer("❌ Введите числовой лимит устройств.")
+            return
+        await _apply_user_update(message, state, {"hwidDeviceLimit": int(text)})
+        return
+
+    if field == "expire_at":
+        if not text.isdigit():
+            await message.answer("❌ Введите количество дней числом.")
+            return
+        expire_at = datetime.now(timezone.utc) + timedelta(days=int(text))
+        await _apply_user_update(message, state, {"expire_at": expire_at})
+        return
+
+    if field == "username":
+        if not USERNAME_RE.fullmatch(text):
+            await message.answer("❌ Username должен быть числом (telegram_id).")
+            return
+        new_telegram_id = int(text)
+        await _apply_user_update(
+            message,
+            state,
+            {"username": text, "telegramId": new_telegram_id},
+            new_telegram_id=new_telegram_id
+        )
+        return
+
+    if field == "tag":
+        await _apply_user_update(message, state, {"tag": text})
+        return
+
+    await message.answer("❌ Неизвестное поле.")
+
+
+async def _apply_user_update(
+    message: Message,
+    state: FSMContext,
+    payload: dict,
+    new_telegram_id: int | None = None
+):
+    """Apply user update and report result."""
+    data = await state.get_data()
+    user_uuid = data.get("user_uuid")
+    telegram_id = data.get("telegram_id")
+    if not user_uuid:
+        await message.answer("❌ Не выбран пользователь.")
+        await state.clear()
+        return
+
+    try:
+        response = await user_service.update_user(user_uuid, payload)
+        if "expire_at" in payload and telegram_id:
+            await upsert_subscription_expire(
+                telegram_id=telegram_id,
+                subscription_ends=payload["expire_at"]
+            )
+        if new_telegram_id and telegram_id:
+            expire_at_value = data.get("expire_at")
+            expire_dt = _parse_iso_datetime(expire_at_value) if isinstance(expire_at_value, str) else None
+            await upsert_subscription_telegram_id(
+                old_telegram_id=telegram_id,
+                new_telegram_id=new_telegram_id,
+                subscription_ends=expire_dt
+            )
+            await state.update_data(telegram_id=new_telegram_id)
+        await message.answer("✅ Пользователь обновлен.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка при обновлении: {str(e)}")
+    finally:
+        await state.clear()
+
+
+@router.message(UserCreateState.username)
+async def handle_new_user_username(message: Message, state: FSMContext):
+    """Handle username input and create user."""
+    if not await check_admin_access(message.from_user.id):
+        await message.answer("❌ Доступ запрещен.")
+        await state.clear()
+        return
+
+    username = (message.text or "").strip()
+    if not USERNAME_RE.fullmatch(username):
+        await message.answer(
+            "❌ Некорректный username. Нужны только цифры (Telegram ID)."
+        )
+        return
+
+    await state.update_data(username=username)
+    await state.set_state(UserCreateState.expire_at)
+    await message.answer(
+        "Выберите срок действия пользователя:",
+        reply_markup=_expire_keyboard()
+    )
+
+
+@router.callback_query(F.data.startswith("admin:new_user:expire:"))
+async def set_expire(callback: CallbackQuery, state: FSMContext):
+    """Handle expire selection."""
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        await state.clear()
+        return
+    action = callback.data.split(":")[-1]
+    if action == "forever":
+        expire_at = DATE_FOREVER
+    elif action == "month":
+        expire_at = datetime.now(timezone.utc) + timedelta(days=30)
+    elif action == "week":
+        expire_at = datetime.now(timezone.utc) + timedelta(days=7)
+    else:
+        expire_at = datetime.now(timezone.utc) + timedelta(days=1)
+
+    await state.update_data(expire_at=expire_at)
+    await state.set_state(UserCreateState.traffic_limit_bytes)
+    await callback.message.answer(
+        "Введите лимит трафика в ГБ (например: 1 или 1.5):",
+        reply_markup=_skip_keyboard("traffic")
+    )
+    await callback.answer()
+
+
+@router.message(UserCreateState.traffic_limit_bytes)
+async def handle_traffic_limit(message: Message, state: FSMContext):
+    """Handle traffic limit input."""
+    if not await check_admin_access(message.from_user.id):
+        await message.answer("❌ Доступ запрещен.")
+        await state.clear()
+        return
+    text = (message.text or "").strip()
+    try:
+        gb_value = float(text.replace(",", "."))
+    except ValueError:
+        await message.answer("❌ Введите число в ГБ (например 1 или 1.5) или нажмите Пропустить.")
+        return
+    bytes_value = int(gb_value * 1024**3)
+    await state.update_data(traffic_limit_bytes=bytes_value)
+    await state.set_state(UserCreateState.tag)
+    await message.answer("Введите tag (или пропустите):", reply_markup=_skip_keyboard("tag"))
+
+
+@router.callback_query(F.data == "admin:new_user:skip:traffic")
+async def skip_traffic(callback: CallbackQuery, state: FSMContext):
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        await state.clear()
+        return
+    await state.set_state(UserCreateState.tag)
+    await callback.message.answer("Введите tag (или пропустите):", reply_markup=_skip_keyboard("tag"))
+    await callback.answer()
+
+
+@router.message(UserCreateState.tag)
+async def handle_tag(message: Message, state: FSMContext):
+    if not await check_admin_access(message.from_user.id):
+        await message.answer("❌ Доступ запрещен.")
+        await state.clear()
+        return
+    tag = (message.text or "").strip()
+    if tag:
+        await state.update_data(tag=tag)
+    await state.set_state(UserCreateState.telegram_id)
+    await message.answer("Введите telegram_id (или пропустите):", reply_markup=_skip_keyboard("telegram_id"))
+
+
+@router.callback_query(F.data == "admin:new_user:skip:tag")
+async def skip_tag(callback: CallbackQuery, state: FSMContext):
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        await state.clear()
+        return
+    await state.set_state(UserCreateState.telegram_id)
+    await callback.message.answer("Введите telegram_id (или пропустите):", reply_markup=_skip_keyboard("telegram_id"))
+    await callback.answer()
+
+
+@router.message(UserCreateState.telegram_id)
+async def handle_telegram_id(message: Message, state: FSMContext):
+    if not await check_admin_access(message.from_user.id):
+        await message.answer("❌ Доступ запрещен.")
+        await state.clear()
+        return
+    text = (message.text or "").strip()
+    if not text.isdigit():
+        await message.answer("❌ Введите числовой telegram_id или нажмите Пропустить.")
+        return
+    await state.update_data(telegram_id=int(text))
+    await state.set_state(UserCreateState.hwid_device_limit)
+    await message.answer("Введите лимит устройств HWID (или пропустите):", reply_markup=_skip_keyboard("hwid"))
+
+
+@router.callback_query(F.data == "admin:new_user:skip:telegram_id")
+async def skip_telegram_id(callback: CallbackQuery, state: FSMContext):
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        await state.clear()
+        return
+    await state.set_state(UserCreateState.hwid_device_limit)
+    await callback.message.answer("Введите лимит устройств HWID (или пропустите):", reply_markup=_skip_keyboard("hwid"))
+    await callback.answer()
+
+
+@router.message(UserCreateState.hwid_device_limit)
+async def handle_hwid(message: Message, state: FSMContext):
+    if not await check_admin_access(message.from_user.id):
+        await message.answer("❌ Доступ запрещен.")
+        await state.clear()
+        return
+    text = (message.text or "").strip()
+    if not text.isdigit():
+        await message.answer("❌ Введите числовой лимит устройств или нажмите Пропустить.")
+        return
+    await state.update_data(hwid_device_limit=int(text))
+    await _finalize_user_create(message, state)
+
+
+@router.callback_query(F.data == "admin:new_user:skip:hwid")
+async def skip_hwid(callback: CallbackQuery, state: FSMContext):
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        await state.clear()
+        return
+    await _finalize_user_create(callback.message, state)
+    await callback.answer()
+
+
+async def _finalize_user_create(message: Message, state: FSMContext):
+    data = await state.get_data()
+    telegram_id = data.get("telegram_id") or message.from_user.id
+    try:
+        user = await user_service.create_user(
+            username=data["username"],
+            expire_at=data.get("expire_at"),
+            traffic_limit_bytes=data.get("traffic_limit_bytes"),
+            tag=data.get("tag"),
+            telegram_id=telegram_id,
+            hwid_device_limit=data.get("hwid_device_limit")
+        )
+        subscription_url = user.get("subscription_url") or user.get("subscriptionUrl")
+        user_uuid = user.get("uuid")
+        await message.answer(
+            "✅ Пользователь создан.\n"
+            f"Username: {user.get('username')}\n"
+            f"UUID: {user_uuid}\n"
+            f"Sub URL: {subscription_url}"
+        )
+    except socket.gaierror:
+        await message.answer(
+            "❌ Ошибка DNS: не удалось разрешить адрес панели.\n"
+            "Проверь `REMNAWAVE_API_URL` и доступность хоста."
+        )
+    except httpx.RequestError as e:
+        if "nodename nor servname" in str(e).lower():
+            base_url = user_service.client.base_url
+            host = urlparse(base_url).hostname or base_url
+            await message.answer(
+                "❌ Ошибка DNS при подключении к панели.\n"
+                f"Хост: {host}\n"
+                "Проверь `REMNAWAVE_API_URL`, DNS и доступность хоста."
+            )
+        else:
+            await message.answer(f"❌ Ошибка сети: {str(e)}")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка при создании пользователя: {str(e)}")
+    finally:
+        await state.clear()

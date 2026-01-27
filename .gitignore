@@ -1,0 +1,10 @@
+.env
+admin_bot/.env
+admin_bot/logs/
+admin_bot/backups/
+user_bot/data/*.db
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+.idea/

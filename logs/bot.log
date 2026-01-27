@@ -1,0 +1,88 @@
+2026-01-19 23:48:05 - apscheduler.scheduler - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-01-19 23:48:05 - apscheduler.scheduler - INFO - Added job "Daily Remnawave DB Backup" to job store "default"
+2026-01-19 23:48:05 - apscheduler.scheduler - INFO - Scheduler started
+2026-01-19 23:48:05 - __main__ - INFO - Scheduler started.
+2026-01-19 23:48:05 - __main__ - INFO - Bot started.
+2026-01-19 23:48:05 - aiogram.dispatcher - INFO - Start polling
+2026-01-19 23:48:05 - aiogram.dispatcher - INFO - Run polling for bot @KairaTest_bot id=8085920420 - 'KairaTest'
+2026-01-20 00:05:53 - aiogram.event - INFO - Update id=431320425 is handled. Duration 253 ms by bot id=8085920420
+2026-01-20 00:05:56 - aiogram.event - INFO - Update id=431320426 is handled. Duration 131 ms by bot id=8085920420
+2026-01-20 00:06:11 - aiogram.event - INFO - Update id=431320427 is handled. Duration 149 ms by bot id=8085920420
+2026-01-20 00:06:14 - httpx - INFO - HTTP Request: GET https://deadmart1.nitratex.ru/api/users?page=1&size=100&limit=100 "HTTP/1.1 200 OK"
+2026-01-20 00:06:14 - aiogram.event - INFO - Update id=431320428 is handled. Duration 749 ms by bot id=8085920420
+2026-01-20 00:37:52 - aiogram.dispatcher - ERROR - Failed to fetch updates - TelegramNetworkError: HTTP Client says - ClientOSError: [Errno 54] Connection reset by peer
+2026-01-20 00:37:52 - aiogram.dispatcher - WARNING - Sleep for 1.000000 seconds and try again... (tryings = 0, bot id = 8085920420)
+2026-01-20 00:38:04 - aiogram.dispatcher - INFO - Connection established (tryings = 1, bot id = 8085920420)
+2026-01-20 00:39:31 - aiogram.dispatcher - WARNING - Received SIGINT signal
+2026-01-20 00:39:31 - aiogram.dispatcher - INFO - Polling stopped for bot @KairaTest_bot id=8085920420 - 'KairaTest'
+2026-01-20 00:39:31 - aiogram.dispatcher - INFO - Polling stopped
+2026-01-20 00:39:33 - apscheduler.scheduler - INFO - Adding job tentatively -- it will be properly scheduled when the scheduler starts
+2026-01-20 00:39:33 - apscheduler.scheduler - INFO - Added job "Daily Remnawave DB Backup" to job store "default"
+2026-01-20 00:39:33 - apscheduler.scheduler - INFO - Scheduler started
+2026-01-20 00:39:33 - __main__ - INFO - Scheduler started.
+2026-01-20 00:39:33 - __main__ - INFO - Bot started.
+2026-01-20 00:39:33 - aiogram.dispatcher - INFO - Start polling
+2026-01-20 00:39:33 - aiogram.dispatcher - INFO - Run polling for bot @KairaTest_bot id=8085920420 - 'KairaTest'
+2026-01-20 00:39:43 - aiogram.event - INFO - Update id=431320429 is handled. Duration 224 ms by bot id=8085920420
+2026-01-20 00:55:05 - aiogram.dispatcher - ERROR - Failed to fetch updates - TelegramNetworkError: HTTP Client says - ClientOSError: [Errno 54] Connection reset by peer
+2026-01-20 00:55:05 - aiogram.dispatcher - WARNING - Sleep for 1.000000 seconds and try again... (tryings = 0, bot id = 8085920420)
+2026-01-20 00:55:17 - aiogram.dispatcher - INFO - Connection established (tryings = 1, bot id = 8085920420)
+2026-01-20 01:11:11 - aiogram.dispatcher - ERROR - Failed to fetch updates - TelegramNetworkError: HTTP Client says - ClientOSError: [Errno 54] Connection reset by peer
+2026-01-20 01:11:11 - aiogram.dispatcher - WARNING - Sleep for 1.000000 seconds and try again... (tryings = 0, bot id = 8085920420)
+2026-01-20 01:29:19 - aiogram.dispatcher - ERROR - Failed to fetch updates - TelegramNetworkError: HTTP Client says - ClientConnectorError: Cannot connect to host api.telegram.org:443 ssl:default [Connection reset by peer]
+2026-01-20 01:29:19 - aiogram.dispatcher - WARNING - Sleep for 1.322904 seconds and try again... (tryings = 1, bot id = 8085920420)
+2026-01-20 01:29:19 - app.notify.admin - ERROR - Failed to send admin message to 1833523639: HTTP Client says - ClientConnectorDNSError: Cannot connect to host api.telegram.org:443 ssl:default [nodename nor servname provided, or not known]
+2026-01-20 01:47:37 - aiogram.dispatcher - ERROR - Failed to fetch updates - TelegramNetworkError: HTTP Client says - ClientConnectorError: Cannot connect to host api.telegram.org:443 ssl:default [Connection reset by peer]
+2026-01-20 01:47:37 - aiogram.dispatcher - WARNING - Sleep for 1.664705 seconds and try again... (tryings = 2, bot id = 8085920420)
+2026-01-20 01:47:37 - app.notify.admin - ERROR - Failed to send admin message to 1833523639: HTTP Client says - ClientConnectorDNSError: Cannot connect to host api.telegram.org:443 ssl:default [nodename nor servname provided, or not known]
+2026-01-20 01:47:37 - app.notify.admin - ERROR - Failed to send admin message to 1833523639: HTTP Client says - ClientConnectorDNSError: Cannot connect to host api.telegram.org:443 ssl:default [nodename nor servname provided, or not known]
+2026-01-20 02:04:03 - aiogram.dispatcher - ERROR - Failed to fetch updates - TelegramNetworkError: HTTP Client says - ClientConnectorError: Cannot connect to host api.telegram.org:443 ssl:default [Connection reset by peer]
+2026-01-20 02:04:03 - aiogram.dispatcher - WARNING - Sleep for 2.268839 seconds and try again... (tryings = 3, bot id = 8085920420)
+2026-01-20 02:04:03 - app.notify.admin - ERROR - Failed to send admin message to 1833523639: HTTP Client says - ClientConnectorDNSError: Cannot connect to host api.telegram.org:443 ssl:default [nodename nor servname provided, or not known]
+2026-01-20 02:04:03 - app.notify.admin - ERROR - Failed to send admin message to 1833523639: HTTP Client says - ClientConnectorDNSError: Cannot connect to host api.telegram.org:443 ssl:default [nodename nor servname provided, or not known]
+2026-01-20 02:04:03 - app.notify.admin - ERROR - Failed to send admin message to 1833523639: HTTP Client says - ClientConnectorDNSError: Cannot connect to host api.telegram.org:443 ssl:default [nodename nor servname provided, or not known]
+2026-01-20 02:19:23 - aiogram.dispatcher - ERROR - Failed to fetch updates - TelegramNetworkError: HTTP Client says - ClientConnectorError: Cannot connect to host api.telegram.org:443 ssl:default [Connection reset by peer]
+2026-01-20 02:19:23 - aiogram.dispatcher - WARNING - Sleep for 2.659162 seconds and try again... (tryings = 4, bot id = 8085920420)
+2026-01-20 02:19:23 - app.notify.admin - ERROR - Failed to send admin message to 1833523639: HTTP Client says - ClientConnectorDNSError: Cannot connect to host api.telegram.org:443 ssl:default [nodename nor servname provided, or not known]
+2026-01-20 02:19:23 - app.notify.admin - ERROR - Failed to send admin message to 1833523639: HTTP Client says - ClientConnectorDNSError: Cannot connect to host api.telegram.org:443 ssl:default [nodename nor servname provided, or not known]
+2026-01-20 02:36:23 - aiogram.dispatcher - ERROR - Failed to fetch updates - TelegramNetworkError: HTTP Client says - ClientConnectorError: Cannot connect to host api.telegram.org:443 ssl:default [Connection reset by peer]
+2026-01-20 02:36:23 - aiogram.dispatcher - WARNING - Sleep for 3.475296 seconds and try again... (tryings = 5, bot id = 8085920420)
+2026-01-20 02:36:23 - app.notify.admin - ERROR - Failed to send admin message to 1833523639: HTTP Client says - ClientConnectorDNSError: Cannot connect to host api.telegram.org:443 ssl:default [nodename nor servname provided, or not known]
+2026-01-20 02:36:23 - app.notify.admin - ERROR - Failed to send admin message to 1833523639: HTTP Client says - ClientConnectorDNSError: Cannot connect to host api.telegram.org:443 ssl:default [nodename nor servname provided, or not known]
+2026-01-20 02:40:26 - aiogram.dispatcher - ERROR - Failed to fetch updates - TelegramNetworkError: HTTP Client says - ClientConnectorError: Cannot connect to host api.telegram.org:443 ssl:default [Connection reset by peer]
+2026-01-20 02:40:26 - aiogram.dispatcher - WARNING - Sleep for 4.541420 seconds and try again... (tryings = 6, bot id = 8085920420)
+2026-01-20 02:41:10 - app.notify.admin - ERROR - Failed to send admin message to 1833523639: HTTP Client says - ClientConnectorDNSError: Cannot connect to host api.telegram.org:443 ssl:default [nodename nor servname provided, or not known]
+2026-01-20 02:41:10 - app.notify.admin - ERROR - Failed to send admin message to 1833523639: HTTP Client says - ClientConnectorDNSError: Cannot connect to host api.telegram.org:443 ssl:default [nodename nor servname provided, or not known]
+2026-01-20 02:41:10 - app.notify.admin - ERROR - Failed to send admin message to 1833523639: HTTP Client says - ClientConnectorDNSError: Cannot connect to host api.telegram.org:443 ssl:default [nodename nor servname provided, or not known]
+2026-01-20 02:41:10 - app.notify.admin - ERROR - Failed to send admin message to 1833523639: HTTP Client says - ClientConnectorDNSError: Cannot connect to host api.telegram.org:443 ssl:default [nodename nor servname provided, or not known]
+2026-01-20 02:41:10 - app.notify.admin - ERROR - Failed to send admin message to 1833523639: HTTP Client says - ClientConnectorDNSError: Cannot connect to host api.telegram.org:443 ssl:default [nodename nor servname provided, or not known]
+2026-01-20 02:41:10 - app.notify.admin - ERROR - Failed to send admin message to 1833523639: HTTP Client says - ClientConnectorDNSError: Cannot connect to host api.telegram.org:443 ssl:default [nodename nor servname provided, or not known]
+2026-01-20 02:41:10 - app.notify.admin - ERROR - Failed to send admin message to 1833523639: HTTP Client says - ClientConnectorDNSError: Cannot connect to host api.telegram.org:443 ssl:default [nodename nor servname provided, or not known]
+2026-01-20 02:48:29 - aiogram.dispatcher - ERROR - Failed to fetch updates - TelegramNetworkError: HTTP Client says - ClientConnectorError: Cannot connect to host api.telegram.org:443 ssl:default [Connection reset by peer]
+2026-01-20 02:48:29 - aiogram.dispatcher - WARNING - Sleep for 5.011234 seconds and try again... (tryings = 7, bot id = 8085920420)
+2026-01-20 02:48:29 - app.notify.admin - ERROR - Failed to send admin message to 1833523639: HTTP Client says - ClientConnectorDNSError: Cannot connect to host api.telegram.org:443 ssl:default [nodename nor servname provided, or not known]
+2026-01-20 02:48:29 - app.notify.admin - ERROR - Failed to send admin message to 1833523639: HTTP Client says - ClientConnectorDNSError: Cannot connect to host api.telegram.org:443 ssl:default [nodename nor servname provided, or not known]
+2026-01-20 02:48:29 - app.notify.admin - ERROR - Failed to send admin message to 1833523639: HTTP Client says - ClientConnectorDNSError: Cannot connect to host api.telegram.org:443 ssl:default [nodename nor servname provided, or not known]
+2026-01-20 02:48:29 - app.notify.admin - ERROR - Failed to send admin message to 1833523639: HTTP Client says - ClientConnectorDNSError: Cannot connect to host api.telegram.org:443 ssl:default [nodename nor servname provided, or not known]
+2026-01-20 02:48:29 - app.notify.admin - ERROR - Failed to send admin message to 1833523639: HTTP Client says - ClientConnectorDNSError: Cannot connect to host api.telegram.org:443 ssl:default [nodename nor servname provided, or not known]
+2026-01-20 02:48:29 - app.notify.admin - ERROR - Failed to send admin message to 1833523639: HTTP Client says - ClientConnectorDNSError: Cannot connect to host api.telegram.org:443 ssl:default [nodename nor servname provided, or not known]
+2026-01-20 02:48:29 - app.notify.admin - ERROR - Failed to send admin message to 1833523639: HTTP Client says - ClientConnectorDNSError: Cannot connect to host api.telegram.org:443 ssl:default [nodename nor servname provided, or not known]
+2026-01-20 02:48:49 - aiogram.dispatcher - INFO - Connection established (tryings = 8, bot id = 8085920420)
+2026-01-20 02:57:11 - aiogram.dispatcher - ERROR - Failed to fetch updates - TelegramNetworkError: HTTP Client says - ClientOSError: [Errno 54] Connection reset by peer
+2026-01-20 02:57:11 - aiogram.dispatcher - WARNING - Sleep for 1.000000 seconds and try again... (tryings = 0, bot id = 8085920420)
+2026-01-20 02:57:26 - aiogram.dispatcher - INFO - Connection established (tryings = 1, bot id = 8085920420)
+2026-01-20 03:06:17 - aiogram.dispatcher - ERROR - Failed to fetch updates - TelegramNetworkError: HTTP Client says - ClientOSError: [Errno 54] Connection reset by peer
+2026-01-20 03:06:17 - aiogram.dispatcher - WARNING - Sleep for 1.000000 seconds and try again... (tryings = 0, bot id = 8085920420)
+2026-01-20 03:06:29 - aiogram.dispatcher - INFO - Connection established (tryings = 1, bot id = 8085920420)
+2026-01-20 03:15:21 - aiogram.dispatcher - ERROR - Failed to fetch updates - TelegramNetworkError: HTTP Client says - ClientOSError: [Errno 54] Connection reset by peer
+2026-01-20 03:15:21 - aiogram.dispatcher - WARNING - Sleep for 1.000000 seconds and try again... (tryings = 0, bot id = 8085920420)
+2026-01-20 03:15:33 - aiogram.dispatcher - INFO - Connection established (tryings = 1, bot id = 8085920420)
+2026-01-20 03:21:25 - aiogram.dispatcher - ERROR - Failed to fetch updates - TelegramNetworkError: HTTP Client says - ClientOSError: [Errno 54] Connection reset by peer
+2026-01-20 03:21:25 - aiogram.dispatcher - WARNING - Sleep for 1.000000 seconds and try again... (tryings = 0, bot id = 8085920420)
+2026-01-20 03:21:37 - aiogram.dispatcher - INFO - Connection established (tryings = 1, bot id = 8085920420)
+2026-01-20 03:30:29 - aiogram.dispatcher - ERROR - Failed to fetch updates - TelegramNetworkError: HTTP Client says - ClientOSError: [Errno 54] Connection reset by peer
+2026-01-20 03:30:29 - aiogram.dispatcher - WARNING - Sleep for 1.000000 seconds and try again... (tryings = 0, bot id = 8085920420)
+2026-01-20 03:30:41 - aiogram.dispatcher - INFO - Connection established (tryings = 1, bot id = 8085920420)
+2026-01-20 03:39:34 - aiogram.dispatcher - ERROR - Failed to fetch updates - TelegramNetworkError: HTTP Client says - ClientOSError: [Errno 54] Connection reset by peer
+2026-01-20 03:39:34 - aiogram.dispatcher - WARNING - Sleep for 1.000000 seconds and try again... (tryings = 0, bot id = 8085920420)
+2026-01-20 03:39:47 - aiogram.dispatcher - INFO - Connection established (tryings = 1, bot id = 8085920420)
