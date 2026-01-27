@@ -2,7 +2,10 @@
 admin_bot/.env
 admin_bot/logs/
 admin_bot/backups/
+logs/
 user_bot/data/*.db
+user_bot/data/*.db-wal
+user_bot/data/*.db-shm
 .venv/
 __pycache__/
 *.pyc
