@@ -1,4 +1,4 @@
-# KairaVPN Telegram Bots
+# VPN Telegram Bots
 
 This repository contains two related Telegram bots:
 
