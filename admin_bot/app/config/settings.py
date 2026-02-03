@@ -1,7 +1,7 @@
 """Application settings loaded from environment variables using pydantic-settings."""
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import field_validator
+from pydantic import field_validator, Field
 from typing import List, ClassVar
 from pathlib import Path
 
@@ -11,21 +11,23 @@ class Settings(BaseSettings):
 
     base_dir: ClassVar[Path] = Path(__file__).resolve().parents[2]
     model_config = SettingsConfigDict(
-        env_file=base_dir / ".env",
+        env_file=base_dir.parent / ".env",
         env_file_encoding="utf-8",
         extra="ignore"
     )
 
     # Telegram Bot
-    bot_token: str
+    admin_bot_token: str = Field(..., validation_alias="Admin_bot_token")
     admin_ids: List[int] = []
+    # Token user_bot для рассылки (пользователи общаются с user_bot, не с админ-ботом)
+    user_bot_token: str = Field("", validation_alias="USER_BOT_TOKEN")
 
     # API Configuration
-    remnawave_api_url: str = "https://api.remnawave.com"
-    remnawave_api_key: str = ""
+    remnawave_api_url: str = Field("https://api.remnawave.com", validation_alias="REMNAWAVE_BASE_URL")
+    remnawave_api_key: str = Field("", validation_alias="REMNAWAVE_TOKEN")
+    remnawave_timeout_seconds: int = Field(5, validation_alias="REMNAWAVE_TIMEOUT_SECONDS")
 
     # Database
-    sqlite_db_path: str = "./data/bot.db"
     user_bot_db_path: str = ""
 
     # Backup
@@ -36,7 +38,8 @@ class Settings(BaseSettings):
     # Monitoring
     monitor_interval_minutes: int = 5
     node_ram_max_percent: int = 70
-    squad_max_users: int = 10
+    internal_squad_max_users: int = 30
+    internal_squad_prefix: str = "internal"
 
     # Logging
     log_level: str = "INFO"
@@ -61,6 +64,17 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return value.strip()
         return value
+
+    @field_validator("remnawave_timeout_seconds", mode="before")
+    @classmethod
+    def parse_timeout(cls, value):
+        """Parse timeout seconds from env; fallback to default."""
+        if value is None or value == "":
+            return 5
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return 5
 
     @field_validator("user_bot_db_path", mode="before")
     @classmethod

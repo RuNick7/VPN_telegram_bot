@@ -10,7 +10,9 @@ from app.notify.admin import send_admin_message
 
 logger = logging.getLogger(__name__)
 _last_alert_ts: float | None = None
+_last_error_ts: float | None = None
 ALERT_THROTTLE_SECONDS = 300
+ERROR_THROTTLE_SECONDS = 300
 
 
 def _extract_percent(data: Dict[str, Any], keys: list[str]) -> Optional[float]:
@@ -68,9 +70,9 @@ async def run_node_monitor() -> None:
         for squad in squads:
             name = squad.get("name") or squad.get("uuid", "unknown")
             members = (squad.get("info") or {}).get("membersCount")
-            if isinstance(members, int) and members > settings.squad_max_users:
+            if isinstance(members, int) and members > settings.internal_squad_max_users:
                 alerts.append(
-                    f"Squad '{name}' members {members} > {settings.squad_max_users}"
+                    f"Squad '{name}' members {members} > {settings.internal_squad_max_users}"
                 )
 
         if alerts:
@@ -87,5 +89,14 @@ async def run_node_monitor() -> None:
                 logger.info("Alerts throttled to avoid spam.")
     except Exception as e:
         logger.error(f"Node monitor failed: {e}", exc_info=True)
+        now = time.time()
+        global _last_error_ts
+        if _last_error_ts is None or now - _last_error_ts >= ERROR_THROTTLE_SECONDS:
+            await send_admin_message(
+                "❌ Ошибка мониторинга нод.\n"
+                f"Причина: {e}\n"
+                f"REMNAWAVE_BASE_URL: {settings.remnawave_api_url}"
+            )
+            _last_error_ts = now
     finally:
         await client.close()

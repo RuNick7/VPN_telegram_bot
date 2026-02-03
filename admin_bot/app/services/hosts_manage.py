@@ -35,7 +35,11 @@ class HostManageService:
         return await self.client.request("POST", "/hosts", json=payload)
 
     async def update_host(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        return await self.client.request("POST", "/hosts/update", json=payload)
+        return await self.client.request("PATCH", "/hosts", json=payload)
+
+    async def delete_host(self, host_uuid: str) -> Dict[str, Any]:
+        payload = {"uuids": [host_uuid]}
+        return await self.client.request("POST", "/hosts/bulk/delete", json=payload)
 
 
 host_manage_service = HostManageService()

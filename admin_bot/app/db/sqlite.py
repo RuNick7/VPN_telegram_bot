@@ -10,7 +10,7 @@ class Database:
     """SQLite database manager."""
 
     def __init__(self, db_path: Optional[str] = None):
-        self.db_path = db_path or settings.sqlite_db_path
+        self.db_path = db_path or settings.user_bot_db_path
         self._connection: Optional[aiosqlite.Connection] = None
 
     async def connect(self) -> None:

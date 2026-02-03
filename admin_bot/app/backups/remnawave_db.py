@@ -29,7 +29,7 @@ async def backup_remnawave_db(backup_dir: Optional[str] = None) -> Path:
     try:
         # Fetch database export from API
         # Adjust endpoint based on actual Remnawave API
-        db_data = await client.get("/api/v1/database/export")
+        db_data = await client.get("/v1/database/export")
 
         # Save backup file
         # Assuming API returns JSON or binary data

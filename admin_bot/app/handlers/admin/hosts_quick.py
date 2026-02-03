@@ -5,6 +5,7 @@ from typing import Any, Dict, List
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
+from aiogram.exceptions import TelegramBadRequest
 
 from app.services.access import check_admin_access
 from app.services.hosts_manage import host_manage_service
@@ -15,6 +16,7 @@ router = Router(name="admin_hosts_quick")
 INBOUNDS_PAGE_SIZE = 5
 NODES_PAGE_SIZE = 5
 SQUADS_PAGE_SIZE = 5
+HOSTS_PAGE_SIZE = 8
 
 
 def _menu_keyboard() -> InlineKeyboardMarkup:
@@ -116,6 +118,21 @@ def _exclude_confirm_keyboard() -> InlineKeyboardMarkup:
         ]
     )
 
+def _hosts_delete_keyboard(hosts: List[Dict[str, Any]], page: int) -> InlineKeyboardMarkup:
+    chunk, total_pages = _paginate(hosts, page, HOSTS_PAGE_SIZE)
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=f"{item.get('remark') or item.get('address', 'host')}:{item.get('port', '-')}",
+                callback_data=f"admin:host:del:uuid:{item.get('uuid')}",
+            )
+        ]
+        for item in chunk if item.get("uuid")
+    ]
+    rows.extend(_page_controls("admin:host:del:page", page, total_pages))
+    rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="admin:menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
 
 @router.callback_query(F.data == "admin:host_quick_add")
 async def start_host_quick(callback: CallbackQuery, state: FSMContext):
@@ -128,6 +145,65 @@ async def start_host_quick(callback: CallbackQuery, state: FSMContext):
     await state.set_state(HostQuickCreateState.remark)
     await callback.message.answer("Введите название хоста:", reply_markup=_menu_keyboard())
     await callback.answer()
+
+
+@router.callback_query(F.data == "admin:host_delete")
+async def start_host_delete(callback: CallbackQuery, state: FSMContext):
+    """Start host delete flow."""
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        return
+    await state.clear()
+    try:
+        hosts = await host_manage_service.list_hosts()
+        if not hosts:
+            await callback.message.answer("📭 Хосты не найдены.", reply_markup=_menu_keyboard())
+            await callback.answer()
+            return
+        await callback.message.answer(
+            "Выберите хост для удаления:",
+            reply_markup=_hosts_delete_keyboard(hosts, 1),
+        )
+        await callback.answer()
+    except Exception as e:
+        await callback.message.answer(f"❌ Ошибка: {str(e)}", reply_markup=_menu_keyboard())
+        await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin:host:del:page:"))
+async def host_delete_page(callback: CallbackQuery, state: FSMContext):
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        return
+    try:
+        page = int(callback.data.split(":")[-1])
+        hosts = await host_manage_service.list_hosts()
+        total_pages = max(1, (len(hosts) + HOSTS_PAGE_SIZE - 1) // HOSTS_PAGE_SIZE)
+        page = max(1, min(page, total_pages))
+        try:
+            await callback.message.edit_reply_markup(reply_markup=_hosts_delete_keyboard(hosts, page))
+        except TelegramBadRequest as e:
+            if "message is not modified" not in (str(e) or ""):
+                raise
+        await callback.answer()
+    except Exception as e:
+        await callback.message.answer(f"❌ Ошибка: {str(e)}", reply_markup=_menu_keyboard())
+        await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin:host:del:uuid:"))
+async def host_delete_select(callback: CallbackQuery, state: FSMContext):
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        return
+    host_uuid = callback.data.split(":")[-1]
+    try:
+        await host_manage_service.delete_host(host_uuid)
+        await callback.message.answer("✅ Хост удален.", reply_markup=_menu_keyboard())
+        await callback.answer()
+    except Exception as e:
+        await callback.message.answer(f"❌ Ошибка: {str(e)}", reply_markup=_menu_keyboard())
+        await callback.answer()
 
 
 @router.message(HostQuickCreateState.remark)
@@ -161,9 +237,14 @@ async def host_inbound_page(callback: CallbackQuery, state: FSMContext):
 
     data = await state.get_data()
     inbounds = data.get("inbounds", [])
-    page = int(callback.data.split(":")[-1])
+    total_pages = max(1, (len(inbounds) + INBOUNDS_PAGE_SIZE - 1) // INBOUNDS_PAGE_SIZE)
+    page = max(1, min(int(callback.data.split(":")[-1]), total_pages))
     await state.update_data(inbound_page=page)
-    await callback.message.edit_reply_markup(reply_markup=_inbounds_keyboard(inbounds, page))
+    try:
+        await callback.message.edit_reply_markup(reply_markup=_inbounds_keyboard(inbounds, page))
+    except TelegramBadRequest as e:
+        if "message is not modified" not in (str(e) or ""):
+            raise
     await callback.answer()
 
 
@@ -265,9 +346,14 @@ async def host_nodes_page(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     nodes = data.get("nodes_all", [])
     selected = data.get("nodes_selected", [])
-    page = int(callback.data.split(":")[-1])
+    total_pages = max(1, (len(nodes) + NODES_PAGE_SIZE - 1) // NODES_PAGE_SIZE)
+    page = max(1, min(int(callback.data.split(":")[-1]), total_pages))
     await state.update_data(nodes_page=page)
-    await callback.message.edit_reply_markup(reply_markup=_nodes_keyboard(nodes, selected, page))
+    try:
+        await callback.message.edit_reply_markup(reply_markup=_nodes_keyboard(nodes, selected, page))
+    except TelegramBadRequest as e:
+        if "message is not modified" not in (str(e) or ""):
+            raise
     await callback.answer()
 
 
@@ -288,7 +374,11 @@ async def host_nodes_toggle(callback: CallbackQuery, state: FSMContext):
     selected_list = list(selected)
     page = data.get("nodes_page", 1)
     await state.update_data(nodes_selected=selected_list)
-    await callback.message.edit_reply_markup(reply_markup=_nodes_keyboard(nodes, selected_list, page))
+    try:
+        await callback.message.edit_reply_markup(reply_markup=_nodes_keyboard(nodes, selected_list, page))
+    except TelegramBadRequest as e:
+        if "message is not modified" not in (str(e) or ""):
+            raise
     await callback.answer()
 
 
@@ -325,9 +415,14 @@ async def host_squad_page(callback: CallbackQuery, state: FSMContext):
 
     data = await state.get_data()
     squads = data.get("squads_all", [])
-    page = int(callback.data.split(":")[-1])
+    total_pages = max(1, (len(squads) + SQUADS_PAGE_SIZE - 1) // SQUADS_PAGE_SIZE)
+    page = max(1, min(int(callback.data.split(":")[-1]), total_pages))
     await state.update_data(squad_page=page)
-    await callback.message.edit_reply_markup(reply_markup=_squads_keyboard(squads, page))
+    try:
+        await callback.message.edit_reply_markup(reply_markup=_squads_keyboard(squads, page))
+    except TelegramBadRequest as e:
+        if "message is not modified" not in (str(e) or ""):
+            raise
     await callback.answer()
 
 

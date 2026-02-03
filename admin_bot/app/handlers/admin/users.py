@@ -19,12 +19,13 @@ from app.services.subscription_db import (
     upsert_subscription_expire,
     upsert_subscription_telegram_id,
     delete_subscription_user,
+    delete_subscription_user_by_username,
 )
 from app.states.admin import UserCreateState, UserEditState, UserDeleteState
 
 router = Router(name="admin_users")
 
-USERNAME_RE = re.compile(r"^\d{5,20}$")
+USERNAME_RE = re.compile(r"^\d{6,20}$")
 DATE_FOREVER = datetime(2099, 1, 1, tzinfo=timezone.utc)
 
 
@@ -59,12 +60,21 @@ def _edit_start_keyboard() -> InlineKeyboardMarkup:
         ]
     )
 
+def _delete_start_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="📋 Показать список", callback_data="admin:del:list"),
+                InlineKeyboardButton(text="✍️ Ввести username", callback_data="admin:del:username")
+            ]
+        ]
+    )
+
 
 def _edit_field_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="Username", callback_data="admin:edit_user:field:username"),
                 InlineKeyboardButton(text="Срок (expire)", callback_data="admin:edit_user:field:expire_at")
             ],
             [
@@ -74,6 +84,15 @@ def _edit_field_keyboard() -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="HWID лимит", callback_data="admin:edit_user:field:hwid_device_limit")
             ]
+        ]
+    )
+
+
+def _edit_again_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔁 Изменить ещё", callback_data="admin:edit_user:back")],
+            [InlineKeyboardButton(text="◀️ В меню", callback_data="admin:menu")],
         ]
     )
 
@@ -119,6 +138,29 @@ def _users_list_keyboard(users: list[dict], page: int, total: int, size: int) ->
             InlineKeyboardButton(text="⬅️", callback_data=f"admin:edit_user:list:{prev_page}"),
             InlineKeyboardButton(text=f"{page}/{max_page}", callback_data="noop"),
             InlineKeyboardButton(text="➡️", callback_data=f"admin:edit_user:list:{next_page}")
+        ]
+    )
+    rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="admin:menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+def _users_delete_list_keyboard(users: list[dict], page: int, total: int, size: int) -> InlineKeyboardMarkup:
+    max_page = max(1, (total + size - 1) // size)
+    prev_page = max(1, page - 1)
+    next_page = min(max_page, page + 1)
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=user.get("username", "unknown"),
+                callback_data=f"admin:del:uuid:{user.get('uuid')}"
+            )
+        ]
+        for user in users if user.get("uuid")
+    ]
+    rows.append(
+        [
+            InlineKeyboardButton(text="⬅️", callback_data=f"admin:del:list:{prev_page}"),
+            InlineKeyboardButton(text=f"{page}/{max_page}", callback_data="noop"),
+            InlineKeyboardButton(text="➡️", callback_data=f"admin:del:list:{next_page}")
         ]
     )
     rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="admin:menu")])
@@ -173,7 +215,7 @@ async def callback_new_user(callback: CallbackQuery, state: FSMContext):
     await state.set_state(UserCreateState.username)
     await callback.message.answer(
         "Введите username для нового пользователя.\n"
-        "Требования: только цифры (Telegram ID)."
+        "Требования: только цифры (Telegram ID), минимум 6 символов."
     )
     await callback.answer()
 
@@ -200,9 +242,110 @@ async def callback_delete_user(callback: CallbackQuery, state: FSMContext):
         await callback.answer("❌ Доступ запрещен.", show_alert=True)
         return
 
+    await state.clear()
+    await callback.message.answer(
+        "Выберите способ удаления пользователя:",
+        reply_markup=_delete_start_keyboard()
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:del:username")
+async def delete_user_by_username_prompt(callback: CallbackQuery, state: FSMContext):
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        return
     await state.set_state(UserDeleteState.username)
     await callback.message.answer("Введите username пользователя для удаления:")
     await callback.answer()
+
+
+@router.callback_query(F.data == "admin:del:list")
+async def delete_user_list(callback: CallbackQuery, state: FSMContext):
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        return
+    try:
+        page = 1
+        size = 10
+        response = await user_service.list_users(page=page, size=size)
+        users = response.get("response", {}).get("users", [])
+        total = response.get("response", {}).get("total", len(users))
+        if not users:
+            await callback.message.answer("📭 Пользователи не найдены.")
+            await callback.answer()
+            return
+        await callback.message.answer(
+            "Выберите пользователя для удаления:",
+            reply_markup=_users_delete_list_keyboard(users, page, total, size)
+        )
+        await callback.answer()
+    except Exception as e:
+        await callback.message.answer(f"❌ Ошибка: {str(e)}")
+        await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin:del:list:"))
+async def delete_user_list_page(callback: CallbackQuery, state: FSMContext):
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        return
+    try:
+        page = int(callback.data.split(":")[-1])
+        size = 10
+        response = await user_service.list_users(page=page, size=size)
+        users = response.get("response", {}).get("users", [])
+        total = response.get("response", {}).get("total", len(users))
+        await callback.message.edit_text(
+            "Выберите пользователя для удаления:",
+            reply_markup=_users_delete_list_keyboard(users, page, total, size)
+        )
+        await callback.answer()
+    except Exception as e:
+        await callback.message.answer(f"❌ Ошибка: {str(e)}")
+        await callback.answer()
+
+
+@router.callback_query(F.data.startswith("admin:del:uuid:"))
+async def delete_user_select(callback: CallbackQuery, state: FSMContext):
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        return
+    user_uuid = callback.data.split(":")[-1]
+    try:
+        user_response = await user_service.get_user_by_uuid(user_uuid)
+        user = user_response.get("response", user_response)
+        username = user.get("username")
+        telegram_id = user.get("telegramId") or user.get("telegram_id")
+        if not telegram_id and username and str(username).isdigit():
+            telegram_id = int(username)
+        if not username:
+            await callback.message.answer("❌ Не удалось получить пользователя.")
+            await callback.answer()
+            return
+
+        deleted_in_panel = False
+        deleted_in_db = False
+
+        await user_service.delete_user(user_uuid)
+        deleted_in_panel = True
+
+        if telegram_id:
+            deleted_in_db = await delete_subscription_user(int(telegram_id))
+        else:
+            deleted_in_db = await delete_subscription_user_by_username(username)
+
+        where = []
+        if deleted_in_panel:
+            where.append("Remnawave")
+        if deleted_in_db:
+            where.append("БД")
+        where_text = " и ".join(where) if where else "нигде"
+        await callback.message.answer(f"✅ Пользователь {username} удален из: {where_text}.")
+        await callback.answer()
+    except Exception as e:
+        await callback.message.answer(f"❌ Ошибка при удалении: {str(e)}")
+        await callback.answer()
 
 
 @router.callback_query(F.data == "admin:stats")
@@ -447,21 +590,40 @@ async def delete_user_by_username(message: Message, state: FSMContext):
         return
 
     username = (message.text or "").strip()
+    deleted_in_panel = False
+    deleted_in_db = False
+    panel_note = ""
+
     try:
         user = await user_service.get_user_by_username(username)
         user_uuid = user.get("uuid")
         telegram_id = user.get("telegramId") or user.get("telegram_id")
         if not telegram_id and username.isdigit():
             telegram_id = int(username)
-        if not user_uuid:
-            await message.answer("❌ Пользователь не найден.")
+
+        if user_uuid:
+            await user_service.delete_user(user_uuid)
+            deleted_in_panel = True
+        else:
+            panel_note = "Пользователь не найден в Remnawave."
+
+        if telegram_id:
+            deleted_in_db = await delete_subscription_user(int(telegram_id))
+        else:
+            deleted_in_db = await delete_subscription_user_by_username(username)
+
+        if not deleted_in_db and not deleted_in_panel:
+            await message.answer("❌ Пользователь не найден ни в Remnawave, ни в БД.")
             return
 
-        await user_service.delete_user(user_uuid)
-        if telegram_id:
-            await delete_subscription_user(int(telegram_id))
-
-        await message.answer(f"✅ Пользователь {username} удален.")
+        where = []
+        if deleted_in_panel:
+            where.append("Remnawave")
+        if deleted_in_db:
+            where.append("БД")
+        where_text = " и ".join(where)
+        note = f"\nℹ️ {panel_note}" if panel_note else ""
+        await message.answer(f"✅ Пользователь {username} удален из: {where_text}.{note}")
     except Exception as e:
         await message.answer(f"❌ Ошибка при удалении: {str(e)}")
     finally:
@@ -491,6 +653,30 @@ async def edit_user_field(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer("Введите лимит устройств HWID:")
     else:
         await callback.message.answer("Введите новое значение:")
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:edit_user:back")
+async def edit_user_back(callback: CallbackQuery, state: FSMContext):
+    """Return to edit field selection for current user."""
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        await state.clear()
+        return
+    data = await state.get_data()
+    if not data.get("user_uuid"):
+        await callback.message.answer(
+            "Выберите способ поиска пользователя:",
+            reply_markup=_edit_start_keyboard()
+        )
+        await state.set_state(UserEditState.username)
+    else:
+        await callback.message.answer(
+            f"Пользователь: {data.get('username', 'unknown')}\n"
+            "Выберите поле для редактирования:",
+            reply_markup=_edit_field_keyboard()
+        )
+        await state.set_state(UserEditState.field)
     await callback.answer()
 
 
@@ -554,18 +740,6 @@ async def edit_user_value_input(message: Message, state: FSMContext):
         await _apply_user_update(message, state, {"expire_at": expire_at})
         return
 
-    if field == "username":
-        if not USERNAME_RE.fullmatch(text):
-            await message.answer("❌ Username должен быть числом (telegram_id).")
-            return
-        new_telegram_id = int(text)
-        await _apply_user_update(
-            message,
-            state,
-            {"username": text, "telegramId": new_telegram_id},
-            new_telegram_id=new_telegram_id
-        )
-        return
 
     if field == "tag":
         await _apply_user_update(message, state, {"tag": text})
@@ -605,10 +779,13 @@ async def _apply_user_update(
                 subscription_ends=expire_dt
             )
             await state.update_data(telegram_id=new_telegram_id)
-        await message.answer("✅ Пользователь обновлен.")
+        await message.answer(
+            "✅ Пользователь обновлен.",
+            reply_markup=_edit_again_keyboard()
+        )
+        await state.set_state(UserEditState.field)
     except Exception as e:
         await message.answer(f"❌ Ошибка при обновлении: {str(e)}")
-    finally:
         await state.clear()
 
 
@@ -623,7 +800,7 @@ async def handle_new_user_username(message: Message, state: FSMContext):
     username = (message.text or "").strip()
     if not USERNAME_RE.fullmatch(username):
         await message.answer(
-            "❌ Некорректный username. Нужны только цифры (Telegram ID)."
+            "❌ Некорректный username. Нужны только цифры (Telegram ID), минимум 6 символов."
         )
         return
 
@@ -786,10 +963,10 @@ async def _finalize_user_create(message: Message, state: FSMContext):
             f"Sub URL: {subscription_url}"
         )
     except socket.gaierror:
-        await message.answer(
-            "❌ Ошибка DNS: не удалось разрешить адрес панели.\n"
-            "Проверь `REMNAWAVE_API_URL` и доступность хоста."
-        )
+            await message.answer(
+                "❌ Ошибка DNS: не удалось разрешить адрес панели.\n"
+                "Проверь `REMNAWAVE_BASE_URL` и доступность хоста."
+            )
     except httpx.RequestError as e:
         if "nodename nor servname" in str(e).lower():
             base_url = user_service.client.base_url
@@ -797,7 +974,7 @@ async def _finalize_user_create(message: Message, state: FSMContext):
             await message.answer(
                 "❌ Ошибка DNS при подключении к панели.\n"
                 f"Хост: {host}\n"
-                "Проверь `REMNAWAVE_API_URL`, DNS и доступность хоста."
+                "Проверь `REMNAWAVE_BASE_URL`, DNS и доступность хоста."
             )
         else:
             await message.answer(f"❌ Ошибка сети: {str(e)}")

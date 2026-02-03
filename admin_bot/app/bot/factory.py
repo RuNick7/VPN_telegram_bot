@@ -10,7 +10,7 @@ from app.config.settings import settings
 def create_bot() -> Bot:
     """Create and configure Bot instance."""
     return Bot(
-        token=settings.bot_token,
+        token=settings.admin_bot_token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
 

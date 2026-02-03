@@ -9,6 +9,25 @@ import aiosqlite
 from app.config.settings import settings
 
 
+def _get_db_path() -> Path:
+    db_path = Path(settings.user_bot_db_path).expanduser()
+    if not db_path.is_absolute():
+        db_path = (Path(settings.base_dir) / db_path).resolve()
+    else:
+        db_path = db_path.resolve()
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    return db_path
+
+
+async def _ensure_subscription_table(db: aiosqlite.Connection, db_path: Path) -> None:
+    cursor = await db.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='subscription'"
+    )
+    exists = await cursor.fetchone()
+    if not exists:
+        raise RuntimeError(f"no such table: subscription (db: {db_path})")
+
+
 async def insert_subscription_user(
     telegram_id: int,
     subscription_ends: datetime,
@@ -21,8 +40,7 @@ async def insert_subscription_user(
     reminded: int = 0,
 ) -> None:
     """Insert user into user_bot subscription DB."""
-    db_path = Path(settings.user_bot_db_path)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db_path = _get_db_path()
 
     subscription_ends_ts = int(subscription_ends.replace(tzinfo=timezone.utc).timestamp())
     created_at_ts = int(datetime.now(timezone.utc).timestamp())
@@ -43,6 +61,7 @@ async def insert_subscription_user(
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
     async with aiosqlite.connect(db_path) as db:
+        await _ensure_subscription_table(db, db_path)
         await db.execute(
             query,
             (
@@ -66,13 +85,13 @@ async def upsert_subscription_expire(
     subscription_ends: datetime,
 ) -> None:
     """Update subscription expiry for a user in user_bot DB."""
-    db_path = Path(settings.user_bot_db_path)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db_path = _get_db_path()
 
     subscription_ends_ts = int(subscription_ends.replace(tzinfo=timezone.utc).timestamp())
     created_at_ts = int(datetime.now(timezone.utc).timestamp())
 
     async with aiosqlite.connect(db_path) as db:
+        await _ensure_subscription_table(db, db_path)
         cursor = await db.execute(
             "SELECT id FROM subscription WHERE telegram_id = ?",
             (telegram_id,),
@@ -123,8 +142,7 @@ async def upsert_subscription_telegram_id(
     subscription_ends: Optional[datetime] = None,
 ) -> None:
     """Update telegram_id in subscription DB; insert if missing."""
-    db_path = Path(settings.user_bot_db_path)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db_path = _get_db_path()
 
     created_at_ts = int(datetime.now(timezone.utc).timestamp())
     subscription_ends_ts = None
@@ -132,6 +150,7 @@ async def upsert_subscription_telegram_id(
         subscription_ends_ts = int(subscription_ends.replace(tzinfo=timezone.utc).timestamp())
 
     async with aiosqlite.connect(db_path) as db:
+        await _ensure_subscription_table(db, db_path)
         cursor = await db.execute(
             "SELECT id FROM subscription WHERE telegram_id = ?",
             (old_telegram_id,),
@@ -197,15 +216,30 @@ async def upsert_subscription_telegram_id(
         await db.commit()
 
 
-async def delete_subscription_user(telegram_id: int) -> None:
+async def delete_subscription_user(telegram_id: int) -> bool:
     """Delete user from subscription DB by telegram_id."""
-    db_path = Path(settings.user_bot_db_path)
+    db_path = _get_db_path()
     async with aiosqlite.connect(db_path) as db:
-        await db.execute(
+        await _ensure_subscription_table(db, db_path)
+        cursor = await db.execute(
             "DELETE FROM subscription WHERE telegram_id = ?",
             (telegram_id,),
         )
         await db.commit()
+        return cursor.rowcount > 0
+
+
+async def delete_subscription_user_by_username(username: str) -> bool:
+    """Delete user from subscription DB by telegram_tag or telegram_id."""
+    db_path = _get_db_path()
+    async with aiosqlite.connect(db_path) as db:
+        await _ensure_subscription_table(db, db_path)
+        cursor = await db.execute(
+            "DELETE FROM subscription WHERE telegram_tag = ? OR telegram_id = ?",
+            (username, username),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
 
 
 async def insert_promo_code(
@@ -216,8 +250,9 @@ async def insert_promo_code(
     is_active: int = 1,
 ) -> None:
     """Insert promo code into user_bot DB."""
-    db_path = Path(settings.user_bot_db_path)
+    db_path = _get_db_path()
     async with aiosqlite.connect(db_path) as db:
+        await _ensure_subscription_table(db, db_path)
         await db.execute(
             """
             INSERT INTO promo_codes (code, type, value, is_active, one_time)
@@ -230,8 +265,9 @@ async def insert_promo_code(
 
 async def delete_promo_code(code: str) -> bool:
     """Delete promo code by code. Returns True if deleted."""
-    db_path = Path(settings.user_bot_db_path)
+    db_path = _get_db_path()
     async with aiosqlite.connect(db_path) as db:
+        await _ensure_subscription_table(db, db_path)
         cursor = await db.execute("DELETE FROM promo_codes WHERE code = ?", (code,))
         await db.commit()
         return cursor.rowcount > 0
@@ -239,8 +275,9 @@ async def delete_promo_code(code: str) -> bool:
 
 async def get_all_telegram_ids() -> list[int]:
     """Fetch all telegram_id values from subscription DB."""
-    db_path = Path(settings.user_bot_db_path)
+    db_path = _get_db_path()
     async with aiosqlite.connect(db_path) as db:
+        await _ensure_subscription_table(db, db_path)
         cursor = await db.execute("SELECT telegram_id FROM subscription")
         rows = await cursor.fetchall()
     return [int(row[0]) for row in rows if row and row[0] is not None]

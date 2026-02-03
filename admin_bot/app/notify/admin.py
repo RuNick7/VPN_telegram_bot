@@ -17,10 +17,14 @@ async def send_admin_message(text: str, bot: Optional[Bot] = None) -> None:
         from app.bot.factory import create_bot
         bot = create_bot()
 
+    safe_text = html.escape(text)
+    max_chunk = 4000
+    chunks = [safe_text[i:i + max_chunk] for i in range(0, len(safe_text), max_chunk)] or [""]
+
     for admin_id in settings.admin_ids:
         try:
-            safe_text = html.escape(text)
-            await bot.send_message(chat_id=admin_id, text=f"<pre>{safe_text}</pre>")
+            for chunk in chunks:
+                await bot.send_message(chat_id=admin_id, text=f"<pre>{chunk}</pre>")
         except Exception as e:
             # Log error but don't raise to avoid recursion
             import logging

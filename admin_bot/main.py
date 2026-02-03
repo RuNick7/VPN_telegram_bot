@@ -8,6 +8,7 @@ from app.bot.factory import create_bot, create_dp
 from app.bot.routers import get_all_routers
 from app.notify.log_setup import setup_logging
 from app.scheduler.setup import create_scheduler
+from app.db.sqlite import db
 
 
 async def main() -> None:
@@ -26,7 +27,10 @@ async def main() -> None:
     logger.info("Scheduler started.")
 
     logger.info("Bot started.")
-    await dp.start_polling(bot)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await db.close()
 
 
 if __name__ == "__main__":
