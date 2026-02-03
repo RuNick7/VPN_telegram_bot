@@ -1,11 +1,11 @@
-# user_bot
+# User Bot
 
 Telegram bot for VPN subscriptions.
 
 ## Structure
-- `app/` — future application modules (config, clients, services, handlers)
+- `app/` — application modules (config, clients, services, handlers)
 - `data/` — database utilities and assets
-- `handlers/` — current bot handlers
+- `handlers/` — bot handlers
 - `payments/` — payment integration and webhook
 - `utils/` — legacy utilities (VPN integration, reminders)
 

@@ -1,124 +1,124 @@
 # Admin Bot
 
-Админ‑бот для управления панелью Remnawave из Telegram.  
-Проект разделён на две части:
+Admin bot for managing the Remnawave panel from Telegram.  
+The project is split into two parts:
 
-- `admin_bot/` — админ‑бот (этот репозиторий)
-- `user_bot/` — пользовательский бот и база `subscription.db`
+- `admin_bot/` — admin bot (this repo)
+- `user_bot/` — user-facing bot and the `subscription.db` database
 
-Бот позволяет управлять пользователями, промокодами, хостами, делать рассылку, получать статистику и следить за нагрузкой нод.
-
----
-
-## Возможности
-
-### Пользователи
-- Создание пользователя в Remnawave + запись в `subscription.db`
-- Пошаговая настройка:
-  - `username` (строго **цифры = Telegram ID**)
-  - срок действия (навсегда / месяц / неделя / 1 день по умолчанию)
-  - лимит трафика в **ГБ**
-  - `tag` (опционально)
-  - `telegram_id` (опционально)
-  - `hwid` лимит (опционально)
-- Редактирование:
-  - срок (`expire_at`) — обновляет и панель, и `subscription.db`
-  - `username` — меняет и панель, и `telegram_id` в `subscription.db`
-  - `hwid`, `tag`, лимит трафика — меняются только в панели
-- Удаление пользователя из панели и из `subscription.db`
-
-### Статистика
-- Количество пользователей
-- Сколько пользователей онлайн
-- Таблица пользователей с `telegram_id` и количеством дней до окончания
-- Пагинация
-
-### Промокоды
-- Создание промокода (вручную или генерация)
-- Тип: `gift` / `days`
-- Значение: **число дней**
-- One‑time: да/нет
-- Удаление по коду
-
-### Рассылка
-- Рассылка текста, фото или видео всем пользователям из `subscription.db`
-- Батчинг и ограничение скорости
-
-### Хосты
-- Быстрое создание хоста с минимальными параметрами
-- Выбор inbound (пагинация)
-- Выбор нод (мультивыбор + пагинация)
-- Выбор внутреннего сквада
-- Исключение выбранного сквада из других хостов (по запросу)
-
-### Мониторинг
-- Проверка RAM (по `/api/system/stats`)
-- Проверка offline‑нод
-- Контроль числа пользователей в сквадах
-- Антиспам: сообщения не чаще 1 раза в 5 минут
-
-### Бэкапы
-- Ежедневная отправка `subscription.db` админам в 17:00 МСК
-- Авто‑подчистка старых бэкапов (оставляем 10 последних)
+The bot lets you manage users, promo codes, hosts, send broadcasts, view stats, and monitor node load.
 
 ---
 
-## Структура проекта
+## Features
+
+### Users
+- Create a user in Remnawave and write to `subscription.db`
+- Step-by-step creation:
+  - `username` (**digits only = Telegram ID**)
+  - expiration (forever / month / week / default 1 day)
+  - traffic limit in **GB**
+  - `tag` (optional)
+  - `telegram_id` (optional)
+  - `hwid` limit (optional)
+- Edit:
+  - expiration (`expire_at`) — updates both the panel and `subscription.db`
+  - `username` — updates both the panel and `telegram_id` in `subscription.db`
+  - `hwid`, `tag`, traffic limit — panel only
+- Delete user from both the panel and `subscription.db`
+
+### Stats
+- Total users
+- Online users count
+- Users table with `telegram_id` and days left
+- Pagination
+
+### Promo Codes
+- Create promo codes (manual or generated)
+- Types: `gift` / `days`
+- Value: **number of days**
+- One-time: yes/no
+- Delete by code
+
+### Broadcasts
+- Send text, photo, or video to all users in `subscription.db`
+- Batching and rate limiting
+
+### Hosts
+- Quick host creation with minimal parameters
+- Inbound selection (pagination)
+- Nodes selection (multi-select + pagination)
+- Internal squad selection
+- Exclude selected squad from other hosts (on request)
+
+### Monitoring
+- RAM checks (via `/api/system/stats`)
+- Offline node checks
+- Internal squads size control
+- Anti-spam: no more than once every 5 minutes
+
+### Backups
+- Daily `subscription.db` delivery to admins at 17:00 MSK
+- Auto-clean old backups (keep last 10)
+
+---
+
+## Project Structure
 
 ```
 KairaVPN_admin_bot/
-├─ admin_bot/         # админ‑бот
-│  ├─ app/            # код
-│  ├─ logs/           # логи
-│  └─ main.py         # запуск
+├─ admin_bot/         # admin bot
+│  ├─ app/            # code
+│  ├─ logs/           # logs
+│  └─ main.py         # entrypoint
 ├─ user_bot/
 │  └─ data/
-│     └─ subscription.db  # база пользователей/промокодов
-├─ .env               # общий конфиг
-├─ .env.example       # пример конфига
-├─ requirements.txt   # зависимости для обоих ботов
-└─ .venv              # виртуальное окружение Python
+│     └─ subscription.db  # users/promo DB
+├─ .env               # shared config
+├─ .env.example       # config example
+├─ requirements.txt   # shared dependencies
+└─ .venv              # Python virtualenv
 ```
 
 ---
 
-## Установка и запуск
+## Install & Run
 
-1) Активируй виртуальное окружение:
+1) Activate the virtualenv:
 ```
 source .venv/bin/activate
 ```
 
-2) Установи зависимости:
+2) Install dependencies:
 ```
 pip install -r requirements.txt
 ```
 
-3) Скопируй конфиг:
+3) Copy config:
 ```
 cp .env.example .env
 ```
 
-4) Заполни `.env` (включая `Admin_bot_token`)
+4) Fill in `.env` (including `Admin_bot_token`)
 
-5) Запусти бота:
+5) Run the bot:
 ```
 .venv/bin/python admin_bot/main.py
 ```
 
 ---
 
-## Важно
+## Important
 
-- **username = Telegram ID** (только цифры).
-- `subscription.db` — основная БД user‑бота, хранит пользователей/промокоды.
-- При создании/обновлении пользователя **срок** синхронизируется в `subscription.db`.
-- При изменении `username` меняется `telegram_id` в `subscription.db`.
+- **username = Telegram ID** (digits only).
+- `subscription.db` is the user-bot database storing users and promo codes.
+- When creating/updating a user, the **expiration** is synced to `subscription.db`.
+- When `username` changes, `telegram_id` is updated in `subscription.db`.
 
 ---
 
-## Технические заметки
+## Technical Notes
 
-- Для создания/редактирования используем API панели Remnawave.
+- User create/edit operations use the Remnawave panel API.
 
 ---
