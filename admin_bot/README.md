@@ -70,12 +70,13 @@ KairaVPN_admin_bot/
 ├─ admin_bot/         # админ‑бот
 │  ├─ app/            # код
 │  ├─ logs/           # логи
-│  ├─ .env            # конфиг
-│  ├─ .env.example    # пример конфига
 │  └─ main.py         # запуск
 ├─ user_bot/
 │  └─ data/
 │     └─ subscription.db  # база пользователей/промокодов
+├─ .env               # общий конфиг
+├─ .env.example       # пример конфига
+├─ requirements.txt   # зависимости для обоих ботов
 └─ .venv              # виртуальное окружение Python
 ```
 
@@ -90,15 +91,15 @@ source .venv/bin/activate
 
 2) Установи зависимости:
 ```
-pip install -r admin_bot/requirements.txt
+pip install -r requirements.txt
 ```
 
 3) Скопируй конфиг:
 ```
-cp admin_bot/.env.example admin_bot/.env
+cp .env.example .env
 ```
 
-4) Заполни `.env`
+4) Заполни `.env` (включая `Admin_bot_token`)
 
 5) Запусти бота:
 ```

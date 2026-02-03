@@ -10,6 +10,7 @@ Telegram bot for VPN subscriptions.
 - `utils/` — legacy utilities (VPN integration, reminders)
 
 ## Setup
-1. Create `.env` from `.env.example` or fill `user_bot/.env` directly.
-2. Install requirements from `requirements.txt`.
-3. Run `bot.py` for polling or `run_webhook.py` for webhook mode.
+1. Create `.env` from `.env.example` in the repository root.
+2. Set `USER_BOT_TOKEN` in `.env`.
+3. Install requirements from `requirements.txt` in the repository root.
+4. Run `bot.py` for polling or `run_webhook.py` for webhook mode.
