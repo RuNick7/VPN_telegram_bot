@@ -91,10 +91,6 @@ async def _send_instruction_without_video(cb: CallbackQuery, text: str, reply_ma
         reply_markup=reply_markup,
         disable_web_page_preview=True,
     )
-    try:
-        await cb.message.delete()
-    except Exception:
-        pass
 
 
 @router.callback_query(F.data == "os:android")
@@ -154,10 +150,6 @@ async def android_instruction(cb: CallbackQuery) -> None:
         VIDEO_ID_CACHE[ANDROID_ALIAS] = sent_msg.video.file_id
         _save_cache(VIDEO_ID_CACHE)
 
-    try:
-        await cb.message.delete()
-    except Exception:
-        pass
 
 
 @router.callback_query(F.data == "os:ios")
@@ -220,10 +212,6 @@ async def ios_instruction(cb: CallbackQuery) -> None:
         VIDEO_ID_CACHE[IOS_ALIAS] = sent_msg.video.file_id
         _save_cache(VIDEO_ID_CACHE)
 
-    try:
-        await cb.message.delete()
-    except Exception:
-        pass
 
 
 @router.callback_query(F.data == "os:windows")
@@ -283,10 +271,6 @@ async def windows_instruction(cb: CallbackQuery) -> None:
         VIDEO_ID_CACHE[WIN_ALIAS] = sent_msg.video.file_id
         _save_cache(VIDEO_ID_CACHE)
 
-    try:
-        await cb.message.delete()
-    except Exception:
-        pass
 
 
 @router.callback_query(F.data == "os:linux")
@@ -330,7 +314,7 @@ async def linux_instruction(cb: CallbackQuery) -> None:
         "<b>Шаг 11.</b> Для обновления подписок: Сервер → Текущая группа → Обновить подписки.\n\n"
     )
 
-    await cb.message.edit_text(
+    await cb.message.answer(
         text,
         parse_mode="HTML",
         reply_markup=manual_setup_keyboard("linux"),
@@ -357,7 +341,7 @@ async def tv_instruction(cb: CallbackQuery) -> None:
         "<b>Шаг 4.</b> Выберите конфигурацию на телевизоре и нажмите на кнопку включения.\n\n"
     )
 
-    await cb.message.edit_text(
+    await cb.message.answer(
         text,
         parse_mode="HTML",
         reply_markup=manual_setup_keyboard("tv"),
@@ -379,7 +363,7 @@ async def appletv_instruction(cb: CallbackQuery) -> None:
         "<b>Шаг 4.</b> Выберите конфигурацию на телевизоре и нажмите на кнопку включения.\n\n"
     )
 
-    await cb.message.edit_text(
+    await cb.message.answer(
         text,
         parse_mode="HTML",
         reply_markup=manual_setup_keyboard("appletv"),
@@ -466,10 +450,6 @@ async def macos_instruction(cb: CallbackQuery) -> None:
         VIDEO_ID_CACHE[MAC_ALIAS] = sent_msg.video.file_id
         _save_cache(VIDEO_ID_CACHE)
 
-    try:
-        await cb.message.delete()
-    except Exception:
-        pass
 
 
 @router.callback_query(F.data == "manual_setup:ios")

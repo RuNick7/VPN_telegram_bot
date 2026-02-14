@@ -145,4 +145,4 @@ async def help_cmd(message: types.Message) -> None:
 
 @router.callback_query(F.data == "help")
 async def help_cb(cb: types.CallbackQuery) -> None:
-    await _send_help_menu(cb, as_edit=True)
+    await _send_help_menu(cb, as_edit=False)

@@ -66,7 +66,7 @@ async def subscription_tariffs_cmd(message: types.Message) -> None:
 
 @router.callback_query(F.data == "subscription_tariffs")
 async def subscription_tariffs_cb(cb: CallbackQuery) -> None:
-    await _send_tariff_menu(cb, as_edit=True)
+    await _send_tariff_menu(cb, as_edit=False)
 
 
 @router.callback_query(lambda c: c.data.startswith("buy_tariff:"))
