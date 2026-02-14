@@ -10,6 +10,7 @@ def get_admin_menu_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="👤 Новый пользователь", callback_data="admin:new_user")],
             [InlineKeyboardButton(text="✏️ Редактировать пользователя", callback_data="admin:edit_user")],
             [InlineKeyboardButton(text="🗑️ Удалить пользователя", callback_data="admin:delete_user")],
+            [InlineKeyboardButton(text="🔎 Поиск пользователя", callback_data="admin:user_search")],
             [InlineKeyboardButton(text="🎫 Создать промокод", callback_data="admin:promo_create")],
             [InlineKeyboardButton(text="🗑️ Удалить промокод", callback_data="admin:promo_delete")],
             [InlineKeyboardButton(text="📣 Рассылка", callback_data="admin:broadcast")],

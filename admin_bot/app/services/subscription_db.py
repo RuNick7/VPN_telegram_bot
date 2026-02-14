@@ -281,3 +281,33 @@ async def get_all_telegram_ids() -> list[int]:
         cursor = await db.execute("SELECT telegram_id FROM subscription")
         rows = await cursor.fetchall()
     return [int(row[0]) for row in rows if row and row[0] is not None]
+
+
+async def get_subscription_rows_by_telegram_id(telegram_id: int) -> list[dict]:
+    """Fetch all subscription rows by telegram_id."""
+    db_path = _get_db_path()
+    async with aiosqlite.connect(db_path) as db:
+        await _ensure_subscription_table(db, db_path)
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """
+            SELECT
+                id,
+                telegram_id,
+                telegram_tag,
+                subscription_ends,
+                reminded,
+                referrer_tag,
+                is_referred,
+                referred_people,
+                gifted_subscriptions,
+                nurture_stage,
+                created_at
+            FROM subscription
+            WHERE telegram_id = ?
+            ORDER BY id DESC
+            """,
+            (telegram_id,),
+        )
+        rows = await cursor.fetchall()
+    return [dict(row) for row in rows]

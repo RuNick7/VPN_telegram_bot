@@ -22,6 +22,7 @@ def get_db():
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout = 5000")
+    _ensure_schema(conn)
     try:
         yield conn
     finally:
@@ -175,22 +176,150 @@ def update_payment_status(payment_id: str, new_status: str):
     """
     with get_db() as conn:
         cursor = conn.cursor()
+        _ensure_payments_table(conn)
+        now_ts = int(time.time())
+        cursor.execute(
+            """
+            INSERT OR IGNORE INTO payments (payment_id, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (payment_id, new_status, now_ts, now_ts),
+        )
 
         # Обновляем статус и время обновления
         cursor.execute("""
             UPDATE payments
-            SET status = ?
+            SET status = ?, updated_at = ?
             WHERE payment_id = ?
-        """, (new_status, payment_id))
+        """, (new_status, now_ts, payment_id))
 
         conn.commit()
 
 def get_payment_status(payment_id: str) -> str | None:
     with get_db() as conn:
         cursor = conn.cursor()
+        _ensure_payments_table(conn)
         cursor.execute("SELECT status FROM payments WHERE payment_id = ?", (payment_id,))
         row = cursor.fetchone()
         return row[0] if row else None
+
+
+def _ensure_payments_table(conn: sqlite3.Connection) -> None:
+    _ensure_table(
+        conn,
+        "payments",
+        {
+            "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+            "payment_id": "TEXT NOT NULL UNIQUE",
+            "status": "TEXT",
+            "created_at": "INTEGER",
+            "updated_at": "INTEGER",
+        },
+        defaults={"status": "", "created_at": 0, "updated_at": 0},
+        indexes=[
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_payment_id ON payments(payment_id)"
+        ],
+    )
+
+
+def _ensure_schema(conn: sqlite3.Connection) -> None:
+    _ensure_table(
+        conn,
+        "subscription",
+        {
+            "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+            "telegram_id": "INTEGER",
+            "telegram_tag": "TEXT",
+            "subscription_ends": "INTEGER",
+            "referrer_tag": "TEXT",
+            "is_referred": "INTEGER",
+            "referred_people": "INTEGER",
+            "gifted_subscriptions": "INTEGER",
+            "reminded": "INTEGER",
+            "nurture_stage": "INTEGER",
+            "created_at": "INTEGER",
+        },
+        defaults={
+            "subscription_ends": 0,
+            "referrer_tag": "",
+            "is_referred": 0,
+            "referred_people": 0,
+            "gifted_subscriptions": 0,
+            "reminded": 0,
+            "nurture_stage": 0,
+            "created_at": 0,
+        },
+    )
+    _ensure_table(
+        conn,
+        "promo_codes",
+        {
+            "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+            "code": "TEXT",
+            "type": "TEXT",
+            "value": "INTEGER",
+            "is_active": "INTEGER",
+            "one_time": "INTEGER",
+            "creator_id": "INTEGER",
+        },
+        defaults={"is_active": 1, "one_time": 0, "value": 0, "creator_id": 0},
+        indexes=[
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_promo_codes_code ON promo_codes(code)"
+        ],
+    )
+    _ensure_table(
+        conn,
+        "promo_usage",
+        {
+            "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+            "code": "TEXT",
+            "telegram_id": "INTEGER",
+        },
+        defaults={"telegram_id": 0},
+        indexes=[
+            "CREATE INDEX IF NOT EXISTS idx_promo_usage_code ON promo_usage(code)",
+            "CREATE INDEX IF NOT EXISTS idx_promo_usage_telegram_id ON promo_usage(telegram_id)",
+        ],
+    )
+    _ensure_payments_table(conn)
+
+
+def _ensure_table(
+    conn: sqlite3.Connection,
+    table: str,
+    columns: dict[str, str],
+    *,
+    defaults: dict[str, int | str] | None = None,
+    indexes: list[str] | None = None,
+) -> None:
+    defaults = defaults or {}
+    indexes = indexes or []
+    cols_sql = ", ".join(f"{name} {ddl}" for name, ddl in columns.items())
+    conn.execute(f"CREATE TABLE IF NOT EXISTS {table} ({cols_sql})")
+    existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+    for name, ddl in columns.items():
+        if name in existing:
+            continue
+        # SQLite cannot add PRIMARY KEY/UNIQUE/AUTOINCREMENT via ALTER TABLE.
+        safe_ddl = ddl
+        if "PRIMARY KEY" in ddl.upper() or "UNIQUE" in ddl.upper() or "AUTOINCREMENT" in ddl.upper():
+            safe_ddl = ddl.replace("PRIMARY KEY", "").replace("primary key", "")
+            safe_ddl = safe_ddl.replace("UNIQUE", "").replace("unique", "")
+            safe_ddl = safe_ddl.replace("AUTOINCREMENT", "").replace("autoincrement", "")
+        safe_ddl = " ".join(safe_ddl.split())
+        default = defaults.get(name)
+        if default is None:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {safe_ddl}")
+        elif isinstance(default, str):
+            conn.execute(
+                f"ALTER TABLE {table} ADD COLUMN {name} {safe_ddl} DEFAULT '{default}'"
+            )
+        else:
+            conn.execute(
+                f"ALTER TABLE {table} ADD COLUMN {name} {safe_ddl} DEFAULT {default}"
+            )
+    for stmt in indexes:
+        conn.execute(stmt)
 
 def update_subscription_expire(telegram_id: int, new_expire: int):
     """

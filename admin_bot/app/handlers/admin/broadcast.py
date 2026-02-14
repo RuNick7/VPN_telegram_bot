@@ -3,6 +3,7 @@
 import asyncio
 import io
 import logging
+from urllib.parse import urlparse
 
 from aiogram import Bot, Router, F
 from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
@@ -21,6 +22,22 @@ BATCH_SIZE = 25
 PAUSE_BETWEEN_BATCHES = 1.0  # seconds
 PAUSE_BETWEEN_MESSAGES = 0.05
 MAX_FAIL_REPORT = 10  # сколько ошибок показать админу в сообщении
+MAX_BROADCAST_BUTTONS = 6
+
+# Эти callback_data должны обрабатываться user_bot.
+ALLOWED_USER_BOT_MENU_CALLBACKS: dict[str, str] = {
+    "main_menu": "☰ Главное меню",
+    "subscription_tariffs": "💳 Продлить подписку",
+    "referral_info": "👥 Реферальная программа",
+    "help": "❓ Помощь",
+    "os:android": "🤖 Android",
+    "os:ios": "🍎 iPhone",
+    "os:windows": "🪟 Windows",
+    "os:macos": "🍏 macOS",
+    "os:linux": "🐧 Linux",
+    "os:tv": "📺 Android-TV",
+    "os:appletv": "🍏 Apple TV",
+}
 
 def _menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
@@ -38,6 +55,83 @@ def _confirm_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="◀️ В меню", callback_data="admin:menu")],
         ]
     )
+
+
+def _buttons_prompt_text() -> str:
+    menu_lines = "\n".join(
+        [f"• {title} -> `{cb}`" for cb, title in ALLOWED_USER_BOT_MENU_CALLBACKS.items()]
+    )
+    return (
+        "Теперь настройте кнопки рассылки (необязательно).\n\n"
+        "Отправьте `-` чтобы без кнопок.\n"
+        f"Или до {MAX_BROADCAST_BUTTONS} строк в формате:\n"
+        "`Текст кнопки | menu | callback_data`\n"
+        "`Текст кнопки | url | https://example.com`\n\n"
+        "Доступные menu callback_data:\n"
+        f"{menu_lines}"
+    )
+
+
+def _validate_url(value: str) -> bool:
+    parsed = urlparse(value.strip())
+    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
+
+def _parse_broadcast_buttons(raw_text: str) -> tuple[list[dict], str | None]:
+    text = (raw_text or "").strip()
+    if text == "-":
+        return [], None
+
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return [], "❌ Пустой ввод. Отправьте `-` или строки с кнопками."
+    if len(lines) > MAX_BROADCAST_BUTTONS:
+        return [], f"❌ Слишком много кнопок. Максимум: {MAX_BROADCAST_BUTTONS}."
+
+    buttons: list[dict] = []
+    for i, line in enumerate(lines, start=1):
+        parts = [p.strip() for p in line.split("|")]
+        if len(parts) != 3:
+            return [], (
+                f"❌ Ошибка в строке {i}. Нужен формат:\n"
+                "`Текст кнопки | menu | callback_data`\n"
+                "или\n"
+                "`Текст кнопки | url | https://example.com`"
+            )
+        label, btn_type, value = parts
+        if not label:
+            return [], f"❌ Строка {i}: пустой текст кнопки."
+        if len(label) > 64:
+            return [], f"❌ Строка {i}: текст кнопки слишком длинный (макс. 64)."
+        if btn_type not in ("menu", "url"):
+            return [], f"❌ Строка {i}: тип должен быть `menu` или `url`."
+
+        if btn_type == "menu":
+            if value not in ALLOWED_USER_BOT_MENU_CALLBACKS:
+                return [], (
+                    f"❌ Строка {i}: callback_data `{value}` не разрешён.\n"
+                    "Используйте только значения из списка."
+                )
+            buttons.append({"text": label, "type": "menu", "value": value})
+            continue
+
+        if not _validate_url(value):
+            return [], f"❌ Строка {i}: некорректный URL `{value}`."
+        buttons.append({"text": label, "type": "url", "value": value})
+
+    return buttons, None
+
+
+def _build_broadcast_reply_markup(buttons: list[dict] | None) -> InlineKeyboardMarkup | None:
+    if not buttons:
+        return None
+    rows: list[list[InlineKeyboardButton]] = []
+    for item in buttons:
+        if item.get("type") == "url":
+            rows.append([InlineKeyboardButton(text=item["text"], url=item["value"])])
+        else:
+            rows.append([InlineKeyboardButton(text=item["text"], callback_data=item["value"])])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 @router.callback_query(F.data == "admin:broadcast")
@@ -69,25 +163,51 @@ async def capture_broadcast_content(message: Message, state: FSMContext):
         file_id = message.photo[-1].file_id
         caption = message.caption or ""
         await state.update_data(kind="photo", file_id=file_id, caption=caption)
-        await state.set_state(BroadcastState.confirm)
-        await message.answer("Готово. Запустить рассылку фото?", reply_markup=_confirm_keyboard())
+        await state.set_state(BroadcastState.buttons)
+        await message.answer(_buttons_prompt_text(), reply_markup=_menu_keyboard())
         return
 
     if message.video:
         file_id = message.video.file_id
         caption = message.caption or ""
         await state.update_data(kind="video", file_id=file_id, caption=caption)
-        await state.set_state(BroadcastState.confirm)
-        await message.answer("Готово. Запустить рассылку видео?", reply_markup=_confirm_keyboard())
+        await state.set_state(BroadcastState.buttons)
+        await message.answer(_buttons_prompt_text(), reply_markup=_menu_keyboard())
         return
 
     if message.text:
         await state.update_data(kind="text", text=message.text)
-        await state.set_state(BroadcastState.confirm)
-        await message.answer("Готово. Запустить рассылку текста?", reply_markup=_confirm_keyboard())
+        await state.set_state(BroadcastState.buttons)
+        await message.answer(_buttons_prompt_text(), reply_markup=_menu_keyboard())
         return
 
     await message.answer("❌ Отправьте текст или фото/видео с подписью.")
+
+
+@router.message(BroadcastState.buttons)
+async def capture_broadcast_buttons(message: Message, state: FSMContext):
+    """Capture and validate broadcast buttons."""
+    if not await check_admin_access(message.from_user.id):
+        await message.answer("❌ Доступ запрещен.")
+        await state.clear()
+        return
+    if not message.text:
+        await message.answer("❌ Отправьте текст с кнопками или `-`.")
+        return
+
+    buttons, error = _parse_broadcast_buttons(message.text)
+    if error:
+        await message.answer(error)
+        return
+
+    await state.update_data(buttons=buttons)
+    await state.set_state(BroadcastState.confirm)
+    if buttons:
+        preview = "\n".join([f"• {b['text']} ({b['type']}: {b['value']})" for b in buttons])
+        text = f"Готово. Кнопки настроены:\n{preview}\n\nЗапустить рассылку?"
+    else:
+        text = "Готово. Рассылка будет без кнопок.\n\nЗапустить рассылку?"
+    await message.answer(text, reply_markup=_confirm_keyboard())
 
 
 @router.callback_query(F.data == "admin:broadcast:cancel")
@@ -158,6 +278,7 @@ async def _do_broadcast(
 ) -> None:
     sent = 0
     failed_list: list[tuple[int, str]] = []
+    reply_markup = _build_broadcast_reply_markup(data.get("buttons"))
 
     photo_file: BufferedInputFile | None = None
     video_file: BufferedInputFile | None = None
@@ -188,17 +309,37 @@ async def _do_broadcast(
         for tg_id in batch:
             try:
                 if kind == "text":
-                    await send_bot.send_message(tg_id, data.get("text", ""))
+                    await send_bot.send_message(tg_id, data.get("text", ""), reply_markup=reply_markup)
                 elif kind == "photo":
                     if photo_file is not None:
-                        await send_bot.send_photo(tg_id, photo_file, caption=data.get("caption"))
+                        await send_bot.send_photo(
+                            tg_id,
+                            photo_file,
+                            caption=data.get("caption"),
+                            reply_markup=reply_markup,
+                        )
                     else:
-                        await send_bot.send_photo(tg_id, data.get("file_id"), caption=data.get("caption"))
+                        await send_bot.send_photo(
+                            tg_id,
+                            data.get("file_id"),
+                            caption=data.get("caption"),
+                            reply_markup=reply_markup,
+                        )
                 elif kind == "video":
                     if video_file is not None:
-                        await send_bot.send_video(tg_id, video_file, caption=data.get("caption"))
+                        await send_bot.send_video(
+                            tg_id,
+                            video_file,
+                            caption=data.get("caption"),
+                            reply_markup=reply_markup,
+                        )
                     else:
-                        await send_bot.send_video(tg_id, data.get("file_id"), caption=data.get("caption"))
+                        await send_bot.send_video(
+                            tg_id,
+                            data.get("file_id"),
+                            caption=data.get("caption"),
+                            reply_markup=reply_markup,
+                        )
                 else:
                     failed_list.append((tg_id, "неизвестный тип рассылки"))
                     continue

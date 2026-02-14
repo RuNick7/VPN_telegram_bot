@@ -62,6 +62,16 @@ class UserDeleteState(StatesGroup):
     username = State()
 
 
+class UserListPageState(StatesGroup):
+    """States for entering a list page number."""
+    page_input = State()
+
+
+class UserSearchState(StatesGroup):
+    """States for searching a user by telegram_id."""
+    telegram_id = State()
+
+
 class PromoCreateState(StatesGroup):
     """States for promo creation."""
     code = State()
@@ -78,6 +88,7 @@ class PromoDeleteState(StatesGroup):
 class BroadcastState(StatesGroup):
     """States for broadcast."""
     content = State()
+    buttons = State()
     confirm = State()
 
 

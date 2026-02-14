@@ -1,6 +1,7 @@
 import time
 import asyncio
 import logging, sqlite3
+import os
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram import Bot
 from datetime import datetime
@@ -9,6 +10,7 @@ from data.db_utils import get_db
 logger = logging.getLogger(__name__)
 
 SECONDS_DAY = 86_400
+STATUS_CHANNEL_URL = os.getenv("STATUS_CHANNEL_URL", "https://t.me/nitratex1")
 
 REMINDER_TEXT = (
     "⚠️ Ваша подписка истекает через 24 часа!\n\n"
@@ -95,6 +97,7 @@ async def reminders_scheduler(bot: Bot):
         try:
             logger.debug("Запуск hourly reminders в %s", datetime.now())
             await send_reminders(bot)
+            await send_nurture_channel(bot, now_ts)
             await send_nurture_1(bot, now_ts)
             await send_nurture_2(bot, now_ts)
             await send_nurture_3(bot, now_ts)
@@ -123,7 +126,7 @@ def get_users_for_nurture(now_ts: int, target_stage: int, days_after: int):
         return cur.fetchall()
 
 async def send_nurture_1(bot: Bot, now_ts: int):
-    users = get_users_for_nurture(now_ts, target_stage=1, days_after=3)
+    users = get_users_for_nurture(now_ts, target_stage=2, days_after=3)
     if not users:
         return
     kb = InlineKeyboardMarkup(
@@ -137,10 +140,10 @@ async def send_nurture_1(bot: Bot, now_ts: int):
         "• `/ref` — реферальная программа\n"
         "• `/pay` — продлить подписку"
     )
-    await _broadcast_and_mark(bot, users, text_md, next_stage=1, kb=kb)
+    await _broadcast_and_mark(bot, users, text_md, next_stage=2, kb=kb)
 
 async def send_nurture_2(bot: Bot, now_ts: int):
-    users = get_users_for_nurture(now_ts, target_stage=2, days_after=10)
+    users = get_users_for_nurture(now_ts, target_stage=3, days_after=10)
     if not users:
         return
     text_md = (
@@ -151,10 +154,10 @@ async def send_nurture_2(bot: Bot, now_ts: int):
     kb = InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text="🚀 Перейти к /ref", callback_data="referral_info")]]
     )
-    await _broadcast_and_mark(bot, users, text_md, next_stage=2, kb=kb)
+    await _broadcast_and_mark(bot, users, text_md, next_stage=3, kb=kb)
 
 async def send_nurture_3(bot: Bot, now_ts: int):
-    users = get_users_for_nurture(now_ts, target_stage=3, days_after=25)
+    users = get_users_for_nurture(now_ts, target_stage=4, days_after=25)
     if not users:
         return
     kb = InlineKeyboardMarkup(
@@ -165,7 +168,21 @@ async def send_nurture_3(bot: Bot, now_ts: int):
         "Продлите подписку заранее командой `/pay` "
         "или нажмите кнопку ниже\\."
     )
-    await _broadcast_and_mark(bot, users, text_md, next_stage=3, kb=kb)
+    await _broadcast_and_mark(bot, users, text_md, next_stage=4, kb=kb)
+
+async def send_nurture_channel(bot: Bot, now_ts: int):
+    users = get_users_for_nurture(now_ts, target_stage=1, days_after=1)
+    if not users:
+        return
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="📢 Канал бота", url=STATUS_CHANNEL_URL)]]
+    )
+    text_md = (
+        "📢 *У нас есть Telegram\\-канал бота*\n\n"
+        "Там публикуем информацию о техработах, блокировках и важных обновлениях\\.\n"
+        "Подпишитесь, чтобы быть в курсе\\."
+    )
+    await _broadcast_and_mark(bot, users, text_md, next_stage=1, kb=kb)
 
 def update_stage(telegram_ids: list[int], stage: int):
     if not telegram_ids:

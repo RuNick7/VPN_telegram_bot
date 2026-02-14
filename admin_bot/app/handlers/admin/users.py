@@ -20,13 +20,23 @@ from app.services.subscription_db import (
     upsert_subscription_telegram_id,
     delete_subscription_user,
     delete_subscription_user_by_username,
+    get_subscription_rows_by_telegram_id,
 )
-from app.states.admin import UserCreateState, UserEditState, UserDeleteState
+from app.states.admin import (
+    UserCreateState,
+    UserEditState,
+    UserDeleteState,
+    UserListPageState,
+    UserSearchState,
+)
 
 router = Router(name="admin_users")
 
 USERNAME_RE = re.compile(r"^\d{6,20}$")
 DATE_FOREVER = datetime(2099, 1, 1, tzinfo=timezone.utc)
+PAGE_MODE_STATS = "stats"
+PAGE_MODE_EDIT = "edit"
+PAGE_MODE_DELETE = "delete"
 
 
 def _skip_keyboard(step: str) -> InlineKeyboardMarkup:
@@ -104,7 +114,14 @@ def _parse_iso_datetime(value: str) -> datetime | None:
         return None
 
 
-def _pagination_keyboard(prefix: str, page: int, total: int, size: int) -> InlineKeyboardMarkup:
+def _pagination_keyboard(
+    prefix: str,
+    page: int,
+    total: int,
+    size: int,
+    *,
+    goto_callback_data: str | None = None,
+) -> InlineKeyboardMarkup:
     max_page = max(1, (total + size - 1) // size)
     prev_page = max(1, page - 1)
     next_page = min(max_page, page + 1)
@@ -112,7 +129,10 @@ def _pagination_keyboard(prefix: str, page: int, total: int, size: int) -> Inlin
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="⬅️", callback_data=f"{prefix}:{prev_page}"),
-                InlineKeyboardButton(text=f"{page}/{max_page}", callback_data="noop"),
+                InlineKeyboardButton(
+                    text=f"{page}/{max_page}",
+                    callback_data=goto_callback_data or "noop",
+                ),
                 InlineKeyboardButton(text="➡️", callback_data=f"{prefix}:{next_page}")
             ],
             [InlineKeyboardButton(text="◀️ В меню", callback_data="admin:menu")]
@@ -136,7 +156,7 @@ def _users_list_keyboard(users: list[dict], page: int, total: int, size: int) ->
     rows.append(
         [
             InlineKeyboardButton(text="⬅️", callback_data=f"admin:edit_user:list:{prev_page}"),
-            InlineKeyboardButton(text=f"{page}/{max_page}", callback_data="noop"),
+            InlineKeyboardButton(text=f"{page}/{max_page}", callback_data="admin:edit_user:list:goto"),
             InlineKeyboardButton(text="➡️", callback_data=f"admin:edit_user:list:{next_page}")
         ]
     )
@@ -159,7 +179,7 @@ def _users_delete_list_keyboard(users: list[dict], page: int, total: int, size: 
     rows.append(
         [
             InlineKeyboardButton(text="⬅️", callback_data=f"admin:del:list:{prev_page}"),
-            InlineKeyboardButton(text=f"{page}/{max_page}", callback_data="noop"),
+            InlineKeyboardButton(text=f"{page}/{max_page}", callback_data="admin:del:list:goto"),
             InlineKeyboardButton(text="➡️", callback_data=f"admin:del:list:{next_page}")
         ]
     )
@@ -203,6 +223,147 @@ def _format_user_line(user: dict, name_w: int, tg_w: int, days_w: int) -> str:
 
 def _is_online(user: dict) -> bool:
     return bool(user.get("onlineAt") or user.get("online_at"))
+
+
+def _fmt_ts_utc(ts: int | None) -> str:
+    if not ts:
+        return "-"
+    try:
+        return datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    except Exception:
+        return str(ts)
+
+
+def _build_user_search_report(telegram_id: int, rem_user: dict | None, db_rows: list[dict]) -> str:
+    lines: list[str] = [f"🔎 Поиск пользователя: <code>{telegram_id}</code>", ""]
+
+    if rem_user:
+        username = rem_user.get("username", "-")
+        uuid = rem_user.get("uuid", "-")
+        tag = rem_user.get("tag", "-")
+        traffic = rem_user.get("trafficLimitBytes") or rem_user.get("traffic_limit_bytes")
+        online = "да" if _is_online(rem_user) else "нет"
+        expire_at = rem_user.get("expireAt") or rem_user.get("expire_at") or "-"
+        days_left = _days_left(expire_at) if isinstance(expire_at, str) else "-"
+        lines.extend(
+            [
+                "<b>Remnawave</b>",
+                f"username: <code>{html.escape(str(username))}</code>",
+                f"uuid: <code>{html.escape(str(uuid))}</code>",
+                f"tag: <code>{html.escape(str(tag))}</code>",
+                f"online: {online}",
+                f"expire_at: <code>{html.escape(str(expire_at))}</code>",
+                f"days_left: <code>{html.escape(str(days_left))}</code>",
+                f"traffic_limit_bytes: <code>{html.escape(str(traffic if traffic is not None else '-'))}</code>",
+                "",
+            ]
+        )
+    else:
+        lines.extend(["<b>Remnawave</b>", "не найден", ""])
+
+    lines.append(f"<b>subscription.db</b> (записей: {len(db_rows)})")
+    if not db_rows:
+        lines.append("не найден")
+    else:
+        for row in db_rows:
+            lines.extend(
+                [
+                    f"• id=<code>{row.get('id', '-')}</code>"
+                    f" ends=<code>{_fmt_ts_utc(row.get('subscription_ends'))}</code>"
+                    f" reminded=<code>{row.get('reminded', '-')}</code>"
+                    f" stage=<code>{row.get('nurture_stage', '-')}</code>",
+                    f"  tag=<code>{html.escape(str(row.get('telegram_tag') or '-'))}</code>"
+                    f" referred=<code>{row.get('referred_people', 0)}</code>"
+                    f" gifted=<code>{row.get('gifted_subscriptions', 0)}</code>",
+                ]
+            )
+
+    return "\n".join(lines)
+
+
+async def _prompt_page_input(
+    target: Message,
+    state: FSMContext,
+    *,
+    mode: str,
+    size: int,
+) -> None:
+    await state.update_data(page_mode=mode, page_size=size)
+    await state.set_state(UserListPageState.page_input)
+    await target.answer("Введите номер страницы:")
+
+
+async def _render_stats_page(target: Message, page: int, size: int, *, edit: bool) -> None:
+    response = await user_service.list_users(page=page, size=size)
+    data = response.get("response", {})
+    users = data.get("users", [])
+    total = data.get("total", len(users))
+    online = sum(1 for user in users if _is_online(user))
+
+    usernames = [user.get("username", "unknown") for user in users]
+    telegram_ids = [str(user.get("telegramId") or user.get("telegram_id") or "-") for user in users]
+    days_values = [_days_left(user.get("expireAt") or user.get("expire_at") or "") for user in users]
+
+    name_w = max(8, *(len(value) for value in usernames)) if users else 8
+    tg_w = max(11, *(len(value) for value in telegram_ids)) if users else 11
+    days_w = max(4, *(len(value) for value in days_values)) if users else 4
+
+    header = f"{'username':<{name_w}} | {'telegram_id':<{tg_w}} | {'days':>{days_w}}"
+    divider = "-" * len(header)
+    lines = [
+        "📊 Статистика:",
+        f"Всего пользователей: {total}",
+        f"Онлайн (из выборки): {online}",
+        "",
+        "Список пользователей (страница):" if edit else "Список пользователей (первые 50):",
+        header,
+        divider,
+    ]
+    lines.extend(_format_user_line(user, name_w, tg_w, days_w) for user in users)
+    safe_text = html.escape("\n".join(lines))
+    kb = _pagination_keyboard(
+        "admin:stats:page",
+        page,
+        total,
+        size,
+        goto_callback_data="admin:stats:goto",
+    )
+    if edit:
+        await target.edit_text(f"<pre>{safe_text}</pre>", reply_markup=kb)
+    else:
+        await target.answer(f"<pre>{safe_text}</pre>", reply_markup=kb)
+
+
+async def _render_edit_users_page(target: Message, page: int, size: int, *, edit: bool) -> None:
+    response = await user_service.list_users(page=page, size=size)
+    users = response.get("response", {}).get("users", [])
+    total = response.get("response", {}).get("total", len(users))
+    if not users:
+        await target.answer("📭 Пользователи не найдены.")
+        return
+    if edit:
+        await target.edit_text("Выберите пользователя:", reply_markup=_users_list_keyboard(users, page, total, size))
+    else:
+        await target.answer("Выберите пользователя:", reply_markup=_users_list_keyboard(users, page, total, size))
+
+
+async def _render_delete_users_page(target: Message, page: int, size: int, *, edit: bool) -> None:
+    response = await user_service.list_users(page=page, size=size)
+    users = response.get("response", {}).get("users", [])
+    total = response.get("response", {}).get("total", len(users))
+    if not users:
+        await target.answer("📭 Пользователи не найдены.")
+        return
+    if edit:
+        await target.edit_text(
+            "Выберите пользователя для удаления:",
+            reply_markup=_users_delete_list_keyboard(users, page, total, size),
+        )
+    else:
+        await target.answer(
+            "Выберите пользователя для удаления:",
+            reply_markup=_users_delete_list_keyboard(users, page, total, size),
+        )
 
 
 @router.callback_query(F.data == "admin:new_user")
@@ -250,6 +411,50 @@ async def callback_delete_user(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+@router.callback_query(F.data == "admin:user_search")
+async def callback_user_search(callback: CallbackQuery, state: FSMContext):
+    """Start search user flow."""
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        return
+    await state.set_state(UserSearchState.telegram_id)
+    await callback.message.answer("Введите telegram_id (он же username) для поиска:")
+    await callback.answer()
+
+
+@router.message(UserSearchState.telegram_id)
+async def handle_user_search_input(message: Message, state: FSMContext):
+    """Search user in Remnawave and subscription DB by telegram_id."""
+    if not await check_admin_access(message.from_user.id):
+        await message.answer("❌ Доступ запрещен.")
+        await state.clear()
+        return
+
+    raw = (message.text or "").strip()
+    if not raw.isdigit():
+        await message.answer("❌ Введите telegram_id числом.")
+        return
+
+    telegram_id = int(raw)
+    rem_user: dict | None = None
+    try:
+        found = await user_service.get_user_by_username(raw)
+        rem_user = found if found else None
+    except Exception as e:
+        await message.answer(f"⚠️ Ошибка запроса к Remnawave: {str(e)}")
+
+    try:
+        db_rows = await get_subscription_rows_by_telegram_id(telegram_id)
+    except Exception as e:
+        await message.answer(f"⚠️ Ошибка чтения subscription.db: {str(e)}")
+        await state.clear()
+        return
+
+    report = _build_user_search_report(telegram_id, rem_user, db_rows)
+    await message.answer(report, parse_mode="HTML")
+    await state.clear()
+
+
 @router.callback_query(F.data == "admin:del:username")
 async def delete_user_by_username_prompt(callback: CallbackQuery, state: FSMContext):
     if not await check_admin_access(callback.from_user.id):
@@ -268,21 +473,20 @@ async def delete_user_list(callback: CallbackQuery, state: FSMContext):
     try:
         page = 1
         size = 10
-        response = await user_service.list_users(page=page, size=size)
-        users = response.get("response", {}).get("users", [])
-        total = response.get("response", {}).get("total", len(users))
-        if not users:
-            await callback.message.answer("📭 Пользователи не найдены.")
-            await callback.answer()
-            return
-        await callback.message.answer(
-            "Выберите пользователя для удаления:",
-            reply_markup=_users_delete_list_keyboard(users, page, total, size)
-        )
+        await _render_delete_users_page(callback.message, page, size, edit=False)
         await callback.answer()
     except Exception as e:
         await callback.message.answer(f"❌ Ошибка: {str(e)}")
         await callback.answer()
+
+
+@router.callback_query(F.data == "admin:del:list:goto")
+async def delete_user_list_goto_prompt(callback: CallbackQuery, state: FSMContext):
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        return
+    await _prompt_page_input(callback.message, state, mode=PAGE_MODE_DELETE, size=10)
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("admin:del:list:"))
@@ -293,13 +497,7 @@ async def delete_user_list_page(callback: CallbackQuery, state: FSMContext):
     try:
         page = int(callback.data.split(":")[-1])
         size = 10
-        response = await user_service.list_users(page=page, size=size)
-        users = response.get("response", {}).get("users", [])
-        total = response.get("response", {}).get("total", len(users))
-        await callback.message.edit_text(
-            "Выберите пользователя для удаления:",
-            reply_markup=_users_delete_list_keyboard(users, page, total, size)
-        )
+        await _render_delete_users_page(callback.message, page, size, edit=True)
         await callback.answer()
     except Exception as e:
         await callback.message.answer(f"❌ Ошибка: {str(e)}")
@@ -358,42 +556,20 @@ async def callback_stats(callback: CallbackQuery):
     try:
         page = 1
         size = 20
-        response = await user_service.list_users(page=page, size=size)
-        data = response.get("response", {})
-        users = data.get("users", [])
-        total = data.get("total", len(users))
-        online = sum(1 for user in users if _is_online(user))
-
-        usernames = [user.get("username", "unknown") for user in users]
-        telegram_ids = [str(user.get("telegramId") or user.get("telegram_id") or "-") for user in users]
-        days_values = [_days_left(user.get("expireAt") or user.get("expire_at") or "") for user in users]
-
-        name_w = max(8, *(len(value) for value in usernames)) if users else 8
-        tg_w = max(11, *(len(value) for value in telegram_ids)) if users else 11
-        days_w = max(4, *(len(value) for value in days_values)) if users else 4
-
-        header = f"{'username':<{name_w}} | {'telegram_id':<{tg_w}} | {'days':>{days_w}}"
-        divider = "-" * len(header)
-
-        lines = [
-            "📊 Статистика:",
-            f"Всего пользователей: {total}",
-            f"Онлайн (из выборки): {online}",
-            "",
-            "Список пользователей (первые 50):",
-            header,
-            divider
-        ]
-        lines.extend(_format_user_line(user, name_w, tg_w, days_w) for user in users)
-        safe_text = html.escape("\n".join(lines))
-        await callback.message.answer(
-            f"<pre>{safe_text}</pre>",
-            reply_markup=_pagination_keyboard("admin:stats:page", page, total, size)
-        )
+        await _render_stats_page(callback.message, page, size, edit=False)
         await callback.answer()
     except Exception as e:
         await callback.message.answer(f"❌ Ошибка: {str(e)}")
         await callback.answer()
+
+
+@router.callback_query(F.data == "admin:stats:goto")
+async def callback_stats_goto_prompt(callback: CallbackQuery, state: FSMContext):
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        return
+    await _prompt_page_input(callback.message, state, mode=PAGE_MODE_STATS, size=20)
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("admin:stats:page:"))
@@ -406,38 +582,7 @@ async def callback_stats_page(callback: CallbackQuery):
     try:
         page = int(callback.data.split(":")[-1])
         size = 20
-        response = await user_service.list_users(page=page, size=size)
-        data = response.get("response", {})
-        users = data.get("users", [])
-        total = data.get("total", len(users))
-        online = sum(1 for user in users if _is_online(user))
-
-        usernames = [user.get("username", "unknown") for user in users]
-        telegram_ids = [str(user.get("telegramId") or user.get("telegram_id") or "-") for user in users]
-        days_values = [_days_left(user.get("expireAt") or user.get("expire_at") or "") for user in users]
-
-        name_w = max(8, *(len(value) for value in usernames)) if users else 8
-        tg_w = max(11, *(len(value) for value in telegram_ids)) if users else 11
-        days_w = max(4, *(len(value) for value in days_values)) if users else 4
-
-        header = f"{'username':<{name_w}} | {'telegram_id':<{tg_w}} | {'days':>{days_w}}"
-        divider = "-" * len(header)
-
-        lines = [
-            "📊 Статистика:",
-            f"Всего пользователей: {total}",
-            f"Онлайн (из выборки): {online}",
-            "",
-            "Список пользователей (страница):",
-            header,
-            divider
-        ]
-        lines.extend(_format_user_line(user, name_w, tg_w, days_w) for user in users)
-        safe_text = html.escape("\n".join(lines))
-        await callback.message.edit_text(
-            f"<pre>{safe_text}</pre>",
-            reply_markup=_pagination_keyboard("admin:stats:page", page, total, size)
-        )
+        await _render_stats_page(callback.message, page, size, edit=True)
         await callback.answer()
     except Exception as e:
         await callback.message.answer(f"❌ Ошибка: {str(e)}")
@@ -454,22 +599,21 @@ async def edit_user_list(callback: CallbackQuery, state: FSMContext):
     try:
         page = 1
         size = 10
-        response = await user_service.list_users(page=page, size=size)
-        users = response.get("response", {}).get("users", [])
-        total = response.get("response", {}).get("total", len(users))
-        if not users:
-            await callback.message.answer("📭 Пользователи не найдены.")
-            await callback.answer()
-            return
-
-        await callback.message.answer(
-            "Выберите пользователя:",
-            reply_markup=_users_list_keyboard(users, page, total, size)
-        )
+        await _render_edit_users_page(callback.message, page, size, edit=False)
         await callback.answer()
     except Exception as e:
         await callback.message.answer(f"❌ Ошибка: {str(e)}")
         await callback.answer()
+
+
+@router.callback_query(F.data == "admin:edit_user:list:goto")
+async def edit_user_list_goto_prompt(callback: CallbackQuery, state: FSMContext):
+    """Ask admin for page number in edit list."""
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        return
+    await _prompt_page_input(callback.message, state, mode=PAGE_MODE_EDIT, size=10)
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("admin:edit_user:list:"))
@@ -482,18 +626,57 @@ async def edit_user_list_page(callback: CallbackQuery, state: FSMContext):
     try:
         page = int(callback.data.split(":")[-1])
         size = 10
-        response = await user_service.list_users(page=page, size=size)
-        users = response.get("response", {}).get("users", [])
-        total = response.get("response", {}).get("total", len(users))
-
-        await callback.message.edit_text(
-            "Выберите пользователя:",
-            reply_markup=_users_list_keyboard(users, page, total, size)
-        )
+        await _render_edit_users_page(callback.message, page, size, edit=True)
         await callback.answer()
     except Exception as e:
         await callback.message.answer(f"❌ Ошибка: {str(e)}")
         await callback.answer()
+
+
+@router.message(UserListPageState.page_input)
+async def handle_users_page_input(message: Message, state: FSMContext):
+    """Handle manual page number input for list views."""
+    if not await check_admin_access(message.from_user.id):
+        await message.answer("❌ Доступ запрещен.")
+        await state.clear()
+        return
+
+    raw = (message.text or "").strip()
+    if not raw.isdigit():
+        await message.answer("❌ Введите номер страницы числом.")
+        return
+
+    page = int(raw)
+    if page < 1:
+        await message.answer("❌ Номер страницы должен быть больше 0.")
+        return
+
+    data = await state.get_data()
+    mode = data.get("page_mode")
+    size = int(data.get("page_size") or 10)
+
+    try:
+        response = await user_service.list_users(page=1, size=size)
+        total = response.get("response", {}).get("total", 0)
+        max_page = max(1, (total + size - 1) // size)
+        if page > max_page:
+            await message.answer(f"❌ Такой страницы нет. Доступно: 1..{max_page}.")
+            return
+
+        if mode == PAGE_MODE_STATS:
+            await _render_stats_page(message, page, size, edit=False)
+        elif mode == PAGE_MODE_EDIT:
+            await _render_edit_users_page(message, page, size, edit=False)
+        elif mode == PAGE_MODE_DELETE:
+            await _render_delete_users_page(message, page, size, edit=False)
+        else:
+            await message.answer("❌ Неизвестный тип списка. Попробуйте снова из меню.")
+            return
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {str(e)}")
+        return
+    finally:
+        await state.clear()
 
 
 @router.callback_query(F.data == "admin:edit_user:username")
