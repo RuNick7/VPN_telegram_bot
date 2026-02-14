@@ -1,8 +1,10 @@
+import os
+
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 
 SUPPORT_URL = "https://t.me/nitratex1"
-FAQ_URL = "https://nitravpn.gitbook.io/nitravpn"
+FAQ_URL = os.getenv("FAQ_URL", "https://nitratex-company.gitbook.io/kairavpn/")
 
 
 def os_keyboard() -> InlineKeyboardMarkup:
@@ -19,6 +21,9 @@ def os_keyboard() -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="🐧 Linux", callback_data="os:linux"),
                 InlineKeyboardButton(text="📺 Android-TV", callback_data="os:tv"),
+            ],
+            [
+                InlineKeyboardButton(text="🍏 Apple TV", callback_data="os:appletv"),
             ],
         ]
     )
@@ -85,6 +90,8 @@ def manual_setup_keyboard(platform: str) -> InlineKeyboardMarkup:
             ],
         ]
     )
+
+
 
 
 def support_faq_back_to_devices_keyboard() -> InlineKeyboardMarkup:

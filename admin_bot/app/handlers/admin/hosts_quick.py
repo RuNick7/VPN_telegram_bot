@@ -91,18 +91,30 @@ def _nodes_keyboard(nodes: List[Dict[str, Any]], selected: List[str], page: int)
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _squads_keyboard(squads: List[Dict[str, Any]], page: int) -> InlineKeyboardMarkup:
+def _squads_keyboard(
+    squads: List[Dict[str, Any]],
+    selected: List[str],
+    page: int,
+) -> InlineKeyboardMarkup:
     chunk, total_pages = _paginate(squads, page, SQUADS_PAGE_SIZE)
-    rows = [
-        [
-            InlineKeyboardButton(
-                text=item.get("name", "squad"),
-                callback_data=f"admin:host:squad:{item.get('uuid')}",
-            )
-        ]
-        for item in chunk
-    ]
-    rows.extend(_page_controls("admin:host:squad:page", page, total_pages))
+    rows = []
+    for item in chunk:
+        squad_uuid = item.get("uuid")
+        if not squad_uuid:
+            continue
+        name = item.get("name", "squad")
+        is_selected = squad_uuid in selected
+        prefix = "✅" if is_selected else "⬜️"
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=f"{prefix} {name}",
+                    callback_data=f"admin:host:squads:toggle:{squad_uuid}",
+                )
+            ]
+        )
+    rows.append([InlineKeyboardButton(text="✅ Готово", callback_data="admin:host:squads:done")])
+    rows.extend(_page_controls("admin:host:squads:page", page, total_pages))
     rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="admin:menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -401,13 +413,16 @@ async def host_nodes_done(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    await state.update_data(squads_all=squads, squad_page=1)
+    await state.update_data(squads_all=squads, squads_selected=[], squad_page=1)
     await state.set_state(HostQuickCreateState.squad)
-    await callback.message.answer("Выберите внутренний сквад:", reply_markup=_squads_keyboard(squads, 1))
+    await callback.message.answer(
+        "Выберите внутренние сквады (можно несколько):",
+        reply_markup=_squads_keyboard(squads, [], 1),
+    )
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("admin:host:squad:page:"))
+@router.callback_query(F.data.startswith("admin:host:squads:page:"))
 async def host_squad_page(callback: CallbackQuery, state: FSMContext):
     if not await check_admin_access(callback.from_user.id):
         await callback.answer("❌ Доступ запрещен.", show_alert=True)
@@ -415,19 +430,20 @@ async def host_squad_page(callback: CallbackQuery, state: FSMContext):
 
     data = await state.get_data()
     squads = data.get("squads_all", [])
+    selected = data.get("squads_selected", [])
     total_pages = max(1, (len(squads) + SQUADS_PAGE_SIZE - 1) // SQUADS_PAGE_SIZE)
     page = max(1, min(int(callback.data.split(":")[-1]), total_pages))
     await state.update_data(squad_page=page)
     try:
-        await callback.message.edit_reply_markup(reply_markup=_squads_keyboard(squads, page))
+        await callback.message.edit_reply_markup(reply_markup=_squads_keyboard(squads, selected, page))
     except TelegramBadRequest as e:
         if "message is not modified" not in (str(e) or ""):
             raise
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith("admin:host:squad:"))
-async def host_squad_select(callback: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data.startswith("admin:host:squads:toggle:"))
+async def host_squad_toggle(callback: CallbackQuery, state: FSMContext):
     if not await check_admin_access(callback.from_user.id):
         await callback.answer("❌ Доступ запрещен.", show_alert=True)
         return
@@ -435,11 +451,43 @@ async def host_squad_select(callback: CallbackQuery, state: FSMContext):
     squad_uuid = callback.data.split(":")[-1]
     data = await state.get_data()
     squads = data.get("squads_all", [])
-    excluded = [item.get("uuid") for item in squads if item.get("uuid") != squad_uuid]
-    await state.update_data(selected_squad=squad_uuid, excluded_squads=excluded)
+    selected = set(data.get("squads_selected", []))
+    if squad_uuid in selected:
+        selected.remove(squad_uuid)
+    else:
+        selected.add(squad_uuid)
+    selected_list = list(selected)
+    page = data.get("squad_page", 1)
+    await state.update_data(squads_selected=selected_list)
+    try:
+        await callback.message.edit_reply_markup(
+            reply_markup=_squads_keyboard(squads, selected_list, page)
+        )
+    except TelegramBadRequest as e:
+        if "message is not modified" not in (str(e) or ""):
+            raise
+    await callback.answer()
+
+
+@router.callback_query(F.data == "admin:host:squads:done")
+async def host_squads_done(callback: CallbackQuery, state: FSMContext):
+    if not await check_admin_access(callback.from_user.id):
+        await callback.answer("❌ Доступ запрещен.", show_alert=True)
+        return
+
+    data = await state.get_data()
+    squads = data.get("squads_all", [])
+    selected_squads = data.get("squads_selected", [])
+    if not selected_squads:
+        await callback.answer("Выберите хотя бы один сквад.", show_alert=True)
+        return
+
+    all_squad_uuids = [item.get("uuid") for item in squads if item.get("uuid")]
+    excluded = [squad_uuid for squad_uuid in all_squad_uuids if squad_uuid not in selected_squads]
+    await state.update_data(selected_squads=selected_squads, excluded_squads=excluded)
     await state.set_state(HostQuickCreateState.exclude_confirm)
     await callback.message.answer(
-        "Исключить выбранный сквад из других хостов?",
+        "Исключить выбранные сквады из других хостов?",
         reply_markup=_exclude_confirm_keyboard(),
     )
     await callback.answer()
@@ -483,11 +531,17 @@ async def host_exclude_confirm(callback: CallbackQuery, state: FSMContext):
                     continue
                 detail = await host_manage_service.get_host(host_uuid)
                 current = detail.get("excludedInternalSquads", []) or []
-                if data.get("selected_squad") in current:
+                selected_squads = data.get("selected_squads", [])
+                updated_current = list(current)
+                changed = False
+                for squad_uuid in selected_squads:
+                    if squad_uuid and squad_uuid not in updated_current:
+                        updated_current.append(squad_uuid)
+                        changed = True
+                if not changed:
                     continue
-                current.append(data.get("selected_squad"))
                 await host_manage_service.update_host(
-                    {"uuid": host_uuid, "excludedInternalSquads": current}
+                    {"uuid": host_uuid, "excludedInternalSquads": updated_current}
                 )
                 updated += 1
 
