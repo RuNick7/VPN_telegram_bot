@@ -3,7 +3,7 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from app.scheduler.jobs import daily_backup, node_monitor, subscription_db_backup
+from app.scheduler.jobs import daily_backup, node_monitor, subscription_db_backup, inactive_user_cleanup
 from app.config.settings import settings
 
 
@@ -35,6 +35,14 @@ def create_scheduler() -> AsyncIOScheduler:
         id="node_monitor",
         name="Node and Squad Monitor",
         replace_existing=True
+    )
+
+    scheduler.add_job(
+        inactive_user_cleanup.run_inactive_user_cleanup,
+        trigger=CronTrigger(hour=4, minute=30, timezone="Europe/Moscow"),
+        id="inactive_user_cleanup",
+        name="Inactive Remnawave User Cleanup",
+        replace_existing=True,
     )
 
     return scheduler

@@ -283,6 +283,32 @@ async def get_all_telegram_ids() -> list[int]:
     return [int(row[0]) for row in rows if row and row[0] is not None]
 
 
+async def get_inactive_telegram_ids_for_cleanup(inactive_days: int = 30) -> list[int]:
+    """
+    Return telegram_ids whose latest subscription_end is older than inactive_days.
+
+    Uses MAX(subscription_ends) per telegram_id to avoid false positives
+    in case of duplicate rows.
+    """
+    db_path = _get_db_path()
+    now_ts = int(datetime.now(timezone.utc).timestamp())
+    cutoff_ts = now_ts - inactive_days * 24 * 60 * 60
+    async with aiosqlite.connect(db_path) as db:
+        await _ensure_subscription_table(db, db_path)
+        cursor = await db.execute(
+            """
+            SELECT telegram_id
+            FROM subscription
+            WHERE telegram_id IS NOT NULL
+            GROUP BY telegram_id
+            HAVING MAX(subscription_ends) <= ?
+            """,
+            (cutoff_ts,),
+        )
+        rows = await cursor.fetchall()
+    return [int(row[0]) for row in rows if row and row[0] is not None]
+
+
 async def get_subscription_rows_by_telegram_id(telegram_id: int) -> list[dict]:
     """Fetch all subscription rows by telegram_id."""
     db_path = _get_db_path()
