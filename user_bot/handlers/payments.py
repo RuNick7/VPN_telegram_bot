@@ -64,6 +64,11 @@ async def subscription_tariffs_cmd(message: types.Message) -> None:
     await _send_tariff_menu(message, as_edit=False)
 
 
+@router.callback_query(F.data == "subscription")
+async def subscription_back_cb(cb: CallbackQuery) -> None:
+    await _send_tariff_menu(cb, as_edit=False)
+
+
 @router.callback_query(F.data == "subscription_tariffs")
 async def subscription_tariffs_cb(cb: CallbackQuery) -> None:
     await _send_tariff_menu(cb, as_edit=False)
@@ -156,6 +161,35 @@ async def gift_subscription_cmd(message: types.Message) -> None:
     )
 
     await message.answer(
+        text_md,
+        reply_markup=gift_tariffs_keyboard(tariffs),
+        parse_mode="MarkdownV2",
+    )
+
+
+@router.callback_query(F.data == "gift_subscription")
+async def gift_subscription_cb(cb: CallbackQuery) -> None:
+    user_row = get_user_by_id(cb.from_user.id)
+    if not user_row:
+        gifted = 0
+    else:
+        gifted = user_row["gifted_subscriptions"] if isinstance(user_row, dict) else user_row[5]
+
+    tariffs = {
+        1: {"duration": "1 месяц", "price": 89},
+        3: {"duration": "3 месяца", "price": 249},
+        6: {"duration": "6 месяцев", "price": 479},
+        12: {"duration": "1 год", "price": 899},
+    }
+
+    text_md = (
+        "🎁 *Подарить подписку другу*\n\n"
+        "Мы сгенерируем специальный промокод, который ваш друг сможет ввести в боте и получить доступ\\.\n\n"
+        f"_У тебя уже подарено_: *{gifted}* _подписок_"
+        f"*Выберите срок подарка:*\n\n"
+    )
+    await cb.answer()
+    await cb.message.answer(
         text_md,
         reply_markup=gift_tariffs_keyboard(tariffs),
         parse_mode="MarkdownV2",

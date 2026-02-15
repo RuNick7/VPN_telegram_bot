@@ -16,6 +16,7 @@ from app.services.remnawave.vpn_service import get_token, get_subscription_url
 from handlers.keyboards import (
     back_to_devices_keyboard,
     manual_setup_keyboard,
+    pay_keyboard,
     support_faq_back_to_devices_keyboard,
 )
 from precache_videos import VIDEOS
@@ -93,12 +94,29 @@ async def _send_instruction_without_video(cb: CallbackQuery, text: str, reply_ma
     )
 
 
+async def _get_subscription_url_or_pay_prompt(cb: CallbackQuery) -> str | None:
+    tg_id = cb.from_user.id
+    try:
+        token = get_token(tg_id)
+        return get_subscription_url(tg_id, token)
+    except Exception as exc:
+        if "User not found" in str(exc):
+            await cb.answer()
+            await cb.message.answer(
+                "🚫 Ваша подписка закончилась.\n\n"
+                "Чтобы продолжить пользоваться VPN-сервисом, продлите подписку:",
+                parse_mode="HTML",
+                reply_markup=pay_keyboard(),
+            )
+            return None
+        raise
+
+
 @router.callback_query(F.data == "os:android")
 async def android_instruction(cb: CallbackQuery) -> None:
-    tg_id = cb.from_user.id
-
-    token = get_token(tg_id)
-    subscription_url = get_subscription_url(tg_id, token)
+    subscription_url = await _get_subscription_url_or_pay_prompt(cb)
+    if not subscription_url:
+        return
     auto_url = (
         "https://vless-outline.ru/auto/?url="
         f"happ://add/{subscription_url}"
@@ -154,10 +172,9 @@ async def android_instruction(cb: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "os:ios")
 async def ios_instruction(cb: CallbackQuery) -> None:
-    tg_id = cb.from_user.id
-
-    token = get_token(tg_id)
-    subscription_url = get_subscription_url(tg_id, token)
+    subscription_url = await _get_subscription_url_or_pay_prompt(cb)
+    if not subscription_url:
+        return
 
     auto_url = (
         "https://vless-outline.ru/auto/?url="
@@ -216,10 +233,9 @@ async def ios_instruction(cb: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "os:windows")
 async def windows_instruction(cb: CallbackQuery) -> None:
-    tg_id = cb.from_user.id
-
-    token = get_token(tg_id)
-    subscription_url = get_subscription_url(tg_id, token)
+    subscription_url = await _get_subscription_url_or_pay_prompt(cb)
+    if not subscription_url:
+        return
 
     happ_raw = f"happ://add/{subscription_url}"
     happ_wrap = (
@@ -275,10 +291,9 @@ async def windows_instruction(cb: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "os:linux")
 async def linux_instruction(cb: CallbackQuery) -> None:
-    tg_id = cb.from_user.id
-
-    token = get_token(tg_id)
-    subscription_url = get_subscription_url(tg_id, token)
+    subscription_url = await _get_subscription_url_or_pay_prompt(cb)
+    if not subscription_url:
+        return
 
     hiddify_raw = f"hiddify://import/{subscription_url}"
     hiddify_wrap = (
@@ -393,9 +408,9 @@ async def manual_setup_appletv(cb: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "os:macos")
 async def macos_instruction(cb: CallbackQuery) -> None:
-    tg_id = cb.from_user.id
-    token = get_token(tg_id)
-    subscription_url = get_subscription_url(tg_id, token)
+    subscription_url = await _get_subscription_url_or_pay_prompt(cb)
+    if not subscription_url:
+        return
 
     auto_url = (
         "https://vless-outline.ru/auto/?url="
@@ -454,9 +469,9 @@ async def macos_instruction(cb: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "manual_setup:ios")
 async def manual_setup_ios(cb: CallbackQuery) -> None:
-    uid = cb.from_user.id
-    token = get_token(uid)
-    subscription_url = get_subscription_url(uid, token)
+    subscription_url = await _get_subscription_url_or_pay_prompt(cb)
+    if not subscription_url:
+        return
 
     text = (
         "<b>Ручной импорт конфигурации</b>\n\n"
@@ -480,9 +495,9 @@ async def manual_setup_ios(cb: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "manual_setup:android")
 async def manual_setup_android(cb: CallbackQuery) -> None:
-    uid = cb.from_user.id
-    token = get_token(uid)
-    subscription_url = get_subscription_url(uid, token)
+    subscription_url = await _get_subscription_url_or_pay_prompt(cb)
+    if not subscription_url:
+        return
 
     text = (
         "<b>Ручной импорт конфигурации</b>\n\n"
@@ -536,9 +551,9 @@ async def manual_setup_tv(cb: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "manual_setup:windows")
 async def manual_setup_windows(cb: CallbackQuery) -> None:
-    uid = cb.from_user.id
-    token = get_token(uid)
-    subscription_url = get_subscription_url(uid, token)
+    subscription_url = await _get_subscription_url_or_pay_prompt(cb)
+    if not subscription_url:
+        return
 
     text = (
         "<b>Ручной импорт конфигурации</b>\n\n"
@@ -562,9 +577,9 @@ async def manual_setup_windows(cb: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "manual_setup:linux")
 async def manual_setup_linux(cb: CallbackQuery) -> None:
-    uid = cb.from_user.id
-    token = get_token(uid)
-    subscription_url = get_subscription_url(uid, token)
+    subscription_url = await _get_subscription_url_or_pay_prompt(cb)
+    if not subscription_url:
+        return
 
     text = (
         "<b>Не получилось подключиться?</b>\n\n"
@@ -583,9 +598,9 @@ async def manual_setup_linux(cb: CallbackQuery) -> None:
 
 @router.callback_query(F.data == "manual_setup:macos")
 async def manual_setup_macos(cb: CallbackQuery) -> None:
-    uid = cb.from_user.id
-    token = get_token(uid)
-    subscription_url = get_subscription_url(uid, token)
+    subscription_url = await _get_subscription_url_or_pay_prompt(cb)
+    if not subscription_url:
+        return
 
     text = (
         "<b>Ручной импорт конфигурации</b>\n\n"

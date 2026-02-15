@@ -238,6 +238,8 @@ async def send_broadcast(callback: CallbackQuery, state: FSMContext):
     if not await check_admin_access(callback.from_user.id):
         await callback.answer("❌ Доступ запрещен.", show_alert=True)
         return
+    # Acknowledge callback immediately to avoid "query is too old" on long broadcasts.
+    await callback.answer("⏳ Запускаю рассылку...")
 
     data = await state.get_data()
     kind = data.get("kind")
@@ -246,7 +248,6 @@ async def send_broadcast(callback: CallbackQuery, state: FSMContext):
     if not ids:
         await callback.message.answer("❌ В базе нет пользователей.", reply_markup=_menu_keyboard())
         await state.clear()
-        await callback.answer()
         return
 
     use_user_bot = bool(settings.user_bot_token and settings.user_bot_token.strip())
@@ -301,7 +302,6 @@ async def _do_broadcast(
                     "❌ Не удалось подготовить медиа для рассылки (скачать файл).",
                     reply_markup=_menu_keyboard(),
                 )
-                await callback.answer()
                 return
 
     for start in range(0, len(ids), BATCH_SIZE):
@@ -366,4 +366,3 @@ async def _do_broadcast(
 
     await callback.message.answer("\n".join(report_lines), reply_markup=_menu_keyboard())
     await state.clear()
-    await callback.answer()
