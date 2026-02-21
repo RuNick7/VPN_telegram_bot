@@ -14,6 +14,16 @@ from payments.yookassa_client import fetch_payment
 ADMIN_ID = int((os.getenv("ADMIN_IDS") or "").split(",")[0].strip() or "0")
 logger = logging.getLogger(__name__)
 
+
+async def _send_markdown_or_plain(chat_id: int, text: str) -> None:
+    """Try MarkdownV2 first; fallback to plain text."""
+    try:
+        await bot.send_message(chat_id, text, parse_mode="MarkdownV2")
+    except Exception as exc:
+        logger.warning("MarkdownV2 send failed for %s, fallback to plain text: %s", chat_id, exc)
+        await bot.send_message(chat_id, text.replace("\\", ""))
+
+
 async def yookassa_webhook_handler(request: web.Request):
     logger.info("Получен запрос вебхука от Yookassa.")
     try:
@@ -30,7 +40,14 @@ async def yookassa_webhook_handler(request: web.Request):
 
     event = notification.event              # Например, "payment.succeeded"
     payment = notification.object           # Сам объект платежа
-    payment_id = payment.id                 # Идентификатор платежа в YooKassa
+    if payment is None:
+        logger.warning("Webhook payload has no payment object: %s", payload)
+        return web.json_response({"error": "Invalid payload: missing payment object"}, status=400)
+
+    payment_id = getattr(payment, "id", None)  # Идентификатор платежа в YooKassa
+    if not payment_id:
+        logger.warning("Webhook payload has no payment.id: %s", payload)
+        return web.json_response({"error": "Invalid payload: missing payment id"}, status=400)
 
     payment_api = None
     try:
@@ -154,14 +171,14 @@ async def yookassa_webhook_handler(request: web.Request):
 
             # 🔔 Уведомления
             try:
-                await bot.send_message(telegram_id, user_message, parse_mode="MarkdownV2")
+                await _send_markdown_or_plain(telegram_id, user_message)
                 logger.info("Сообщение пользователю отправлено")
             except Exception as e:
                 logger.error("Ошибка отправки сообщения пользователю: %s", e)
 
             if ADMIN_ID:
                 try:
-                    await bot.send_message(ADMIN_ID, group_message, parse_mode="MarkdownV2")
+                    await _send_markdown_or_plain(ADMIN_ID, group_message)
                     logger.info("Сообщение админу отправлено")
                 except Exception as e:
                     logger.error("Ошибка отправки сообщения админу: %s", e)

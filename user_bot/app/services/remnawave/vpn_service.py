@@ -195,13 +195,12 @@ def create_vpn_user_by_telegram_id(telegram_id: int, days_to_add: int) -> bool:
     username = f"{telegram_id}"
     now = int(time.time())
     expire_time = now + int(days_to_add) * 86400
+    # Keep payload minimal/portable for different Remnawave versions.
     payload = {
         "username": username,
         "expireAt": _utc_iso_from_timestamp(expire_time),
         "telegramId": telegram_id,
-        "status": "ACTIVE",
-        "trafficLimitBytes": 0,
-        "trafficLimitStrategy": "NO_RESET",
+        "activateAllInbounds": True,
     }
     try:
         client = _client()
@@ -214,29 +213,60 @@ def create_vpn_user_by_telegram_id(telegram_id: int, days_to_add: int) -> bool:
         return False
 
 
+def _ensure_remnawave_user_for_extend(telegram_id: int, days_to_add: int, token: str) -> tuple[int | None, str | None]:
+    """
+    Ensure user exists in Remnawave before extension.
+    Returns (current_expire_ts, error_message).
+    """
+    username = f"{telegram_id}"
+    try:
+        current_expire = get_user_expire(username, token)
+        return current_expire, None
+    except ValueError as exc:
+        if "User not found" not in str(exc):
+            logging.error("[Remnawave] Ошибка получения срока подписки @%s: %s", username, exc)
+            return None, f"❌ Ошибка получения срока подписки @{username}."
+
+        logging.info("[Remnawave] Пользователь @%s не найден, создаём профиль.", username)
+        created_ok = create_vpn_user_by_telegram_id(telegram_id, days_to_add)
+        if not created_ok:
+            return None, f"❌ Не удалось создать пользователя @{username}."
+
+        try:
+            # Re-read actual expire from panel after successful create.
+            current_expire = get_user_expire(username, token)
+            return current_expire, None
+        except Exception as exc2:
+            logging.warning(
+                "[Remnawave] Пользователь @%s создан, но срок не удалось прочитать: %s",
+                username,
+                exc2,
+            )
+            return int(time.time()), None
+    except Exception as exc:
+        logging.error("[Remnawave] Ошибка при проверке пользователя @%s: %s", username, exc)
+        return None, f"❌ Ошибка проверки пользователя @{username}."
+
+
 def extend_subscription_by_telegram_id(telegram_id: int, days_to_add: int) -> str:
     try:
         username = f"{telegram_id}"
         logging.info("[Remnawave] Extend subscription for @%s", username)
 
         token = get_token(telegram_id)
-        try:
-            current_expire = get_user_expire(username, token)
-        except ValueError as exc:
-            if "User not found" in str(exc):
-                created_ok = create_vpn_user_by_telegram_id(telegram_id, days_to_add)
-                if not created_ok:
-                    return f"❌ Не удалось создать пользователя @{username}."
-                current_expire = int(time.time())
-            else:
-                logging.error("[Remnawave] Ошибка при получении срока подписки @%s: %s", username, exc)
-                return f"❌ Ошибка получения срока подписки @{username}."
+        current_expire, ensure_error = _ensure_remnawave_user_for_extend(telegram_id, days_to_add, token)
+        if ensure_error:
+            return ensure_error
+        if current_expire is None:
+            return f"❌ Ошибка проверки пользователя @{username}."
 
         days_to_add = int(days_to_add)
         new_expire = max(current_expire, int(time.time())) + days_to_add * 86400
         payload = {"username": username, "expireAt": _utc_iso_from_timestamp(new_expire)}
 
         _client().update_user(payload, token_override=token)
+        if not db_utils.user_in_db(telegram_id):
+            db_utils.create_user_record(telegram_id, username)
         update_subscription_expire(telegram_id, new_expire)
         _reset_reminded_flag(telegram_id)
         return (

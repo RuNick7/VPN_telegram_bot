@@ -165,7 +165,13 @@ async def handle_promo_code(message: Message, state: FSMContext) -> None:
     if not promo or not promo["is_active"]:
         text = f"❌ Промокод *{escaped_code}* недействителен\\."
     elif promo["type"] == "gift":
-        if int(promo["creator_id"]) == telegram_id:
+        creator_id_raw = promo["creator_id"] if "creator_id" in promo.keys() else None
+        try:
+            creator_id = int(creator_id_raw) if creator_id_raw is not None else None
+        except (TypeError, ValueError):
+            creator_id = None
+
+        if creator_id is not None and creator_id == telegram_id:
             text = f"❌ Нельзя активировать собственный подарочный промокод *{escaped_code}*\\."
         elif db_utils.has_any_usage(promo_code):
             text = f"❌ Этот подарочный промокод *{escaped_code}* уже был использован\\."
@@ -196,8 +202,7 @@ async def handle_promo_code(message: Message, state: FSMContext) -> None:
             db_utils.save_promo_usage(promo_code, telegram_id)
 
     await message.answer(
-        text,
-        parse_mode="MarkdownV2",
+        text.replace("\\", ""),
         reply_markup=back_to_menu_keyboard(),
     )
     await state.clear()

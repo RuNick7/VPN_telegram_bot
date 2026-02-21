@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     backup_dir: str = "./backups"
     backup_retention_days: int = 30
     subscription_db_backup_dir: str = "./backups/subscription_db"
+    remnawave_backup_enabled: bool = Field(True, validation_alias="REMNAWAVE_BACKUP_ENABLED")
 
     # Monitoring
     monitor_interval_minutes: int = 5

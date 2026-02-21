@@ -13,7 +13,10 @@ class RemnawaveClient:
         password: str | None,
         timeout_seconds: int,
     ) -> None:
-        self._base_url = base_url.rstrip("/")
+        normalized = (base_url or "").strip().rstrip("/")
+        if normalized and not normalized.startswith(("http://", "https://")):
+            normalized = f"https://{normalized}"
+        self._base_url = normalized
         self._token = token
         self._username = username
         self._password = password
@@ -67,7 +70,15 @@ class RemnawaveClient:
             json=payload,
             timeout=self._timeout_seconds,
         )
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except requests.HTTPError as exc:
+            body = resp.text[:2000]
+            raise requests.HTTPError(
+                f"{exc}. Response body: {body}",
+                response=resp,
+                request=resp.request,
+            ) from exc
         return resp.json()
 
     def list_users(self, page: int = 1, size: int = 100, token_override: str | None = None) -> dict[str, Any]:

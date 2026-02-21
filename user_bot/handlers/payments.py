@@ -54,7 +54,11 @@ async def _send_tariff_menu(
         await target.message.edit_text(text_md, reply_markup=kb, parse_mode="MarkdownV2")
         await target.answer()
     else:
-        await target.answer(text_md, reply_markup=kb, parse_mode="MarkdownV2")
+        if isinstance(target, types.CallbackQuery):
+            await target.answer()
+            await target.message.answer(text_md, reply_markup=kb, parse_mode="MarkdownV2")
+        else:
+            await target.answer(text_md, reply_markup=kb, parse_mode="MarkdownV2")
 
     logging.info("[INFO] Тарифы показаны %s, рефералов: %s", tg_id, ref_count)
 
