@@ -5,6 +5,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 SUPPORT_URL = "https://t.me/nitratex1"
 FAQ_URL = os.getenv("FAQ_URL", "https://nitratex-company.gitbook.io/kairavpn/")
+STATUS_CHANNEL_URL = os.getenv("STATUS_CHANNEL_URL", "https://t.me/nitratex1")
 
 
 def os_keyboard() -> InlineKeyboardMarkup:
@@ -70,6 +71,9 @@ def help_menu_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="📖 Частые вопросы", url=FAQ_URL),
             ],
             [
+                InlineKeyboardButton(text="📢 Канал бота", url=STATUS_CHANNEL_URL),
+            ],
+            [
                 InlineKeyboardButton(text="🔙 В меню", callback_data="main_menu"),
             ],
         ]
@@ -99,6 +103,7 @@ def support_faq_back_to_devices_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="🛠 Тех. поддержка", url=SUPPORT_URL)],
             [InlineKeyboardButton(text="📖 Частые вопросы", url=FAQ_URL)],
+            [InlineKeyboardButton(text="📢 Канал бота", url=STATUS_CHANNEL_URL)],
             [InlineKeyboardButton(text="🔙 К выбору устройства", callback_data="main_menu")],
         ]
     )

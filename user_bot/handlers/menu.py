@@ -1,11 +1,13 @@
 import asyncio
 import logging
+import os
 import time
 from datetime import datetime
 
 from aiogram import Router, F, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.services.remnawave.vpn_service import (
     create_vpn_user_by_telegram_id,
@@ -23,6 +25,18 @@ from handlers.keyboards import help_menu_keyboard, os_keyboard, pay_keyboard
 
 
 router = Router()
+STATUS_CHANNEL_URL = os.getenv("STATUS_CHANNEL_URL", "https://t.me/nitratex1")
+CHANNEL_INFO_TEXT_MD = (
+    "📢 *У нас есть Telegram\\-канал бота*\n\n"
+    "Там публикуем информацию о техработах, блокировках и важных обновлениях\\.\n"
+    "Подпишитесь, чтобы быть в курсе\\."
+)
+
+
+def _channel_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="📢 Канал бота", url=STATUS_CHANNEL_URL)]]
+    )
 
 
 async def _render_main_menu(
@@ -146,3 +160,12 @@ async def help_cmd(message: types.Message) -> None:
 @router.callback_query(F.data == "help")
 async def help_cb(cb: types.CallbackQuery) -> None:
     await _send_help_menu(cb, as_edit=False)
+
+
+@router.message(Command("channel"))
+async def channel_cmd(message: types.Message) -> None:
+    await message.answer(
+        CHANNEL_INFO_TEXT_MD,
+        parse_mode="MarkdownV2",
+        reply_markup=_channel_keyboard(),
+    )

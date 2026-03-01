@@ -3,6 +3,8 @@ import time
 import threading
 from datetime import datetime, timezone
 
+from remnawave_api.models.users import CreateUserRequestDto
+
 from app.clients.remnawave.client import RemnawaveClient
 from app.config.settings import get_remnawave_settings
 from data import db_utils
@@ -195,13 +197,16 @@ def create_vpn_user_by_telegram_id(telegram_id: int, days_to_add: int) -> bool:
     username = f"{telegram_id}"
     now = int(time.time())
     expire_time = now + int(days_to_add) * 86400
-    # Keep payload minimal/portable for different Remnawave versions.
-    payload = {
-        "username": username,
-        "expireAt": _utc_iso_from_timestamp(expire_time),
-        "telegramId": telegram_id,
-        "activateAllInbounds": True,
-    }
+    expire_at = datetime.fromtimestamp(expire_time, tz=timezone.utc)
+    body = CreateUserRequestDto(
+        username=username,
+        telegram_id=telegram_id,
+        expire_at=expire_at,
+        activate_all_inbounds=True,
+    )
+    payload = body.model_dump(mode="json", by_alias=True, exclude_none=True)
+    # Some API versions validate telegramId strictly as number.
+    payload["telegramId"] = int(telegram_id)
     try:
         client = _client()
         response = client.create_user(payload)
