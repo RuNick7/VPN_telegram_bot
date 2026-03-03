@@ -7,6 +7,8 @@ user_bot/data/*.db
 user_bot/data/*.db-wal
 user_bot/data/*.db-shm
 .venv/
+web/backend/.venv312/
+web/backend/cookies*.txt
 __pycache__/
 *.pyc
 .DS_Store
