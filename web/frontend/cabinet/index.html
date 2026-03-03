@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>KairaVPN Cabinet</title>
+    <link rel="stylesheet" href="../src/styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>Cabinet</h1>
+      <p>Subscription and payment status.</p>
+
+      <section class="card">
+        <h2>Account</h2>
+        <div id="me-view" class="mono">Loading...</div>
+      </section>
+
+      <section class="card">
+        <h2>Subscription</h2>
+        <div id="subscription-view" class="mono">Loading...</div>
+      </section>
+
+      <section class="card">
+        <h2>Payment</h2>
+        <div id="payment-view" class="mono">No payment selected.</div>
+      </section>
+
+      <section class="card">
+        <h2>Extend Subscription</h2>
+        <div class="tariff-grid" id="tariff-grid">
+          <button class="tariff-btn" data-months="1" type="button">1 month</button>
+          <button class="tariff-btn" data-months="3" type="button">3 months</button>
+          <button class="tariff-btn" data-months="6" type="button">6 months</button>
+          <button class="tariff-btn" data-months="12" type="button">12 months</button>
+        </div>
+        <p class="muted">After click, you will be redirected to YooKassa confirmation page.</p>
+      </section>
+
+      <button id="refresh-btn" type="button">Refresh Cabinet Data</button>
+      <pre id="output">No requests yet.</pre>
+    </main>
+    <script src="../src/cabinet.js"></script>
+  </body>
+</html>

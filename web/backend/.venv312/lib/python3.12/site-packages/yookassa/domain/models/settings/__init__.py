@@ -1,0 +1,2 @@
+from yookassa.domain.models.settings.fiscalization_data import FiscalizationData
+from yookassa.domain.models.settings.fiscalization_provider import FiscalizationProvider

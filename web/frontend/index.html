@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>KairaVPN Login</title>
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>KairaVPN Login</h1>
+      <p>Sign in with Telegram (placeholder) or email magic link.</p>
+
+      <section class="card">
+        <h2>Telegram</h2>
+        <div id="telegram-widget-container"></div>
+        <button id="telegram-login-btn" type="button">Reload Telegram Widget</button>
+        <p class="muted">If widget does not appear, check bot username and browser network access to telegram.org.</p>
+      </section>
+
+      <section class="card">
+        <h2>Email Magic Link</h2>
+        <label class="label" for="magic-email-input">Email</label>
+        <input id="magic-email-input" type="email" placeholder="user@example.com" />
+        <button id="magic-request-btn" type="button">Send Magic Link</button>
+      </section>
+
+      <section class="card">
+        <h2>Confirm Token</h2>
+        <label class="label" for="magic-token-input">Token</label>
+        <input id="magic-token-input" type="text" placeholder="Paste token from email/dev response" />
+        <button id="magic-verify-btn" type="button">Verify and Continue</button>
+      </section>
+
+      <pre id="output">No requests yet.</pre>
+    </main>
+    <script>
+      // Replace with your real bot username if needed.
+      window.TELEGRAM_BOT_USERNAME = window.TELEGRAM_BOT_USERNAME || "KairaTest_bot";
+    </script>
+    <script src="./src/main.js"></script>
+  </body>
+  </html>
