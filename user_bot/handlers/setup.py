@@ -8,6 +8,7 @@ from io import BytesIO
 
 from aiogram import Router, F
 from aiogram.enums import ChatAction
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import CallbackQuery, FSInputFile
 from aiogram.types.input_file import BufferedInputFile
 import qrcode
@@ -94,6 +95,50 @@ async def _send_instruction_without_video(cb: CallbackQuery, text: str, reply_ma
     )
 
 
+async def _answer_video_with_cache_fallback(
+    cb: CallbackQuery,
+    *,
+    alias: str,
+    caption: str,
+    reply_markup,
+) -> None:
+    """
+    Send instruction video with file_id cache fallback.
+    If cached file_id is invalid, resend from local file and refresh cache.
+    """
+    await cb.bot.send_chat_action(cb.message.chat.id, ChatAction.UPLOAD_VIDEO)
+
+    cached_id = VIDEO_ID_CACHE.get(alias)
+    if cached_id:
+        try:
+            await cb.message.answer_video(
+                video=cached_id,
+                caption=caption,
+                parse_mode="HTML",
+                supports_streaming=True,
+                reply_markup=reply_markup,
+            )
+            return
+        except TelegramBadRequest as exc:
+            if "wrong file identifier" not in str(exc).lower():
+                raise
+            logging.warning("Invalid cached file_id for alias=%s, fallback to local file", alias)
+            VIDEO_ID_CACHE.pop(alias, None)
+            _save_cache(VIDEO_ID_CACHE)
+
+    video_path = VIDEOS[alias]
+    logging.info("📼 %s video from file: %s  exists=%s", alias, video_path, video_path.exists())
+    sent_msg = await cb.message.answer_video(
+        video=FSInputFile(str(video_path)),
+        caption=caption,
+        parse_mode="HTML",
+        supports_streaming=True,
+        reply_markup=reply_markup,
+    )
+    VIDEO_ID_CACHE[alias] = sent_msg.video.file_id
+    _save_cache(VIDEO_ID_CACHE)
+
+
 async def _get_subscription_url_or_pay_prompt(cb: CallbackQuery) -> str | None:
     tg_id = cb.from_user.id
     try:
@@ -142,31 +187,12 @@ async def android_instruction(cb: CallbackQuery) -> None:
         await _send_instruction_without_video(cb, caption, reply_kb)
         return
 
-    await cb.bot.send_chat_action(cb.message.chat.id, ChatAction.UPLOAD_VIDEO)
-
-    if ANDROID_ALIAS in VIDEO_ID_CACHE:
-        video_src = VIDEO_ID_CACHE[ANDROID_ALIAS]
-    else:
-        video_path = VIDEOS[ANDROID_ALIAS]
-        video_src = FSInputFile(str(video_path))
-
-        logging.info(
-            "📼 android send from file: %s  exists=%s",
-            video_path,
-            video_path.exists(),
-        )
-
-    sent_msg = await cb.message.answer_video(
-        video=video_src,
+    await _answer_video_with_cache_fallback(
+        cb,
+        alias=ANDROID_ALIAS,
         caption=caption,
-        parse_mode="HTML",
-        supports_streaming=True,
         reply_markup=reply_kb,
     )
-
-    if ANDROID_ALIAS not in VIDEO_ID_CACHE:
-        VIDEO_ID_CACHE[ANDROID_ALIAS] = sent_msg.video.file_id
-        _save_cache(VIDEO_ID_CACHE)
 
 
 
@@ -207,27 +233,12 @@ async def ios_instruction(cb: CallbackQuery) -> None:
         await _send_instruction_without_video(cb, caption, kb)
         return
 
-    await cb.bot.send_chat_action(cb.message.chat.id, ChatAction.UPLOAD_VIDEO)
-
-    if IOS_ALIAS in VIDEO_ID_CACHE:
-        video_src = VIDEO_ID_CACHE[IOS_ALIAS]
-    else:
-        video_path = VIDEOS[IOS_ALIAS]
-        logging.info("📼 ios video from file: %s  exists=%s",
-                     video_path, video_path.exists())
-        video_src = FSInputFile(str(video_path))
-
-    sent_msg = await cb.message.answer_video(
-        video=video_src,
+    await _answer_video_with_cache_fallback(
+        cb,
+        alias=IOS_ALIAS,
         caption=caption,
-        parse_mode="HTML",
-        supports_streaming=True,
         reply_markup=kb,
     )
-
-    if IOS_ALIAS not in VIDEO_ID_CACHE:
-        VIDEO_ID_CACHE[IOS_ALIAS] = sent_msg.video.file_id
-        _save_cache(VIDEO_ID_CACHE)
 
 
 
@@ -265,27 +276,12 @@ async def windows_instruction(cb: CallbackQuery) -> None:
         await _send_instruction_without_video(cb, caption, kb)
         return
 
-    await cb.bot.send_chat_action(cb.message.chat.id, ChatAction.UPLOAD_VIDEO)
-
-    if WIN_ALIAS in VIDEO_ID_CACHE:
-        video_src = VIDEO_ID_CACHE[WIN_ALIAS]
-    else:
-        video_path = VIDEOS[WIN_ALIAS]
-        logging.info("📼 windows video: %s  exists=%s",
-                     video_path, video_path.exists())
-        video_src = FSInputFile(str(video_path))
-
-    sent_msg = await cb.message.answer_video(
-        video=video_src,
+    await _answer_video_with_cache_fallback(
+        cb,
+        alias=WIN_ALIAS,
         caption=caption,
-        parse_mode="HTML",
-        supports_streaming=True,
         reply_markup=kb,
     )
-
-    if WIN_ALIAS not in VIDEO_ID_CACHE:
-        VIDEO_ID_CACHE[WIN_ALIAS] = sent_msg.video.file_id
-        _save_cache(VIDEO_ID_CACHE)
 
 
 
@@ -444,26 +440,12 @@ async def macos_instruction(cb: CallbackQuery) -> None:
         await _send_instruction_without_video(cb, caption, kb)
         return
 
-    await cb.bot.send_chat_action(cb.message.chat.id, ChatAction.UPLOAD_VIDEO)
-
-    if MAC_ALIAS in VIDEO_ID_CACHE:
-        video_src = VIDEO_ID_CACHE[MAC_ALIAS]
-    else:
-        video_path = VIDEOS[MAC_ALIAS]
-        logging.info("📼 macOS video: %s  exists=%s", video_path, video_path.exists())
-        video_src = FSInputFile(str(video_path))
-
-    sent_msg = await cb.message.answer_video(
-        video=video_src,
+    await _answer_video_with_cache_fallback(
+        cb,
+        alias=MAC_ALIAS,
         caption=caption,
-        parse_mode="HTML",
-        supports_streaming=True,
         reply_markup=kb,
     )
-
-    if MAC_ALIAS not in VIDEO_ID_CACHE:
-        VIDEO_ID_CACHE[MAC_ALIAS] = sent_msg.video.file_id
-        _save_cache(VIDEO_ID_CACHE)
 
 
 
