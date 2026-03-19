@@ -42,6 +42,12 @@ def _channel_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def _email_cancel_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="❌ Отменить", callback_data="change_email_cancel")]]
+    )
+
+
 def _is_valid_email(value: str) -> bool:
     value = value.strip()
     if len(value) > 254:
@@ -177,9 +183,24 @@ async def help_cb(cb: types.CallbackQuery) -> None:
 async def change_email_cb(cb: types.CallbackQuery, state: FSMContext) -> None:
     await cb.answer()
     await state.set_state(EmailCaptureState.waiting_email)
+    await state.update_data(email_forced=False)
     await cb.message.answer(
-        "✉️ Введите новый email в формате example@mail.com"
+        "✉️ Введите новый email в формате example@mail.com",
+        reply_markup=_email_cancel_keyboard(),
     )
+
+
+@router.callback_query(F.data == "change_email_cancel")
+async def change_email_cancel_cb(cb: types.CallbackQuery, state: FSMContext) -> None:
+    await cb.answer()
+    state_data = await state.get_data()
+    if state_data.get("email_forced"):
+        await cb.message.answer(
+            "❗️Сейчас отменить нельзя — сначала укажите email."
+        )
+        return
+    await state.clear()
+    await cb.message.answer("✅ Изменение email отменено.")
 
 
 @router.message(Command("channel"))
@@ -194,11 +215,20 @@ async def channel_cmd(message: types.Message) -> None:
 @router.message(EmailCaptureState.waiting_email)
 async def capture_email(message: types.Message, state: FSMContext) -> None:
     email = (message.text or "").strip()
+    state_data = await state.get_data()
+    forced = bool(state_data.get("email_forced"))
     if not _is_valid_email(email):
-        await message.answer(
-            "❌ Некорректный email.\n"
-            "Введите адрес в формате example@mail.com"
-        )
+        if forced:
+            await message.answer(
+                "❌ Некорректный email.\n"
+                "Введите адрес в формате example@mail.com"
+            )
+        else:
+            await message.answer(
+                "❌ Некорректный email.\n"
+                "Введите адрес в формате example@mail.com",
+                reply_markup=_email_cancel_keyboard(),
+            )
         return
 
     update_user_email(message.from_user.id, email.lower())

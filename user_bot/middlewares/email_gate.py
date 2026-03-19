@@ -54,6 +54,7 @@ class EmailGateMiddleware(BaseMiddleware):
 
         if state:
             await state.set_state(EmailCaptureState.waiting_email)
+            await state.update_data(email_forced=True)
 
         await event.answer(
             "✉️ Пожалуйста, укажите ваш email.\n\n"
