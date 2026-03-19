@@ -74,6 +74,9 @@ def help_menu_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="📢 Канал бота", url=STATUS_CHANNEL_URL),
             ],
             [
+                InlineKeyboardButton(text="✉️ Поменять email", callback_data="change_email"),
+            ],
+            [
                 InlineKeyboardButton(text="🔙 В меню", callback_data="main_menu"),
             ],
         ]

@@ -173,6 +173,15 @@ async def help_cb(cb: types.CallbackQuery) -> None:
     await _send_help_menu(cb, as_edit=False)
 
 
+@router.callback_query(F.data == "change_email")
+async def change_email_cb(cb: types.CallbackQuery, state: FSMContext) -> None:
+    await cb.answer()
+    await state.set_state(EmailCaptureState.waiting_email)
+    await cb.message.answer(
+        "✉️ Введите новый email в формате example@mail.com"
+    )
+
+
 @router.message(Command("channel"))
 async def channel_cmd(message: types.Message) -> None:
     await message.answer(
