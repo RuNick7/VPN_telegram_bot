@@ -82,6 +82,16 @@ def get_user_by_id(user_id: int):
         cursor.execute("SELECT * FROM subscription WHERE telegram_id = ?", (user_id,))
         return cursor.fetchone()
 
+
+def update_user_email(telegram_id: int, email: str) -> None:
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE subscription SET email = ? WHERE telegram_id = ?",
+            (email.strip(), telegram_id),
+        )
+        conn.commit()
+
 def set_referrer_tag(user_id: int, tag: str):
     with get_db() as conn:
         cursor = conn.cursor()
@@ -238,6 +248,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             "reminded": "INTEGER",
             "nurture_stage": "INTEGER",
             "created_at": "INTEGER",
+            "email": "TEXT",
         },
         defaults={
             "subscription_ends": 0,
@@ -248,6 +259,7 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             "reminded": 0,
             "nurture_stage": 0,
             "created_at": 0,
+            "email": "",
         },
     )
     _ensure_table(

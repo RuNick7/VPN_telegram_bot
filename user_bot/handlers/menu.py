@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import os
+import re
 import time
 from datetime import datetime
 
@@ -17,9 +18,11 @@ from data.db_utils import (
     create_user_record,
     get_user_by_id,
     update_subscription_expire,
+    update_user_email,
     update_telegram_tag,
     user_in_db,
 )
+from handlers.email_state import EmailCaptureState
 from handlers.constants import SECONDS_IN_DAY, TRIAL_DAYS
 from handlers.keyboards import help_menu_keyboard, os_keyboard, pay_keyboard
 
@@ -37,6 +40,14 @@ def _channel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[[InlineKeyboardButton(text="📢 Канал бота", url=STATUS_CHANNEL_URL)]]
     )
+
+
+def _is_valid_email(value: str) -> bool:
+    value = value.strip()
+    if len(value) > 254:
+        return False
+    pattern = r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$"
+    return re.fullmatch(pattern, value) is not None
 
 
 async def _render_main_menu(
@@ -168,4 +179,22 @@ async def channel_cmd(message: types.Message) -> None:
         CHANNEL_INFO_TEXT_MD,
         parse_mode="MarkdownV2",
         reply_markup=_channel_keyboard(),
+    )
+
+
+@router.message(EmailCaptureState.waiting_email)
+async def capture_email(message: types.Message, state: FSMContext) -> None:
+    email = (message.text or "").strip()
+    if not _is_valid_email(email):
+        await message.answer(
+            "❌ Некорректный email.\n"
+            "Введите адрес в формате example@mail.com"
+        )
+        return
+
+    update_user_email(message.from_user.id, email.lower())
+    await state.clear()
+    await message.answer(
+        "✅ Email сохранён.\n"
+        "Теперь вы сможете зайти на сайт и управлять подпиской даже при блокировке Telegram."
     )

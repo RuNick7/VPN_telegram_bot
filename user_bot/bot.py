@@ -8,6 +8,7 @@ from data.event_logger import EventLogger           # ← NEW
 from precache_videos import precache_videos, _load_cache
 from utils.reminders import reminders_scheduler
 from handlers.user_handlers import router as user_router
+from middlewares.email_gate import EmailGateMiddleware
 
 # ── .env ──────────────────────────────────────────────────────────────
 ROOT_DIR = pathlib.Path(__file__).resolve().parent.parent
@@ -23,6 +24,7 @@ VIDEO_ID_CACHE: dict = {}
 # ─── MIDDLEWARE: сбор кликов ─────────────────────────────────────────
 evlog = EventLogger()          # экземпляр; соединится при startup
 dp.update.middleware(evlog)    # регистрируем в диспетчере
+dp.message.middleware(EmailGateMiddleware())
 
 # ─── STARTUP HOOK ────────────────────────────────────────────────────
 async def on_startup(dispatcher: Dispatcher) -> None:
