@@ -207,7 +207,27 @@ class UserService:
         return await self.client.request("GET", "/users", params=params)
 
     async def get_user_by_username(self, username: str) -> Dict[str, Any]:
-        """Find user by username using list endpoint."""
+        """Find user by username using direct endpoint with fallback scan."""
+        needle = str(username).strip()
+        if not needle:
+            return {}
+
+        # Preferred path: direct lookup endpoint (faster and more reliable).
+        try:
+            response = await self.client.request("GET", f"/users/by-username/{needle}")
+            if isinstance(response, dict):
+                if isinstance(response.get("response"), dict):
+                    payload = response.get("response") or {}
+                    # Some API versions wrap user in "user", others return fields directly.
+                    if isinstance(payload.get("user"), dict):
+                        return payload.get("user") or {}
+                    return payload
+                return response
+        except Exception:
+            # Fall back to paginated scan below.
+            pass
+
+        # Fallback path: list endpoint scan.
         page = 1
         size = 100
         while True:
@@ -215,7 +235,9 @@ class UserService:
             data = response.get("response", {})
             users = data.get("users", [])
             for user in users:
-                if user.get("username") == username:
+                user_username = str(user.get("username") or "").strip()
+                user_tg = str(user.get("telegramId") or user.get("telegram_id") or "").strip()
+                if user_username == needle or user_tg == needle:
                     return user
             total = data.get("total")
             if not total:
