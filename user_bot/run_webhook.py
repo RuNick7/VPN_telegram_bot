@@ -27,7 +27,7 @@ async def log_webhook_request(request: web.Request, handler):
 
 app.middlewares.append(log_webhook_request)
 # Основной URL для HTTP-уведомлений YooKassa
-app.router.add_post("/Webhook-ChatGPT", yookassa_webhook_handler)
+app.router.add_post("/webhook-yookassa", yookassa_webhook_handler)
 
 if __name__ == "__main__":
     # Запускаем сервер на порту 8000
