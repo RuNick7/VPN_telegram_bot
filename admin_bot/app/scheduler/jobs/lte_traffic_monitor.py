@@ -108,6 +108,9 @@ async def _fetch_user_lte_usage_bytes(user_uuid: str, from_ts: int, to_ts: int, 
 
     Tries both old and new Remnawave endpoints.
     """
+    if not lte_nodes:
+        return 0
+
     params = {"start": _iso_date(from_ts), "end": _iso_date(to_ts)}
     endpoints = [
         f"/users/stats/usage/{user_uuid}/range",
@@ -125,7 +128,7 @@ async def _fetch_user_lte_usage_bytes(user_uuid: str, from_ts: int, to_ts: int, 
             total = 0
             for row in rows:
                 node_uuid = _extract_node_uuid(row)
-                if lte_nodes and node_uuid and node_uuid not in lte_nodes:
+                if node_uuid and node_uuid not in lte_nodes:
                     continue
                 total += max(0, _extract_total_bytes(row))
             return total
