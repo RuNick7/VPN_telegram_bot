@@ -60,6 +60,7 @@ def back_to_devices_keyboard() -> InlineKeyboardMarkup:
 def referral_intro_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text="✍️ Указать пригласившего", callback_data="referral_set_tag")],
             [InlineKeyboardButton(text="ℹ️ О скидках", callback_data="referral_info")],
             [InlineKeyboardButton(text="🔙 В меню", callback_data="main_menu")],
         ]
