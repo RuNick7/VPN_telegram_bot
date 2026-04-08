@@ -10,7 +10,10 @@ from data.db_utils import get_user_by_id
 from handlers.keyboards import (
     gift_payment_keyboard,
     gift_tariffs_keyboard,
+    lte_gb_keyboard,
+    lte_payment_keyboard,
     payment_keyboard,
+    pay_keyboard,
     tariff_menu_keyboard,
 )
 from handlers.utils import get_subscription_price
@@ -18,6 +21,31 @@ from payments.yookassa_client import create_payment
 
 
 router = Router()
+
+LTE_GB_PRICES: dict[int, int] = {
+    5: 19,
+    10: 35,
+    25: 75,
+    50: 99,
+}
+
+
+async def _send_pay_menu(
+    target: types.Message | types.CallbackQuery,
+    *,
+    as_edit: bool = False,
+) -> None:
+    text_md = "💳 *Платежное меню*:\n\nВыберите действие ниже\\."
+    kb = pay_keyboard()
+    if as_edit and isinstance(target, types.CallbackQuery):
+        await target.message.edit_text(text_md, reply_markup=kb, parse_mode="MarkdownV2")
+        await target.answer()
+        return
+    if isinstance(target, types.CallbackQuery):
+        await target.answer()
+        await target.message.answer(text_md, reply_markup=kb, parse_mode="MarkdownV2")
+        return
+    await target.answer(text_md, reply_markup=kb, parse_mode="MarkdownV2")
 
 
 async def _send_tariff_menu(
@@ -47,7 +75,7 @@ async def _send_tariff_menu(
 
         buttons.append((f"{info['duration']} — {price}₽", f"buy_tariff:{months}"))
 
-    kb = tariff_menu_keyboard(buttons)
+    kb = tariff_menu_keyboard(buttons, back_callback="pay_menu")
     text_md = "📦 *Выберите тариф*:\n"
 
     if as_edit:
@@ -65,7 +93,17 @@ async def _send_tariff_menu(
 
 @router.message(Command("pay"))
 async def subscription_tariffs_cmd(message: types.Message) -> None:
-    await _send_tariff_menu(message, as_edit=False)
+    await _send_pay_menu(message, as_edit=False)
+
+
+@router.callback_query(F.data == "pay_menu")
+async def pay_menu_cb(cb: CallbackQuery) -> None:
+    await _send_pay_menu(cb, as_edit=False)
+
+
+@router.callback_query(F.data == "pay_subscription_menu")
+async def pay_subscription_menu_cb(cb: CallbackQuery) -> None:
+    await _send_tariff_menu(cb, as_edit=False)
 
 
 @router.callback_query(F.data == "subscription")
@@ -76,6 +114,73 @@ async def subscription_back_cb(cb: CallbackQuery) -> None:
 @router.callback_query(F.data == "subscription_tariffs")
 async def subscription_tariffs_cb(cb: CallbackQuery) -> None:
     await _send_tariff_menu(cb, as_edit=False)
+
+
+@router.callback_query(F.data == "lte_gb_menu")
+async def lte_gb_menu_cb(cb: CallbackQuery) -> None:
+    await cb.answer()
+    await cb.message.answer(
+        "📶 *Покупка LTE ГБ*\n\n"
+        "Выберите пакет трафика для LTE серверов:",
+        reply_markup=lte_gb_keyboard(),
+        parse_mode="MarkdownV2",
+    )
+
+
+@router.callback_query(lambda c: c.data.startswith("buy_lte_gb:"))
+async def buy_lte_gb_callback(callback_query: types.CallbackQuery) -> None:
+    await callback_query.answer()
+    try:
+        gb_amount = int(callback_query.data.split(":")[1])
+    except Exception:
+        await callback_query.message.edit_text("❌ Ошибка: некорректный пакет LTE трафика.")
+        return
+
+    amount = LTE_GB_PRICES.get(gb_amount)
+    if amount is None:
+        await callback_query.message.edit_text("❌ Ошибка: выбран неизвестный пакет LTE трафика.")
+        return
+
+    telegram_id = callback_query.from_user.id
+    description = f"Покупка LTE трафика: {gb_amount} ГБ"
+    return_url = "https://t.me/NitraTunnel_Bot"
+
+    info_text = (
+        "📶 *Пакет выбран*\n\n"
+        f"Объём: *{gb_amount} ГБ*\n"
+        f"Стоимость: *{amount}₽*\n\n"
+        "ℹ️ Эти гигабайты расходуются *только на LTE серверах* с лимитом\\.\n"
+        "Остальные серверы работают без ограничений по LTE\\-пакету\\.\n\n"
+        "♻️ Непотраченные купленные LTE ГБ *переносятся* на следующий месяц\\."
+    )
+
+    try:
+        payment = create_payment(
+            amount=amount,
+            description=description,
+            return_url=return_url,
+            telegram_id=telegram_id,
+            days_to_extend=0,
+            metadata_extra={
+                "purchase_type": "lte_gb",
+                "lte_gb": gb_amount,
+            },
+        )
+        confirmation_url = payment.confirmation.confirmation_url
+        await callback_query.message.edit_text(
+            info_text + "\n\nНажмите кнопку ниже для перехода к оплате\\.",
+            reply_markup=lte_payment_keyboard(confirmation_url),
+            parse_mode="MarkdownV2",
+        )
+        logging.info(
+            "[INFO] LTE payment created: telegram_id=%s, gb=%s, amount=%s",
+            telegram_id,
+            gb_amount,
+            amount,
+        )
+    except Exception as exc:
+        logging.exception("[ERROR] LTE payment create failed: %s", exc)
+        await callback_query.message.edit_text(f"❌ Ошибка при создании платежа: {exc}")
 
 
 @router.callback_query(lambda c: c.data.startswith("buy_tariff:"))

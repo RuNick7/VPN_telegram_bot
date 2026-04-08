@@ -26,11 +26,27 @@ Configuration.account_id = SHOP_ID
 Configuration.secret_key = SECRET_KEY
 
 
-def create_payment(amount, description, return_url, telegram_id, days_to_extend, is_gift=False):
+def create_payment(
+    amount,
+    description,
+    return_url,
+    telegram_id,
+    days_to_extend,
+    is_gift=False,
+    metadata_extra: dict | None = None,
+):
     logger.info(f"[PAYMENT] Создание платежа: amount={amount} description='{description}' "
                 f"telegram_id={telegram_id} is_gift={is_gift} days_to_extend={days_to_extend}")
 
     try:
+        metadata = {
+            "telegram_id": telegram_id,
+            "days_to_extend": days_to_extend,
+            "is_gift": "true" if is_gift else "false",
+        }
+        if metadata_extra:
+            metadata.update(metadata_extra)
+
         payment = Payment.create({
             "amount": {
                 "value": str(amount),
@@ -42,11 +58,7 @@ def create_payment(amount, description, return_url, telegram_id, days_to_extend,
             },
             "capture": True,
             "description": description,
-            "metadata": {
-                "telegram_id": telegram_id,
-                "days_to_extend": days_to_extend,
-                "is_gift": "true" if is_gift else "false"
-            },
+            "metadata": metadata,
             "receipt": {
                 "customer": {
                     "email": "no-reply@nitravpn.com"  # Можно указать email пользователя, если есть

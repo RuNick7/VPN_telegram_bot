@@ -25,6 +25,17 @@ class UserService:
             return response.get("response", {}).get("internalSquads", []) or []
         return response.get("internalSquads", []) or []
 
+    async def _find_internal_squad_by_name(self, squad_name: str) -> dict | None:
+        squads = await self._list_internal_squads()
+        needle = (squad_name or "").strip().lower()
+        if not needle:
+            return None
+        for squad in squads:
+            name = str(squad.get("name") or "").strip().lower()
+            if name == needle:
+                return squad
+        return None
+
     async def _list_all_user_uuids(self) -> list[str]:
         page = 1
         size = 100
@@ -92,6 +103,40 @@ class UserService:
     async def _update_user_internal_squads(self, user_uuid: str, squad_uuids: list[str]) -> None:
         payload = {"uuids": [user_uuid], "activeInternalSquads": squad_uuids}
         await self.client.request("POST", "/users/bulk/update-squads", json=payload)
+
+    async def force_disconnect_user(self, user_uuid: str) -> None:
+        """
+        Best-effort session drop for online user.
+
+        New and legacy Remnawave versions differ in endpoint naming,
+        so we try several known variants and then fallback to disable/enable.
+        """
+        attempts: list[tuple[str, str, dict | None]] = [
+            ("POST", f"/users/{user_uuid}/disconnect", None),
+            ("POST", f"/users/disconnect/{user_uuid}", None),
+            ("POST", "/users/bulk/disconnect", {"uuids": [user_uuid]}),
+        ]
+        for method, endpoint, payload in attempts:
+            try:
+                if payload is None:
+                    await self.client.request(method, endpoint)
+                else:
+                    await self.client.request(method, endpoint, json=payload)
+                return
+            except Exception:
+                continue
+
+        # Fallback: brief disable/enable usually tears down active sessions.
+        for disable_endpoint, enable_endpoint in (
+            (f"/users/disable/{user_uuid}", f"/users/enable/{user_uuid}"),
+            (f"/users/{user_uuid}/disable", f"/users/{user_uuid}/enable"),
+        ):
+            try:
+                await self.client.request("PATCH", disable_endpoint)
+                await self.client.request("PATCH", enable_endpoint)
+                return
+            except Exception:
+                continue
 
     async def _remove_users_from_internal_squad(self, squad_uuid: str, user_uuids: list[str]) -> dict | None:
         if not user_uuids:
@@ -174,13 +219,19 @@ class UserService:
                 squad, created = await self._get_or_create_internal_squad()
                 squad_uuid = (squad or {}).get("uuid")
                 if squad_uuid:
+                    target_squads: list[str] = [str(squad_uuid)]
+                    if settings.lte_traffic_monitor_enabled:
+                        lte_squad = await self._find_internal_squad_by_name(settings.lte_squad_name)
+                        lte_uuid = (lte_squad or {}).get("uuid")
+                        if lte_uuid and str(lte_uuid) not in target_squads:
+                            target_squads.append(str(lte_uuid))
                     self.log.info(
                         "Selected squad %s created=%s for user %s",
                         squad_uuid,
                         created,
                         username,
                     )
-                    await self._update_user_internal_squads(str(user_uuid), [str(squad_uuid)])
+                    await self._update_user_internal_squads(str(user_uuid), target_squads)
                     if created:
                         try:
                             asyncio.create_task(

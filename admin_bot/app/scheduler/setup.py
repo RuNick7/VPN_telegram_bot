@@ -5,7 +5,13 @@ import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from app.scheduler.jobs import daily_backup, node_monitor, subscription_db_backup, inactive_user_cleanup
+from app.scheduler.jobs import (
+    daily_backup,
+    node_monitor,
+    subscription_db_backup,
+    inactive_user_cleanup,
+    lte_traffic_monitor,
+)
 from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -49,6 +55,15 @@ def create_scheduler() -> AsyncIOScheduler:
         trigger=CronTrigger(hour=4, minute=30, timezone="Europe/Moscow"),
         id="inactive_user_cleanup",
         name="Inactive Remnawave User Cleanup",
+        replace_existing=True,
+    )
+
+    scheduler.add_job(
+        lte_traffic_monitor.run_lte_traffic_monitor,
+        trigger="interval",
+        minutes=settings.monitor_interval_minutes,
+        id="lte_traffic_monitor",
+        name="LTE Traffic Limit Monitor",
         replace_existing=True,
     )
 

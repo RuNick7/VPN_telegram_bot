@@ -17,6 +17,8 @@ REMINDER_TEXT = (
     "Чтобы не потерять доступ — продлите её."
 )
 
+LTE_LOW_THRESHOLD_BYTES = 500 * 1024 * 1024
+
 pay_kb = InlineKeyboardMarkup(
     inline_keyboard=[
         [InlineKeyboardButton(text="💳 Продлить", callback_data="subscription_tariffs")]
@@ -90,21 +92,32 @@ async def send_reminders(bot: Bot):
 
 async def reminders_scheduler(bot: Bot):
     """
-    Запускает hour-loop напоминаний и nurture-цепочек.
+    Запускает цикл:
+    - LTE-алерты: каждые 5 минут
+    - прочие напоминания и nurture: раз в час
     """
+    last_hourly_tasks_ts: int | None = None
     while True:
         now_ts = int(time.time())
         try:
-            logger.debug("Запуск hourly reminders в %s", datetime.now())
-            await send_reminders(bot)
-            await send_nurture_channel(bot, now_ts)
-            await send_nurture_1(bot, now_ts)
-            await send_nurture_2(bot, now_ts)
-            await send_nurture_3(bot, now_ts)
-            logger.debug("Hourly reminders выполнены успешно")
+            await send_lte_traffic_alerts(bot, now_ts)
+
+            run_hourly = (
+                last_hourly_tasks_ts is None
+                or (now_ts - last_hourly_tasks_ts) >= 3600
+            )
+            if run_hourly:
+                logger.debug("Запуск hourly reminders в %s", datetime.now())
+                await send_reminders(bot)
+                await send_nurture_channel(bot, now_ts)
+                await send_nurture_1(bot, now_ts)
+                await send_nurture_2(bot, now_ts)
+                await send_nurture_3(bot, now_ts)
+                last_hourly_tasks_ts = now_ts
+                logger.debug("Hourly reminders выполнены успешно")
         except Exception:
             logger.exception("Ошибка в hourly reminders")
-        await asyncio.sleep(3600)
+        await asyncio.sleep(300)
 
 def get_users_for_nurture(now_ts: int, target_stage: int, days_after: int):
     """
@@ -207,3 +220,97 @@ async def _broadcast_and_mark(bot: Bot, rows, text, next_stage: int, kb):
             logging.error(f"Nurture send fail {row['telegram_id']}: {e}")
 
     update_stage(succeeded, next_stage)
+
+
+def _get_users_for_lte_alerts(now_ts: int) -> list[sqlite3.Row]:
+    with get_db() as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT
+                s.telegram_id,
+                s.subscription_ends,
+                l.last_remaining_bytes,
+                l.notified_lte_low,
+                l.notified_lte_zero
+            FROM subscription s
+            JOIN lte_traffic_limits l ON l.tg_id = s.telegram_id
+            WHERE s.subscription_ends > ?
+            """,
+            (now_ts,),
+        )
+        return cursor.fetchall()
+
+
+def _set_lte_alert_flags(telegram_id: int, low: int | None = None, zero: int | None = None) -> None:
+    updates = []
+    params: list[int] = []
+    if low is not None:
+        updates.append("notified_lte_low = ?")
+        params.append(int(low))
+    if zero is not None:
+        updates.append("notified_lte_zero = ?")
+        params.append(int(zero))
+    if not updates:
+        return
+    params.append(telegram_id)
+    with get_db() as conn:
+        conn.execute(
+            f"UPDATE lte_traffic_limits SET {', '.join(updates)} WHERE tg_id = ?",
+            tuple(params),
+        )
+        conn.commit()
+
+
+async def send_lte_traffic_alerts(bot: Bot, now_ts: int) -> None:
+    rows = _get_users_for_lte_alerts(now_ts)
+    if not rows:
+        return
+
+    lte_buy_kb = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="📶 Купить LTE Гб", callback_data="lte_gb_menu")]]
+    )
+
+    for row in rows:
+        telegram_id = int(row["telegram_id"])
+        remaining = max(0, int(row["last_remaining_bytes"] or 0))
+        notified_low = int(row["notified_lte_low"] or 0)
+        notified_zero = int(row["notified_lte_zero"] or 0)
+
+        # Reset flags when user is above warning threshold again.
+        if remaining >= LTE_LOW_THRESHOLD_BYTES:
+            if notified_low or notified_zero:
+                _set_lte_alert_flags(telegram_id, low=0, zero=0)
+            continue
+
+        if remaining == 0:
+            if notified_zero:
+                continue
+            try:
+                await bot.send_message(
+                    telegram_id,
+                    "🚫 LTE трафик закончился.\n\n"
+                    "Чтобы продолжить пользоваться LTE серверами, докупите LTE Гб.",
+                    reply_markup=lte_buy_kb,
+                )
+                _set_lte_alert_flags(telegram_id, low=1, zero=1)
+            except Exception as e:
+                logger.error("LTE zero alert send fail %s: %s", telegram_id, e)
+            continue
+
+        # Here: 0 < remaining < 500MB
+        if notified_low:
+            continue
+        try:
+            remaining_mb = max(1, remaining // (1024 * 1024))
+            await bot.send_message(
+                telegram_id,
+                "⚠️ LTE трафик почти закончился.\n"
+                f"Осталось меньше 500 МБ (сейчас примерно {remaining_mb} МБ).\n\n"
+                "Можно докупить LTE Гб заранее:",
+                reply_markup=lte_buy_kb,
+            )
+            _set_lte_alert_flags(telegram_id, low=1, zero=0)
+        except Exception as e:
+            logger.error("LTE low alert send fail %s: %s", telegram_id, e)

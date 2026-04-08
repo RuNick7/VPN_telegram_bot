@@ -9,6 +9,7 @@ from handlers.utils import escape_markdown_v2
 from app.services.remnawave.vpn_service import extend_subscription_by_telegram_id
 from data.db_utils import get_payment_status, update_payment_status
 from data.db_utils import generate_gift_code
+from data.db_utils import add_lte_paid_gb
 from payments.yookassa_client import fetch_payment
 
 ADMIN_ID = int((os.getenv("ADMIN_IDS") or "").split(",")[0].strip() or "0")
@@ -75,9 +76,15 @@ async def yookassa_webhook_handler(request: web.Request):
 
         # Считываем данные из metadata
         metadata = (getattr(effective_payment, "metadata", None) or {}) if effective_payment else {}
-        telegram_id = metadata.get("telegram_id")
+        telegram_id_raw = metadata.get("telegram_id")
+        try:
+            telegram_id = int(telegram_id_raw) if telegram_id_raw is not None else None
+        except (TypeError, ValueError):
+            telegram_id = None
         days_to_extend = metadata.get("days_to_extend", 30)
         is_gift_raw = metadata.get("is_gift", False)
+        purchase_type = str(metadata.get("purchase_type") or "").strip().lower()
+        lte_gb_raw = metadata.get("lte_gb", 0)
 
         try:
             days_to_extend = int(days_to_extend)
@@ -101,7 +108,37 @@ async def yookassa_webhook_handler(request: web.Request):
             user_message = ""
             group_message = ""
 
-            if is_gift:
+            if purchase_type == "lte_gb":
+                try:
+                    lte_gb = int(lte_gb_raw)
+                except (TypeError, ValueError):
+                    lte_gb = 0
+                if lte_gb <= 0:
+                    logger.warning("Некорректный lte_gb в metadata: %s", lte_gb_raw)
+                    user_message = (
+                        "⚠️ Платёж прошёл, но пакет LTE ГБ не удалось определить.\n"
+                        "Пожалуйста, напишите в поддержку."
+                    )
+                    group_message = (
+                        f"⚠️ LTE-платёж без валидного lte_gb\n"
+                        f"Пользователь: {telegram_id}\n"
+                        f"payment_id: {payment_id}"
+                    )
+                else:
+                    add_lte_paid_gb(telegram_id, lte_gb)
+                    result = f"LTE +{lte_gb} ГБ"
+                    user_message = (
+                        f"✅ Ваш платеж успешно завершен\\!\n"
+                        f"Добавлено *{lte_gb} ГБ LTE трафика*\\.\n\n"
+                        "📌 Пакет действует только для LTE серверов с лимитом\\.\n"
+                        "♻️ Непотраченные LTE ГБ переносятся на следующий месяц\\."
+                    )
+                    group_message = (
+                        f"📶 LTE пакет успешно оплачен\n"
+                        f"Пользователь: {telegram_id}\n"
+                        f"Добавлено: {lte_gb} ГБ"
+                    )
+            elif is_gift:
                 # 🎁 Генерация подарочного кода
                 gift_code = generate_gift_code()
                 escape_gift_code = escape_markdown_v2(gift_code)

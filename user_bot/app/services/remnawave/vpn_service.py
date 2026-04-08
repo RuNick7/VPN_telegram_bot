@@ -40,6 +40,20 @@ def _list_internal_squads(client: RemnawaveClient, token: str) -> list[dict]:
     return response.get("response", {}).get("internalSquads", []) or []
 
 
+def _find_internal_squad_by_name(
+    squads: list[dict],
+    name: str,
+) -> dict | None:
+    needle = (name or "").strip().lower()
+    if not needle:
+        return None
+    for squad in squads:
+        squad_name = str(squad.get("name") or "").strip().lower()
+        if squad_name == needle:
+            return squad
+    return None
+
+
 def _members_count(squad: dict) -> int:
     info = squad.get("info") or {}
     count = info.get("membersCount")
@@ -159,10 +173,17 @@ def _assign_internal_squad_for_user(client: RemnawaveClient, response: dict) -> 
         logging.info("[Remnawave] Assigning internal squad for user uuid=%s", user_uuid)
         token = client.ensure_token()
         squad, created = _get_or_create_internal_squad(client, token)
+        all_squads = _list_internal_squads(client, token)
         squad_uuid = (squad or {}).get("uuid")
         if squad_uuid:
             logging.info("[Remnawave] Selected squad %s created=%s", squad_uuid, created)
-            client.update_users_internal_squads([str(user_uuid)], [str(squad_uuid)], token_override=token)
+            target_squads = [str(squad_uuid)]
+            lte_name = get_remnawave_settings().lte_squad_name
+            lte_squad = _find_internal_squad_by_name(all_squads, lte_name)
+            lte_uuid = (lte_squad or {}).get("uuid")
+            if lte_uuid and str(lte_uuid) not in target_squads:
+                target_squads.append(str(lte_uuid))
+            client.update_users_internal_squads([str(user_uuid)], target_squads, token_override=token)
             if created:
                 try:
                     threading.Thread(

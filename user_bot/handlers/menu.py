@@ -14,8 +14,10 @@ from app.services.remnawave.vpn_service import (
     create_vpn_user_by_telegram_id,
     ensure_vpn_profile_created_if_missing,
 )
+from app.config.settings import get_remnawave_settings
 from data.db_utils import (
     create_user_record,
+    get_lte_remaining_bytes,
     get_user_by_id,
     update_subscription_expire,
     update_user_email,
@@ -34,6 +36,11 @@ CHANNEL_INFO_TEXT_MD = (
     "Там публикуем информацию о техработах, блокировках и важных обновлениях\\.\n"
     "Подпишитесь, чтобы быть в курсе\\."
 )
+
+
+def _format_gb_from_bytes(value: int) -> str:
+    gb = max(0, int(value)) / (1024 ** 3)
+    return f"{gb:.2f}".rstrip("0").rstrip(".")
 
 
 def _channel_keyboard() -> InlineKeyboardMarkup:
@@ -114,6 +121,12 @@ async def _render_main_menu(
         update_telegram_tag(user_id, username)
 
     if sub_ends > now_ts:
+        lte_settings = get_remnawave_settings()
+        lte_remaining_bytes = get_lte_remaining_bytes(
+            user_id,
+            free_gb=lte_settings.lte_free_gb_per_30d,
+        )
+        lte_remaining_gb = _format_gb_from_bytes(lte_remaining_bytes)
         header = (
             f"<b>👋 С возвращением, @{username}!</b>\n\n"
             if username else "<b>👋 С возвращением!</b>\n\n"
@@ -122,6 +135,7 @@ async def _render_main_menu(
             "🛡 <b>Ваша подписка активна!</b>\n\n"
             f"📅 <b>Действует до:</b> {expire_date}\n"
             f"⏳ <b>Осталось:</b> {days_left} дн.\n\n"
+            f"📶 <b>LTE трафик доступно:</b> {lte_remaining_gb} ГБ\n\n"
         )
         await bot.send_message(
             chat_id,

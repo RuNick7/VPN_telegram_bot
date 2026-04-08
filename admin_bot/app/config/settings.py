@@ -41,6 +41,15 @@ class Settings(BaseSettings):
     node_ram_max_percent: int = 70
     internal_squad_max_users: int = 30
     internal_squad_prefix: str = "internal"
+    lte_traffic_monitor_enabled: bool = Field(True, validation_alias="LTE_TRAFFIC_MONITOR_ENABLED")
+    lte_squad_name: str = Field("LTE", validation_alias="LTE_SQUAD_NAME")
+    lte_free_gb_per_30d: int = Field(1, validation_alias="LTE_FREE_GB_PER_30D")
+    lte_period_days: int = Field(30, validation_alias="LTE_PERIOD_DAYS")
+    lte_limited_node_uuids: List[str] = Field(default_factory=list, validation_alias="LTE_LIMITED_NODE_UUIDS")
+    lte_limited_node_name_keywords: List[str] = Field(
+        default_factory=lambda: ["LTE"],
+        validation_alias="LTE_LIMITED_NODE_NAME_KEYWORDS",
+    )
 
     # Logging
     log_level: str = "INFO"
@@ -57,6 +66,26 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [int(item.strip()) for item in value.split(",") if item.strip()]
         return value
+
+    @field_validator("lte_limited_node_uuids", "lte_limited_node_name_keywords", mode="before")
+    @classmethod
+    def parse_csv_list(cls, value):
+        """Parse comma-separated values into list[str]."""
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        return []
+
+    @field_validator("lte_squad_name", mode="before")
+    @classmethod
+    def normalize_lte_squad_name(cls, value):
+        """Ensure LTE squad name is non-empty."""
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return "LTE"
 
     @field_validator("remnawave_api_url", "remnawave_api_key", mode="before")
     @classmethod

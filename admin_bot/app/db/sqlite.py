@@ -67,6 +67,28 @@ class Database:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        await self.execute("""
+            CREATE TABLE IF NOT EXISTS lte_traffic_limits (
+                tg_id INTEGER PRIMARY KEY,
+                cycle_start_ts INTEGER NOT NULL,
+                paid_balance_bytes INTEGER NOT NULL DEFAULT 0,
+                cycle_paid_spent_bytes INTEGER NOT NULL DEFAULT 0,
+                is_blocked INTEGER NOT NULL DEFAULT 0,
+                last_total_usage_bytes INTEGER NOT NULL DEFAULT 0,
+                last_remaining_bytes INTEGER NOT NULL DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        columns = await self.fetch_all("PRAGMA table_info(lte_traffic_limits)")
+        existing = {str(col["name"]) for col in columns}
+        if "last_total_usage_bytes" not in existing:
+            await self.execute(
+                "ALTER TABLE lte_traffic_limits ADD COLUMN last_total_usage_bytes INTEGER NOT NULL DEFAULT 0"
+            )
+        if "last_remaining_bytes" not in existing:
+            await self.execute(
+                "ALTER TABLE lte_traffic_limits ADD COLUMN last_remaining_bytes INTEGER NOT NULL DEFAULT 0"
+            )
         await self.commit()
 
 

@@ -18,6 +18,8 @@ class RemnawaveSettings:
     timeout_seconds: int
     internal_squad_max_users: int
     internal_squad_prefix: str
+    lte_squad_name: str
+    lte_free_gb_per_30d: int
 
 
 def get_remnawave_settings() -> RemnawaveSettings:
@@ -38,6 +40,12 @@ def get_remnawave_settings() -> RemnawaveSettings:
         raise ValueError("INTERNAL_SQUAD_MAX_USERS must be an integer") from exc
 
     internal_squad_prefix = os.getenv("INTERNAL_SQUAD_PREFIX", "internal").strip() or "internal"
+    lte_squad_name = os.getenv("LTE_SQUAD_NAME", "LTE").strip() or "LTE"
+    lte_free_raw = os.getenv("LTE_FREE_GB_PER_30D", "1")
+    try:
+        lte_free_gb_per_30d = int(lte_free_raw)
+    except ValueError as exc:
+        raise ValueError("LTE_FREE_GB_PER_30D must be an integer") from exc
 
     return RemnawaveSettings(
         base_url=base_url,
@@ -47,4 +55,6 @@ def get_remnawave_settings() -> RemnawaveSettings:
         timeout_seconds=timeout_seconds,
         internal_squad_max_users=internal_squad_max_users,
         internal_squad_prefix=internal_squad_prefix,
+        lte_squad_name=lte_squad_name,
+        lte_free_gb_per_30d=lte_free_gb_per_30d,
     )

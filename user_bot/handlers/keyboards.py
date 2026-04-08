@@ -13,6 +13,7 @@ def os_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="🍎 iOS", callback_data="os:ios"),
+                InlineKeyboardButton(text="📶 Купить LTE Гб", callback_data="lte_gb_menu"),
                 InlineKeyboardButton(text="🤖 Android", callback_data="os:android"),
             ],
             [
@@ -33,7 +34,9 @@ def os_keyboard() -> InlineKeyboardMarkup:
 def pay_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="💳 Продлить подписку", callback_data="subscription_tariffs")],
+            [InlineKeyboardButton(text="💳 Продлить подписку", callback_data="pay_subscription_menu")],
+            [InlineKeyboardButton(text="📶 Купить LTE Гб", callback_data="lte_gb_menu")],
+            [InlineKeyboardButton(text="🔙 Назад", callback_data="main_menu")],
         ]
     )
 
@@ -93,6 +96,9 @@ def manual_setup_keyboard(platform: str) -> InlineKeyboardMarkup:
                 )
             ],
             [
+                InlineKeyboardButton(text="📶 Купить LTE Гб", callback_data="lte_gb_menu"),
+            ],
+            [
                 InlineKeyboardButton(text="🔙 К выбору устройства", callback_data="main_menu"),
             ],
         ]
@@ -107,14 +113,18 @@ def support_faq_back_to_devices_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🛠 Тех. поддержка", url=SUPPORT_URL)],
             [InlineKeyboardButton(text="📖 Частые вопросы", url=FAQ_URL)],
             [InlineKeyboardButton(text="📢 Канал бота", url=STATUS_CHANNEL_URL)],
+            [InlineKeyboardButton(text="📶 Купить LTE Гб", callback_data="lte_gb_menu")],
             [InlineKeyboardButton(text="🔙 К выбору устройства", callback_data="main_menu")],
         ]
     )
 
 
-def tariff_menu_keyboard(buttons: list[tuple[str, str]]) -> InlineKeyboardMarkup:
+def tariff_menu_keyboard(
+    buttons: list[tuple[str, str]],
+    back_callback: str = "main_menu",
+) -> InlineKeyboardMarkup:
     rows = [[InlineKeyboardButton(text=text, callback_data=cb)] for text, cb in buttons]
-    rows.append([InlineKeyboardButton(text="🔙 В меню", callback_data="main_menu")])
+    rows.append([InlineKeyboardButton(text="🔙 Назад", callback_data=back_callback)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -140,6 +150,27 @@ def payment_keyboard(url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="💳 Перейти к оплате", url=url)],
-            [InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_tariffs")],
+            [InlineKeyboardButton(text="🔙 Назад", callback_data="pay_subscription_menu")],
+        ]
+    )
+
+
+def lte_gb_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="5 ГБ — 19₽", callback_data="buy_lte_gb:5")],
+            [InlineKeyboardButton(text="10 ГБ — 35₽", callback_data="buy_lte_gb:10")],
+            [InlineKeyboardButton(text="25 ГБ — 75₽", callback_data="buy_lte_gb:25")],
+            [InlineKeyboardButton(text="50 ГБ — 99₽", callback_data="buy_lte_gb:50")],
+            [InlineKeyboardButton(text="🔙 Назад", callback_data="pay_menu")],
+        ]
+    )
+
+
+def lte_payment_keyboard(url: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="💳 Перейти к оплате", url=url)],
+            [InlineKeyboardButton(text="🔙 Назад", callback_data="lte_gb_menu")],
         ]
     )
