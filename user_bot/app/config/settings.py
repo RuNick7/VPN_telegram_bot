@@ -20,6 +20,8 @@ class RemnawaveSettings:
     internal_squad_prefix: str
     lte_squad_name: str
     lte_free_gb_per_30d: int
+    free_squad_name: str
+    infinite_expire_date: str
 
 
 def get_remnawave_settings() -> RemnawaveSettings:
@@ -47,14 +49,22 @@ def get_remnawave_settings() -> RemnawaveSettings:
     except ValueError as exc:
         raise ValueError("LTE_FREE_GB_PER_30D must be an integer") from exc
 
+    free_squad_name = os.getenv("FREE_SQUAD_NAME", "FREE").strip() or "FREE"
+    infinite_expire_date = (
+        os.getenv("INFINITE_EXPIRE_DATE", "2099-12-31T23:59:59.000Z").strip()
+        or "2099-12-31T23:59:59.000Z"
+    )
+
     return RemnawaveSettings(
         base_url=base_url,
         username=os.getenv("REMNAWAVE_USERNAME"),
         password=os.getenv("REMNAWAVE_PASSWORD"),
-        token=os.getenv("REMNAWAVE_TOKEN"),
+        token=(os.getenv("REMNAWAVE_TOKEN") or os.getenv("REMNAWAVE_API_KEY")),
         timeout_seconds=timeout_seconds,
         internal_squad_max_users=internal_squad_max_users,
         internal_squad_prefix=internal_squad_prefix,
         lte_squad_name=lte_squad_name,
         lte_free_gb_per_30d=lte_free_gb_per_30d,
+        free_squad_name=free_squad_name,
+        infinite_expire_date=infinite_expire_date,
     )

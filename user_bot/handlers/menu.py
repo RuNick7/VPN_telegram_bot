@@ -5,8 +5,9 @@ import re
 import time
 from datetime import datetime
 
+import requests
 from aiogram import Router, F, types
-from aiogram.filters import Command
+from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -26,7 +27,12 @@ from data.db_utils import (
 )
 from handlers.email_state import EmailCaptureState
 from handlers.constants import SECONDS_IN_DAY, TRIAL_DAYS
-from handlers.keyboards import help_menu_keyboard, os_keyboard, pay_keyboard
+from handlers.keyboards import (
+    free_mode_keyboard,
+    help_menu_keyboard,
+    os_keyboard,
+    pay_keyboard,
+)
 
 
 router = Router()
@@ -36,6 +42,45 @@ CHANNEL_INFO_TEXT_MD = (
     "Там публикуем информацию о техработах, блокировках и важных обновлениях\\.\n"
     "Подпишитесь, чтобы быть в курсе\\."
 )
+
+WEB_API_BASE_URL = os.getenv("WEB_API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+WEB_INTERNAL_SECRET = os.getenv("WEB_INTERNAL_SECRET", "")
+WEB_LINK_TIMEOUT_SECONDS = 10.0
+
+WEB_LINK_TOKEN_RE = re.compile(r"^web_([A-Za-z0-9_-]+)$")
+
+
+def _confirm_web_link_token_sync(
+    *,
+    token: str,
+    telegram_id: int,
+    username: str | None,
+    first_name: str | None,
+    last_name: str | None,
+) -> tuple[bool, str]:
+    if not WEB_INTERNAL_SECRET:
+        return False, "WEB_INTERNAL_SECRET is not configured"
+    try:
+        response = requests.post(
+            f"{WEB_API_BASE_URL}/api/internal/telegram-link/confirm",
+            json={
+                "token": token,
+                "telegram_id": int(telegram_id),
+                "username": username or "",
+                "first_name": first_name or "",
+                "last_name": last_name or "",
+            },
+            headers={"X-Kaira-Internal-Secret": WEB_INTERNAL_SECRET},
+            timeout=WEB_LINK_TIMEOUT_SECONDS,
+        )
+        if response.status_code == 200:
+            return True, "ok"
+        if response.status_code == 404:
+            return False, "expired"
+        return False, f"HTTP {response.status_code}"
+    except Exception as exc:
+        logging.warning("[web-link] failed to confirm token: %s", exc)
+        return False, str(exc)
 
 
 def _format_gb_from_bytes(value: int) -> str:
@@ -81,12 +126,13 @@ async def _render_main_menu(
     if is_cb:
         await chat_obj.answer()
 
-    if not user_in_db(user_id):
-        create_user_record(user_id, username)
-        create_vpn_user_by_telegram_id(user_id, TRIAL_DAYS)
-        ensure_vpn_profile_created_if_missing(user_id)
+    user_already_in_db = await asyncio.to_thread(user_in_db, user_id)
+    if not user_already_in_db:
+        await asyncio.to_thread(create_user_record, user_id, username)
+        await asyncio.to_thread(create_vpn_user_by_telegram_id, user_id, TRIAL_DAYS)
+        await asyncio.to_thread(ensure_vpn_profile_created_if_missing, user_id)
         expire_ts = now_ts + TRIAL_DAYS * SECONDS_IN_DAY
-        update_subscription_expire(user_id, expire_ts)
+        await asyncio.to_thread(update_subscription_expire, user_id, expire_ts)
 
         msg = await bot.send_message(
             chat_id,
@@ -112,17 +158,18 @@ async def _render_main_menu(
             pass
         return
 
-    row = get_user_by_id(user_id)
+    row = await asyncio.to_thread(get_user_by_id, user_id)
     sub_ends = row["subscription_ends"] if isinstance(row, dict) else row[2]
     days_left = max(0, (sub_ends - now_ts) // SECONDS_IN_DAY)
     expire_date = datetime.utcfromtimestamp(sub_ends).strftime("%d.%m.%Y")
 
     if username:
-        update_telegram_tag(user_id, username)
+        await asyncio.to_thread(update_telegram_tag, user_id, username)
 
     if sub_ends > now_ts:
         lte_settings = get_remnawave_settings()
-        lte_remaining_bytes = get_lte_remaining_bytes(
+        lte_remaining_bytes = await asyncio.to_thread(
+            get_lte_remaining_bytes,
             user_id,
             free_gb=lte_settings.lte_free_gb_per_30d,
         )
@@ -144,14 +191,20 @@ async def _render_main_menu(
             reply_markup=os_keyboard(),
         )
     else:
+        # Subscription expired -> user has been demoted to the FREE squad with
+        # a single free server. They can keep using the bot for free, or
+        # upgrade by buying a subscription (which will restore them to all
+        # paid servers automatically).
         await bot.send_message(
             chat_id,
             (
-                "🚫 Ваша подписка закончилась.\n\n"
-                "Чтобы продолжить пользоваться VPN-сервисом, продлите подписку:"
+                "🚫 <b>Ваша подписка закончилась.</b>\n\n"
+                "🆓 Сейчас вы в <b>бесплатном режиме</b>: доступен 1 сервер без оплаты.\n"
+                "💳 Купите подписку, чтобы вернуть полный доступ ко всем серверам и LTE.\n\n"
+                "Выберите устройство, чтобы подключиться к бесплатному серверу, либо нажмите «Купить подписку»:"
             ),
             parse_mode="HTML",
-            reply_markup=pay_keyboard(),
+            reply_markup=free_mode_keyboard(),
         )
 
 
@@ -173,7 +226,47 @@ async def _send_help_menu(
 
 
 @router.message(Command("start"))
-async def cmd_start(message: types.Message) -> None:
+async def cmd_start(message: types.Message, command: CommandObject | None = None) -> None:
+    if command and command.args:
+        match = WEB_LINK_TOKEN_RE.match(command.args.strip())
+        if match:
+            token = match.group(1)
+            user_already_in_db = await asyncio.to_thread(user_in_db, message.from_user.id)
+            if not user_already_in_db:
+                await asyncio.to_thread(
+                    create_user_record,
+                    message.from_user.id,
+                    message.from_user.username or "",
+                )
+                await asyncio.to_thread(
+                    create_vpn_user_by_telegram_id, message.from_user.id, TRIAL_DAYS
+                )
+                await asyncio.to_thread(
+                    ensure_vpn_profile_created_if_missing, message.from_user.id
+                )
+                trial_expire_ts = int(time.time()) + TRIAL_DAYS * SECONDS_IN_DAY
+                await asyncio.to_thread(
+                    update_subscription_expire, message.from_user.id, trial_expire_ts
+                )
+            ok, reason = await asyncio.to_thread(
+                _confirm_web_link_token_sync,
+                token=token,
+                telegram_id=message.from_user.id,
+                username=message.from_user.username,
+                first_name=message.from_user.first_name,
+                last_name=message.from_user.last_name,
+            )
+            if ok:
+                await message.answer(
+                    "✅ Аккаунт успешно привязан к сайту.\n\n"
+                    "Вернитесь на вкладку с сайтом — мы продолжим оттуда автоматически."
+                )
+            else:
+                await message.answer(
+                    "⚠️ Ссылка для привязки сайта недействительна или устарела.\n"
+                    "Откройте сайт заново и нажмите «Привязать Telegram» ещё раз."
+                )
+            return
     await _render_main_menu(message)
 
 
@@ -217,8 +310,8 @@ async def change_email_cancel_cb(cb: types.CallbackQuery, state: FSMContext) -> 
     await cb.message.answer("✅ Изменение email отменено.")
 
 
-@router.message(Command("channel"))
-async def channel_cmd(message: types.Message) -> None:
+@router.message(Command("news"))
+async def news_cmd(message: types.Message) -> None:
     await message.answer(
         CHANNEL_INFO_TEXT_MD,
         parse_mode="MarkdownV2",
@@ -245,7 +338,7 @@ async def capture_email(message: types.Message, state: FSMContext) -> None:
             )
         return
 
-    update_user_email(message.from_user.id, email.lower())
+    await asyncio.to_thread(update_user_email, message.from_user.id, email.lower())
     await state.clear()
     await message.answer(
         "✅ Email сохранён.\n"

@@ -1,7 +1,7 @@
 """Application settings loaded from environment variables using pydantic-settings."""
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import field_validator, Field
+from pydantic import field_validator, Field, AliasChoices
 from typing import List, ClassVar
 from pathlib import Path
 
@@ -24,7 +24,10 @@ class Settings(BaseSettings):
 
     # API Configuration
     remnawave_api_url: str = Field("https://api.remnawave.com", validation_alias="REMNAWAVE_BASE_URL")
-    remnawave_api_key: str = Field("", validation_alias="REMNAWAVE_TOKEN")
+    remnawave_api_key: str = Field(
+        "",
+        validation_alias=AliasChoices("REMNAWAVE_TOKEN", "REMNAWAVE_API_KEY"),
+    )
     remnawave_timeout_seconds: int = Field(5, validation_alias="REMNAWAVE_TIMEOUT_SECONDS")
 
     # Database
@@ -49,6 +52,20 @@ class Settings(BaseSettings):
     lte_limited_node_name_keywords: List[str] = Field(
         default_factory=lambda: ["LTE"],
         validation_alias="LTE_LIMITED_NODE_NAME_KEYWORDS",
+    )
+
+    # Free squad / infinite-expire model. When a user's subscription ends locally
+    # we strip paid squads, demote them to FREE_SQUAD_NAME (limited servers) and
+    # force-disconnect open sessions. Panel expireAt is kept at INFINITE_EXPIRE_DATE
+    # so we are the single source of truth for subscription days.
+    free_squad_name: str = Field("FREE", validation_alias="FREE_SQUAD_NAME")
+    subscription_expire_monitor_enabled: bool = Field(
+        True,
+        validation_alias="SUBSCRIPTION_EXPIRE_MONITOR_ENABLED",
+    )
+    infinite_expire_date: str = Field(
+        "2099-12-31T23:59:59.000Z",
+        validation_alias="INFINITE_EXPIRE_DATE",
     )
 
     # Logging
@@ -86,6 +103,22 @@ class Settings(BaseSettings):
         if isinstance(value, str) and value.strip():
             return value.strip()
         return "LTE"
+
+    @field_validator("free_squad_name", mode="before")
+    @classmethod
+    def normalize_free_squad_name(cls, value):
+        """Ensure FREE squad name is non-empty."""
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return "FREE"
+
+    @field_validator("infinite_expire_date", mode="before")
+    @classmethod
+    def normalize_infinite_expire(cls, value):
+        """Strip whitespace, fall back to a far-future date."""
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return "2099-12-31T23:59:59.000Z"
 
     @field_validator("remnawave_api_url", "remnawave_api_key", mode="before")
     @classmethod

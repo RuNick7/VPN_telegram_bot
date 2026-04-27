@@ -15,13 +15,22 @@ class RemnawaveClient:
     def __init__(self):
         self._logger = logging.getLogger(__name__)
         self.base_url = self._normalize_base_url(settings.remnawave_api_url)
-        self.api_key = settings.remnawave_api_key
+        self.api_key = self._normalize_api_key(settings.remnawave_api_key)
+        if not self.api_key:
+            raise APIError("REMNAWAVE_TOKEN/REMNAWAVE_API_KEY is empty.")
         self.sdk = RemnawaveSDK(base_url=self.base_url, token=self.api_key)
         # SDK exposes its internal AsyncClient for custom requests
         self.client: httpx.AsyncClient = self.sdk._client
         timeout_seconds = max(1, int(getattr(settings, "remnawave_timeout_seconds", 5)))
         self.client.timeout = httpx.Timeout(timeout_seconds)
         self._logger.info("Remnawave base URL: %s", self.base_url)
+
+    @staticmethod
+    def _normalize_api_key(value: str) -> str:
+        token = (value or "").strip()
+        if token.lower().startswith("bearer "):
+            token = token[7:].strip()
+        return token
 
     @staticmethod
     def _normalize_base_url(value: str) -> str:

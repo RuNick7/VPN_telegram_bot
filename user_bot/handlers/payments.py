@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import traceback
 
@@ -21,6 +22,18 @@ from payments.yookassa_client import create_payment
 
 
 router = Router()
+
+# Жёсткий потолок на синхронный YooKassa SDK (Payment.create использует requests).
+# Без этого один залипший запрос блокирует весь polling-бот.
+YOOKASSA_CREATE_TIMEOUT_SECONDS = 15.0
+
+
+async def _create_payment_async(**kwargs):
+    """Запускаем sync YooKassa SDK в thread-pool с таймаутом."""
+    return await asyncio.wait_for(
+        asyncio.to_thread(create_payment, **kwargs),
+        timeout=YOOKASSA_CREATE_TIMEOUT_SECONDS,
+    )
 
 LTE_GB_PRICES: dict[int, int] = {
     5: 19,
@@ -54,7 +67,7 @@ async def _send_tariff_menu(
     as_edit: bool = False,
 ) -> None:
     tg_id = target.from_user.id
-    usr = db_utils.get_user_by_id(tg_id)
+    usr = await asyncio.to_thread(db_utils.get_user_by_id, tg_id)
     ref_count = usr["referred_people"] if usr else 0
 
     tariffs = {
@@ -65,6 +78,11 @@ async def _send_tariff_menu(
     }
 
     buttons: list[tuple[str, str]] = []
+    try:
+        monthly_price = get_subscription_price(1, ref_count)
+    except Exception:
+        monthly_price = None
+
     for _, info in sorted(tariffs.items()):
         months = info["months"]
         try:
@@ -73,7 +91,20 @@ async def _send_tariff_menu(
             logging.error("[ERROR] Цена для %s мес., ref=%s: %s", months, ref_count, exc)
             price = "?"
 
-        buttons.append((f"{info['duration']} — {price}₽", f"buy_tariff:{months}"))
+        discount_suffix = ""
+        if (
+            isinstance(price, int)
+            and isinstance(monthly_price, int)
+            and months > 1
+            and monthly_price > 0
+        ):
+            full_price = monthly_price * months
+            if price < full_price:
+                discount_percent = round((1 - (price / full_price)) * 100)
+                if discount_percent > 0:
+                    discount_suffix = f" | -{discount_percent}%"
+
+        buttons.append((f"{info['duration']} — {price}₽{discount_suffix}", f"buy_tariff:{months}"))
 
     kb = tariff_menu_keyboard(buttons, back_callback="pay_menu")
     text_md = "📦 *Выберите тариф*:\n"
@@ -155,7 +186,7 @@ async def buy_lte_gb_callback(callback_query: types.CallbackQuery) -> None:
     )
 
     try:
-        payment = create_payment(
+        payment = await _create_payment_async(
             amount=amount,
             description=description,
             return_url=return_url,
@@ -177,6 +208,11 @@ async def buy_lte_gb_callback(callback_query: types.CallbackQuery) -> None:
             telegram_id,
             gb_amount,
             amount,
+        )
+    except asyncio.TimeoutError:
+        logging.error("[ERROR] LTE payment create timeout: telegram_id=%s gb=%s", telegram_id, gb_amount)
+        await callback_query.message.edit_text(
+            "❌ YooKassa слишком долго не отвечает. Попробуйте через минуту."
         )
     except Exception as exc:
         logging.exception("[ERROR] LTE payment create failed: %s", exc)
@@ -200,7 +236,7 @@ async def buy_tariff_callback(callback_query: types.CallbackQuery) -> None:
         return
 
     telegram_id = callback_query.from_user.id
-    user = db_utils.get_user_by_id(telegram_id)
+    user = await asyncio.to_thread(db_utils.get_user_by_id, telegram_id)
     referred_people = user["referred_people"] if user else 0
 
     try:
@@ -215,7 +251,7 @@ async def buy_tariff_callback(callback_query: types.CallbackQuery) -> None:
     days_to_add = months * 30
 
     try:
-        payment = create_payment(
+        payment = await _create_payment_async(
             amount=amount,
             description=description,
             return_url=return_url,
@@ -237,6 +273,11 @@ async def buy_tariff_callback(callback_query: types.CallbackQuery) -> None:
             months,
             amount,
         )
+    except asyncio.TimeoutError:
+        logging.error("[ERROR] Таймаут создания платежа: telegram_id=%s months=%s", telegram_id, months)
+        await callback_query.message.edit_text(
+            "❌ YooKassa слишком долго не отвечает. Попробуйте через минуту."
+        )
     except Exception as exc:
         traceback.print_exc()
         logging.error("[ERROR] Ошибка создания платежа для telegram_id %s: %s", telegram_id, exc)
@@ -249,7 +290,7 @@ async def gift_subscription_cmd(message: types.Message) -> None:
     Показывает тарифы для подарочной подписки + статистику:
     сколько подписок пользователь уже подарил.
     """
-    user_row = get_user_by_id(message.from_user.id)
+    user_row = await asyncio.to_thread(get_user_by_id, message.from_user.id)
     if not user_row:
         gifted = 0
     else:
@@ -278,7 +319,7 @@ async def gift_subscription_cmd(message: types.Message) -> None:
 
 @router.callback_query(F.data == "gift_subscription")
 async def gift_subscription_cb(cb: CallbackQuery) -> None:
-    user_row = get_user_by_id(cb.from_user.id)
+    user_row = await asyncio.to_thread(get_user_by_id, cb.from_user.id)
     if not user_row:
         gifted = 0
     else:
@@ -333,7 +374,7 @@ async def buy_gift_callback(callback: CallbackQuery) -> None:
     return_url = "https://yourdomain.com/return"
 
     try:
-        payment = create_payment(
+        payment = await _create_payment_async(
             amount=gift["price"],
             description=description,
             return_url=return_url,
@@ -346,6 +387,11 @@ async def buy_gift_callback(callback: CallbackQuery) -> None:
         await callback.message.edit_text(
             "🎁 Для оформления подарка нажмите на кнопку ниже:",
             reply_markup=gift_payment_keyboard(url),
+        )
+    except asyncio.TimeoutError:
+        logging.error("[GIFT ERROR] Таймаут создания платежа: telegram_id=%s", telegram_id)
+        await callback.message.edit_text(
+            "❌ YooKassa слишком долго не отвечает. Попробуйте через минуту."
         )
     except Exception as exc:
         logging.exception("[GIFT ERROR] Ошибка создания платежа: %s", exc)

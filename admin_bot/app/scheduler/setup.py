@@ -11,6 +11,7 @@ from app.scheduler.jobs import (
     subscription_db_backup,
     inactive_user_cleanup,
     lte_traffic_monitor,
+    subscription_expire_monitor,
 )
 from app.config.settings import settings
 
@@ -66,5 +67,19 @@ def create_scheduler() -> AsyncIOScheduler:
         name="LTE Traffic Limit Monitor",
         replace_existing=True,
     )
+
+    if settings.subscription_expire_monitor_enabled:
+        scheduler.add_job(
+            subscription_expire_monitor.run_subscription_expire_monitor,
+            trigger="interval",
+            minutes=settings.monitor_interval_minutes,
+            id="subscription_expire_monitor",
+            name="Subscription Expire Monitor (FREE squad demotion/promotion)",
+            replace_existing=True,
+        )
+    else:
+        logger.info(
+            "Subscription expire monitor disabled by SUBSCRIPTION_EXPIRE_MONITOR_ENABLED=false"
+        )
 
     return scheduler

@@ -1,3 +1,5 @@
+import asyncio
+
 from aiogram import Router, F, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -12,6 +14,24 @@ from handlers.utils import escape_markdown_v2
 
 
 router = Router()
+
+# Жёсткий потолок на синхронный Remnawave SDK (через requests).
+REMNAWAVE_EXTEND_TIMEOUT_SECONDS = 20.0
+
+
+async def _extend_subscription_async(telegram_id: int, added_days: int) -> str:
+    """Sync remnawave extend в thread-pool с таймаутом."""
+    from app.services.remnawave import vpn_service as vpn
+
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(
+                vpn.extend_subscription_by_telegram_id, telegram_id, added_days
+            ),
+            timeout=REMNAWAVE_EXTEND_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        return f"❌ Таймаут продления подписки (>{REMNAWAVE_EXTEND_TIMEOUT_SECONDS}s)"
 
 
 class ReferralFSM(StatesGroup):
@@ -229,8 +249,7 @@ async def handle_promo_code(message: Message, state: FSMContext) -> None:
             text = f"❌ Этот подарочный промокод *{escaped_code}* уже был использован\\."
         else:
             added_days = promo["value"]
-            from app.services.remnawave import vpn_service as vpn
-            result = vpn.extend_subscription_by_telegram_id(telegram_id, added_days)
+            result = await _extend_subscription_async(telegram_id, added_days)
             if isinstance(result, str) and result.startswith("❌"):
                 text = f"⚠️ Не удалось продлить подписку: {result}"
             else:
@@ -241,8 +260,7 @@ async def handle_promo_code(message: Message, state: FSMContext) -> None:
     else:
         if promo["type"] == "days":
             added_days = promo["value"]
-            from app.services.remnawave import vpn_service as vpn
-            result = vpn.extend_subscription_by_telegram_id(telegram_id, added_days)
+            result = await _extend_subscription_async(telegram_id, added_days)
             if isinstance(result, str) and result.startswith("❌"):
                 text = f"⚠️ Не удалось продлить подписку: {result}"
             else:

@@ -41,6 +41,36 @@ def pay_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def free_mode_keyboard() -> InlineKeyboardMarkup:
+    """
+    Keyboard shown when user's paid subscription has ended.
+
+    The user is on FREE squad (1 free server), so we show:
+    - device selectors so they can keep using the free tier;
+    - a prominent buy-subscription CTA so they can upgrade.
+    """
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="💳 Купить подписку", callback_data="pay_subscription_menu")],
+            [
+                InlineKeyboardButton(text="🍎 iOS", callback_data="os:ios"),
+                InlineKeyboardButton(text="🤖 Android", callback_data="os:android"),
+            ],
+            [
+                InlineKeyboardButton(text="🖥 Windows", callback_data="os:windows"),
+                InlineKeyboardButton(text="💻 macOS", callback_data="os:macos"),
+            ],
+            [
+                InlineKeyboardButton(text="🐧 Linux", callback_data="os:linux"),
+                InlineKeyboardButton(text="📺 Android-TV", callback_data="os:tv"),
+            ],
+            [
+                InlineKeyboardButton(text="🍏 Apple TV", callback_data="os:appletv"),
+            ],
+        ]
+    )
+
+
 def back_to_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -95,6 +125,9 @@ def manual_setup_keyboard(platform: str) -> InlineKeyboardMarkup:
                     text="😕 Не смогли подключиться?",
                     callback_data=f"manual_setup:{platform}",
                 )
+            ],
+            [
+                InlineKeyboardButton(text="📰 Новости", url=STATUS_CHANNEL_URL),
             ],
             [
                 InlineKeyboardButton(text="📶 Купить LTE Гб", callback_data="lte_gb_menu"),

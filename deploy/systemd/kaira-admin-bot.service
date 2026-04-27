@@ -1,0 +1,35 @@
+[Unit]
+Description=KairaVPN admin bot (aiogram)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kaira
+Group=kaira
+WorkingDirectory=/opt/kaira/KairaVPN_admin_bot/admin_bot
+EnvironmentFile=/opt/kaira/KairaVPN_admin_bot/.env
+ExecStart=/opt/kaira/KairaVPN_admin_bot/.venv/bin/python -u main.py
+
+Restart=always
+RestartSec=3
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+KillSignal=SIGINT
+SendSIGKILL=yes
+TimeoutStartSec=30
+TimeoutStopSec=10
+
+LimitNOFILE=65535
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kaira-admin-bot
+
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -10,6 +10,7 @@ from typing import Any
 from app.config.settings import settings
 from app.db.repo.lte_limits import lte_limits_repo
 from app.notify.admin import send_admin_message
+from app.services.subscription_db import get_subscription_ends_map
 from app.services.users import user_service
 
 logger = logging.getLogger(__name__)
@@ -176,9 +177,17 @@ async def run_lte_traffic_monitor() -> None:
             logger.warning("LTE squad '%s' not found", settings.lte_squad_name)
             return
 
+        free_squad = await user_service._find_internal_squad_by_name(settings.free_squad_name)
+        free_squad_uuid = str((free_squad or {}).get("uuid") or "") or None
+
         nodes_resp = await user_service.client.request("GET", "/nodes")
         nodes = nodes_resp.get("response", []) or []
         lte_nodes = _resolve_lte_node_uuids(nodes if isinstance(nodes, list) else [])
+
+        # Subscription_ends source-of-truth for paid access. If a user's
+        # subscription has lapsed, LTE squad must be revoked regardless of
+        # remaining paid GB balance: free mode means free servers only.
+        ends_map = await get_subscription_ends_map()
 
         users = await _list_all_users()
         for user in users:
@@ -218,12 +227,20 @@ async def run_lte_traffic_monitor() -> None:
                 cycle_paid_spent += additional_from_paid
 
             over_limit_bytes = max(0, paid_needed - cycle_paid_spent)
-            should_block = over_limit_bytes > 0
+            sub_ends_ts = int(ends_map.get(tg_id, 0))
+            subscription_expired = sub_ends_ts <= now
+            # Subscription gate: lapsed users lose LTE even if balance > 0.
+            should_block = bool(over_limit_bytes > 0 or subscription_expired)
             free_remaining = max(0, free_bytes - usage_bytes)
             remaining_bytes = max(0, free_remaining + paid_balance)
 
             squad_uuids = _extract_user_squad_uuids(user)
             has_lte = str(lte_squad_uuid) in squad_uuids
+            in_free_only = bool(
+                free_squad_uuid
+                and free_squad_uuid in squad_uuids
+                and not any(uuid != free_squad_uuid for uuid in squad_uuids if uuid)
+            )
             desired_squads = list(squad_uuids)
 
             if should_block and has_lte:
@@ -231,7 +248,14 @@ async def run_lte_traffic_monitor() -> None:
                 await user_service._update_user_internal_squads(str(user_uuid), desired_squads)
                 await user_service.force_disconnect_user(str(user_uuid))
                 blocked_now += 1
-            elif not should_block and not has_lte:
+            elif (
+                not should_block
+                and not has_lte
+                and not in_free_only
+            ):
+                # Don't add LTE to a user that has been demoted to FREE only:
+                # the subscription monitor owns that state and would just
+                # remove LTE again on the next cycle.
                 desired_squads.append(str(lte_squad_uuid))
                 await user_service._update_user_internal_squads(str(user_uuid), desired_squads)
                 unblocked_now += 1

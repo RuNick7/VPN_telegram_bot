@@ -1,0 +1,42 @@
+[Unit]
+Description=KairaVPN YooKassa webhook (aiohttp)
+Documentation=https://github.com/your-org/KairaVPN_admin_bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kaira
+Group=kaira
+WorkingDirectory=/opt/kaira/KairaVPN_admin_bot/user_bot
+EnvironmentFile=/opt/kaira/KairaVPN_admin_bot/.env
+
+# Слушаем только loopback. Наружу webhook доступен через nginx (см. README).
+Environment=WEBHOOK_HOST=127.0.0.1
+Environment=WEBHOOK_PORT=8000
+Environment=WEBHOOK_SHUTDOWN_TIMEOUT=5
+
+ExecStart=/opt/kaira/KairaVPN_admin_bot/.venv/bin/python -u run_webhook.py
+
+Restart=always
+RestartSec=3
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+KillSignal=SIGINT
+SendSIGKILL=yes
+TimeoutStartSec=30
+TimeoutStopSec=10
+
+LimitNOFILE=65535
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kaira-webhook
+
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

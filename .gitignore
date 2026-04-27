@@ -1,15 +1,77 @@
+# --- Secrets & local env ---
 .env
+.env.local
+.env.*.local
 admin_bot/.env
 admin_bot/logs/
-admin_bot/backups/
-logs/
+user_bot/.env
+web/backend/.env
+web/backend/.env.local
+web/frontend/.env
+web/frontend/.env.local
+web/frontend/.env.production
+web/frontend/.env.development
+
+# --- Python ---
+.venv/
+venv/
+.venv312/
+web/backend/.venv/
+web/backend/.venv312/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Node / Next.js ---
+node_modules/
+web/frontend/node_modules/
+web/frontend/.next/
+web/frontend/out/
+web/frontend/.turbo/
+web/frontend/build/
+web/frontend/dist/
+web/frontend/coverage/
+web/frontend/next-env.d.ts.bak
+*.tsbuildinfo
+
+# --- Databases & backups ---
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
 user_bot/data/*.db
 user_bot/data/*.db-wal
 user_bot/data/*.db-shm
-.venv/
-web/backend/.venv312/
+admin_bot/backups/
+backups/
+
+# --- Logs ---
+logs/
+*.log
+
+# --- Cookies / scratch files left by curl tests ---
 web/backend/cookies*.txt
-__pycache__/
-*.pyc
-.DS_Store
+cookies*.txt
+
+# --- Generated / debug ---
+*.pid
+*.seed
+*.pid.lock
+*.lcov
+.coverage
+htmlcov/
+
+# --- IDEs ---
 .idea/
+.vscode/
+*.swp
+*.swo
+
+# --- OS ---
+.DS_Store
+Thumbs.db

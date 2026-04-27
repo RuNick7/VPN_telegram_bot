@@ -216,6 +216,25 @@ async def upsert_subscription_telegram_id(
         await db.commit()
 
 
+async def update_subscription_referred_people(telegram_id: int, referred_people: int) -> bool:
+    """Update referred_people for a user in subscription DB."""
+    db_path = _get_db_path()
+    created_at_ts = int(datetime.now(timezone.utc).timestamp())
+    async with aiosqlite.connect(db_path) as db:
+        await _ensure_subscription_table(db, db_path)
+        cursor = await db.execute(
+            """
+            UPDATE subscription
+            SET referred_people = ?,
+                created_at = ?
+            WHERE telegram_id = ?
+            """,
+            (int(referred_people), created_at_ts, int(telegram_id)),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
+
+
 async def delete_subscription_user(telegram_id: int) -> bool:
     """Delete user from subscription DB by telegram_id."""
     db_path = _get_db_path()
@@ -281,6 +300,28 @@ async def get_all_telegram_ids() -> list[int]:
         cursor = await db.execute("SELECT telegram_id FROM subscription")
         rows = await cursor.fetchall()
     return [int(row[0]) for row in rows if row and row[0] is not None]
+
+
+async def get_subscription_ends_map() -> dict[int, int]:
+    """
+    Return {telegram_id: latest_subscription_ends_ts}.
+
+    If the same telegram_id appears multiple times in the DB (legacy duplicates),
+    the latest end-of-subscription timestamp wins.
+    """
+    db_path = _get_db_path()
+    async with aiosqlite.connect(db_path) as db:
+        await _ensure_subscription_table(db, db_path)
+        cursor = await db.execute(
+            """
+            SELECT telegram_id, MAX(subscription_ends)
+            FROM subscription
+            WHERE telegram_id IS NOT NULL
+            GROUP BY telegram_id
+            """
+        )
+        rows = await cursor.fetchall()
+    return {int(row[0]): int(row[1] or 0) for row in rows if row and row[0] is not None}
 
 
 async def get_inactive_telegram_ids_for_cleanup(inactive_days: int = 30) -> list[int]:

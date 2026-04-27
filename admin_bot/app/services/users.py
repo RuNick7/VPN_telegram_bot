@@ -12,6 +12,21 @@ from app.config.settings import settings
 from app.services.subscription_db import insert_subscription_user
 
 
+def _parse_infinite_expire_at() -> datetime:
+    """Parse INFINITE_EXPIRE_DATE setting into a tz-aware datetime."""
+    raw = (settings.infinite_expire_date or "").strip()
+    if not raw:
+        raw = "2099-12-31T23:59:59.000Z"
+    normalized = raw.replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(normalized)
+    except ValueError:
+        dt = datetime(2099, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 class UserService:
     """Service for user operations."""
 
@@ -24,6 +39,33 @@ class UserService:
         if "response" in response:
             return response.get("response", {}).get("internalSquads", []) or []
         return response.get("internalSquads", []) or []
+
+    @staticmethod
+    def _is_paid_internal_squad(squad: dict) -> bool:
+        """Internal pool squad name pattern is `<prefix>-<n>` (e.g. internal-1)."""
+        from app.config.settings import settings  # avoid circular import at module level
+
+        name = str(squad.get("name") or "")
+        prefix = settings.internal_squad_prefix
+        return name.startswith(f"{prefix}-")
+
+    @staticmethod
+    def _internal_squad_index(squad: dict) -> int:
+        """
+        Numeric suffix from `<prefix>-<n>` (e.g. internal-3 -> 3).
+
+        Used to order paid squads so new users always land in the latest
+        `internal-<N>` with capacity, falling back to older pools only when
+        the newer ones are full.
+        """
+        from app.config.settings import settings  # avoid circular import at module level
+
+        name = str(squad.get("name") or "")
+        prefix = settings.internal_squad_prefix
+        if not name.startswith(f"{prefix}-"):
+            return 0
+        suffix = name[len(prefix) + 1:]
+        return int(suffix) if suffix.isdigit() else 0
 
     async def _find_internal_squad_by_name(self, squad_name: str) -> dict | None:
         squads = await self._list_internal_squads()
@@ -175,14 +217,30 @@ class UserService:
                 self.log.warning("Failed to update user %s squads: %s", uuid, exc)
 
     async def _get_or_create_internal_squad(self) -> tuple[Optional[dict], bool]:
+        """
+        Find a paid `internal-*` squad with capacity, or create a new one.
+
+        We must not return the FREE / LTE / custom squads here — those have
+        special semantics (free tier, paid GB add-on) and live outside the
+        auto-rotated paid pool.
+        """
         squads = await self._list_internal_squads()
         limit = settings.internal_squad_max_users
-        for squad in squads:
+        paid_squads = [s for s in squads if self._is_paid_internal_squad(s)]
+        # Always fill the highest-indexed `internal-<N>` (the most recently
+        # created paid pool) first, falling back to older squads only when
+        # the newer ones are saturated.
+        paid_squads_sorted = sorted(paid_squads, key=self._internal_squad_index, reverse=True)
+        for squad in paid_squads_sorted:
             if self._members_count(squad) < limit:
                 return squad, False
 
         name = self._next_internal_squad_name(squads)
-        template = next((s for s in squads if (s.get("inbounds") or [])), None)
+        # Pick a template from the paid pool so the new squad inherits the
+        # correct paid inbounds, falling back to any squad with inbounds.
+        template = next((s for s in paid_squads if (s.get("inbounds") or [])), None)
+        if not template:
+            template = next((s for s in squads if (s.get("inbounds") or [])), None)
         inbound_ids = self._extract_inbound_ids(template) if template else []
         self.log.info("Creating internal squad %s with %s inbounds", name, len(inbound_ids))
         return await self._create_internal_squad(name, inbound_ids), True
@@ -197,12 +255,22 @@ class UserService:
         tag: Optional[str] = None,
         hwid_device_limit: Optional[int] = None
     ) -> Dict[str, Any]:
-        """Create a new user with a default expiration."""
+        """
+        Create a new user.
+
+        - Panel `expireAt` is fixed at INFINITE_EXPIRE_DATE; we count remaining
+          days locally in the subscription DB. The legacy `expire_at` /
+          `days_valid` arguments are now treated only as the local
+          subscription end date and are NOT pushed to the panel.
+        - The user is assigned to a paid `internal-*` squad. LTE is granted
+          later by the LTE traffic monitor only if the user buys paid GB.
+        """
         if expire_at is None:
             expire_at = datetime.now(timezone.utc) + timedelta(days=days_valid)
+        panel_expire_at = _parse_infinite_expire_at()
         body = CreateUserRequestDto(
             username=username,
-            expire_at=expire_at,
+            expire_at=panel_expire_at,
             telegram_id=telegram_id,
             traffic_limit_bytes=traffic_limit_bytes,
             tag=tag,
@@ -220,11 +288,6 @@ class UserService:
                 squad_uuid = (squad or {}).get("uuid")
                 if squad_uuid:
                     target_squads: list[str] = [str(squad_uuid)]
-                    if settings.lte_traffic_monitor_enabled:
-                        lte_squad = await self._find_internal_squad_by_name(settings.lte_squad_name)
-                        lte_uuid = (lte_squad or {}).get("uuid")
-                        if lte_uuid and str(lte_uuid) not in target_squads:
-                            target_squads.append(str(lte_uuid))
                     self.log.info(
                         "Selected squad %s created=%s for user %s",
                         squad_uuid,
@@ -305,12 +368,19 @@ class UserService:
 
     async def update_user(self, user_uuid: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Update user by uuid."""
+        field_aliases = {
+            "expire_at": "expireAt",
+            "traffic_limit_bytes": "trafficLimitBytes",
+            "telegram_id": "telegramId",
+            "hwid_device_limit": "hwidDeviceLimit",
+        }
         payload: Dict[str, Any] = {}
         for key, value in data.items():
+            api_key = field_aliases.get(key, key)
             if isinstance(value, datetime):
-                payload[key] = value.isoformat()
+                payload[api_key] = value.isoformat()
             else:
-                payload[key] = value
+                payload[api_key] = value
         payload["uuid"] = user_uuid
         return await self.client.request("PATCH", "/users", json=payload)
 

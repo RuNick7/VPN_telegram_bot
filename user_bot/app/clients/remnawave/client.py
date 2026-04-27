@@ -4,6 +4,12 @@ from typing import Any
 import requests
 
 
+# Жёсткий потолок на установку TCP-соединения. Чтобы при недоступности
+# Remnawave (упал DNS, сетевой сбой) клиент падал быстро, а не висел
+# минутами на стандартных таймаутах ОС.
+_CONNECT_TIMEOUT_SECONDS = 5
+
+
 class RemnawaveClient:
     def __init__(
         self,
@@ -22,6 +28,13 @@ class RemnawaveClient:
         self._password = password
         self._timeout_seconds = timeout_seconds
 
+    @property
+    def _timeout(self) -> tuple[float, float]:
+        """(connect, read) — отдельные таймауты, так safer чем единый total."""
+        read = float(self._timeout_seconds)
+        connect = float(min(_CONNECT_TIMEOUT_SECONDS, max(2, read)))
+        return (connect, read)
+
     def _headers(self, token_override: str | None = None) -> dict[str, str]:
         token = token_override or self._token
         if not token:
@@ -36,7 +49,7 @@ class RemnawaveClient:
         resp = requests.post(
             url,
             json={"username": self._username, "password": self._password},
-            timeout=self._timeout_seconds,
+            timeout=self._timeout,
         )
         resp.raise_for_status()
         token = resp.json()["response"]["accessToken"]
@@ -54,7 +67,7 @@ class RemnawaveClient:
         resp = requests.get(
             url,
             headers=self._headers(token),
-            timeout=self._timeout_seconds,
+            timeout=self._timeout,
         )
         if resp.status_code == 404:
             raise ValueError("User not found")
@@ -68,8 +81,17 @@ class RemnawaveClient:
             url,
             headers=self._headers(token),
             json=payload,
-            timeout=self._timeout_seconds,
+            timeout=self._timeout,
         )
+        if resp.status_code == 401 and self._username and self._password and token_override is None:
+            logging.warning("[Remnawave] Token unauthorized on create_user, retrying after login")
+            refreshed = self.login()
+            resp = requests.post(
+                url,
+                headers=self._headers(refreshed),
+                json=payload,
+                timeout=self._timeout,
+            )
         try:
             resp.raise_for_status()
         except requests.HTTPError as exc:
@@ -88,7 +110,7 @@ class RemnawaveClient:
             url,
             headers=self._headers(token),
             params={"page": page, "size": size, "limit": size},
-            timeout=self._timeout_seconds,
+            timeout=self._timeout,
         )
         resp.raise_for_status()
         return resp.json()
@@ -99,7 +121,7 @@ class RemnawaveClient:
         resp = requests.get(
             url,
             headers=self._headers(token),
-            timeout=self._timeout_seconds,
+            timeout=self._timeout,
         )
         resp.raise_for_status()
         return resp.json()
@@ -111,7 +133,7 @@ class RemnawaveClient:
             url,
             headers=self._headers(token),
             json=payload,
-            timeout=self._timeout_seconds,
+            timeout=self._timeout,
         )
         resp.raise_for_status()
         return resp.json()
@@ -128,7 +150,7 @@ class RemnawaveClient:
             url,
             headers=self._headers(token),
             json={"userUuids": user_uuids},
-            timeout=self._timeout_seconds,
+            timeout=self._timeout,
         )
         resp.raise_for_status()
         return resp.json()
@@ -145,7 +167,7 @@ class RemnawaveClient:
             url,
             headers=self._headers(token),
             json={"uuids": user_uuids, "activeInternalSquads": squad_uuids},
-            timeout=self._timeout_seconds,
+            timeout=self._timeout,
         )
         resp.raise_for_status()
         return resp.json()
@@ -161,7 +183,7 @@ class RemnawaveClient:
             url,
             headers=self._headers(token),
             json={"userUuids": user_uuids},
-            timeout=self._timeout_seconds,
+            timeout=self._timeout,
         )
         resp.raise_for_status()
         return resp.json()
@@ -173,7 +195,7 @@ class RemnawaveClient:
             url,
             headers=self._headers(token),
             json=payload,
-            timeout=self._timeout_seconds,
+            timeout=self._timeout,
         )
         resp.raise_for_status()
         return resp.json()
@@ -184,7 +206,7 @@ class RemnawaveClient:
         resp = requests.get(
             url,
             headers=self._headers(token),
-            timeout=self._timeout_seconds,
+            timeout=self._timeout,
         )
         if resp.status_code == 404:
             raise ValueError("User not found")

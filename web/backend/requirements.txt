@@ -5,3 +5,4 @@ PyJWT
 requests
 remnawave
 yookassa
+pywebpush
