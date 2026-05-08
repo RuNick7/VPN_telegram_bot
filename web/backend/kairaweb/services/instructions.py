@@ -91,16 +91,15 @@ def build_instructions(platform: str, subscription_url: str | None) -> dict[str,
     if platform == "linux":
         return {
             **common,
-            "title": "Настройка VPN на Linux (NekoRay)",
+            "title": "Настройка VPN на Linux (Koala Clash)",
             "app": {
-                "name": "NekoRay",
-                "download_url": "https://github.com/MatsuriDayo/nekoray/releases/download/4.0.1/nekoray-4.0.1-2024-12-12-linux64.zip",
-                "deb_url": "https://github.com/MatsuriDayo/nekoray/releases/download/4.0.1/nekoray-4.0.1-2024-12-12-debian-x64.deb",
+                "name": "Koala Clash",
+                "download_url": "https://github.com/coolcoala/koala-clash/releases",
             },
             "steps": [
-                {"title": "Скачайте NekoRay", "description": "ZIP или DEB-пакет с GitHub."},
-                {"title": "Скопируйте подписку", "description": "Используйте подписочную ссылку и добавьте профиль из буфера обмена в NekoRay."},
-                {"title": "Включите TUN-режим", "description": "Активируйте TUN-режим, чтобы пропускать весь трафик через VPN."},
+                {"title": "Скачайте Koala Clash", "description": "Выберите DEB, RPM или PACMAN-пакет со страницы GitHub Releases под вашу систему."},
+                {"title": "Добавьте подписку", "description": "В разделе Profiles нажмите Add Profile → Import from URL, вставьте ссылку на подписку и нажмите Import."},
+                {"title": "Включите VPN", "description": "Активируйте System Proxy (только браузер) или TUN Mode (весь трафик) в Settings → System Setting."},
             ],
         }
     if platform == "tv":
