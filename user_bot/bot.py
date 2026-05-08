@@ -1,6 +1,6 @@
 # main.py
 # ──────────────────────────────────────────────────────────────────────
-import os, asyncio, logging, pathlib
+import os, asyncio, logging, pathlib, time
 from dotenv import load_dotenv
 
 from aiogram import Bot, Dispatcher
@@ -23,6 +23,23 @@ bot = Bot(token=USER_BOT_TOKEN)
 dp  = Dispatcher()
 VIDEO_ID_CACHE: dict = {}
 reminders_task: asyncio.Task | None = None
+_heartbeat_task: asyncio.Task | None = None
+
+_HEARTBEAT_PATH = pathlib.Path(
+    os.getenv("USER_BOT_HEARTBEAT_PATH", str(ROOT_DIR / "user_bot" / "data" / "heartbeat"))
+)
+_HEARTBEAT_INTERVAL = 120  # seconds
+
+
+async def _heartbeat_writer() -> None:
+    """Touch heartbeat file every 2 minutes so admin_bot can detect stuck event loops."""
+    _HEARTBEAT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    while True:
+        try:
+            _HEARTBEAT_PATH.write_text(str(time.time()))
+        except Exception:
+            logging.exception("Failed to write heartbeat file")
+        await asyncio.sleep(_HEARTBEAT_INTERVAL)
 
 # ─── MIDDLEWARE: сбор кликов ─────────────────────────────────────────
 evlog = EventLogger()          # экземпляр; соединится при startup
@@ -56,18 +73,23 @@ async def on_startup(dispatcher: Dispatcher) -> None:
             logging.error("reminders_scheduler stopped: %s", exc)
 
     reminders_task.add_done_callback(_reminders_done)
+
+    global _heartbeat_task
+    _heartbeat_task = asyncio.create_task(_heartbeat_writer())
+
     # открываем SQLite для middleware
     await evlog.startup()
 
 # ─── SHUTDOWN HOOK ───────────────────────────────────────────────────
 async def on_shutdown(dispatcher: Dispatcher) -> None:
-    global reminders_task
-    if reminders_task and not reminders_task.done():
-        reminders_task.cancel()
-        try:
-            await reminders_task
-        except asyncio.CancelledError:
-            pass
+    global reminders_task, _heartbeat_task
+    for task in (reminders_task, _heartbeat_task):
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
     await evlog.shutdown()
 
 

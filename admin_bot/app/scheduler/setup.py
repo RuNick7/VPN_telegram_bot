@@ -8,6 +8,7 @@ from apscheduler.triggers.cron import CronTrigger
 from app.scheduler.jobs import (
     daily_backup,
     node_monitor,
+    service_health_monitor,
     subscription_db_backup,
     inactive_user_cleanup,
     lte_traffic_monitor,
@@ -67,6 +68,18 @@ def create_scheduler() -> AsyncIOScheduler:
         name="LTE Traffic Limit Monitor",
         replace_existing=True,
     )
+
+    if settings.service_monitor_enabled:
+        scheduler.add_job(
+            service_health_monitor.run_service_health_monitor,
+            trigger="interval",
+            minutes=settings.monitor_interval_minutes,
+            id="service_health_monitor",
+            name="Service Health Monitor (webhook + user_bot)",
+            replace_existing=True,
+        )
+    else:
+        logger.info("Service health monitor disabled by SERVICE_MONITOR_ENABLED=false")
 
     if settings.subscription_expire_monitor_enabled:
         scheduler.add_job(

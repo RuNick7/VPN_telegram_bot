@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     # Monitoring
     monitor_interval_minutes: int = 5
     node_ram_max_percent: int = 70
+    # Service health monitor
+    service_monitor_enabled: bool = Field(True, validation_alias="SERVICE_MONITOR_ENABLED")
+    service_monitor_stale_minutes: int = Field(10, validation_alias="SERVICE_MONITOR_STALE_MINUTES")
+    webhook_health_url: str = Field("http://127.0.0.1:8000/health", validation_alias="WEBHOOK_HEALTH_URL")
+    user_bot_heartbeat_path: str = Field("", validation_alias="USER_BOT_HEARTBEAT_PATH")
     internal_squad_max_users: int = 30
     internal_squad_prefix: str = "internal"
     lte_traffic_monitor_enabled: bool = Field(True, validation_alias="LTE_TRAFFIC_MONITOR_ENABLED")
@@ -146,6 +151,14 @@ class Settings(BaseSettings):
         if isinstance(value, str) and value.strip():
             return value.strip()
         return str(cls.base_dir.parent / "user_bot" / "data" / "subscription.db")
+
+    @field_validator("user_bot_heartbeat_path", mode="before")
+    @classmethod
+    def set_user_bot_heartbeat_path(cls, value):
+        """Default heartbeat file next to user_bot data directory."""
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return str(cls.base_dir.parent / "user_bot" / "data" / "heartbeat")
 
 
 settings = Settings()
