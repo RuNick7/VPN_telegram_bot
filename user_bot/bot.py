@@ -36,7 +36,7 @@ async def on_startup(dispatcher: Dispatcher) -> None:
     if ADMIN_ID:
         try:
             VIDEO_ID_CACHE = await precache_videos(bot, ADMIN_ID)
-            print("Video cache ready:", VIDEO_ID_CACHE)
+            logging.info("Video cache ready: %s", VIDEO_ID_CACHE)
         except asyncio.CancelledError:
             logging.info("Startup cancelled during video precache.")
             raise
