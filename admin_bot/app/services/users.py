@@ -334,9 +334,13 @@ class UserService:
                     payload = response.get("response") or {}
                     # Some API versions wrap user in "user", others return fields directly.
                     if isinstance(payload.get("user"), dict):
-                        return payload.get("user") or {}
-                    return payload
-                return response
+                        user = payload.get("user") or {}
+                    else:
+                        user = payload
+                    if user.get("uuid"):
+                        return user
+                elif response.get("uuid"):
+                    return response
         except Exception:
             # Fall back to paginated scan below.
             pass
