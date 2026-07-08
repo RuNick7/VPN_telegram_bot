@@ -15,7 +15,8 @@ function isServer(): boolean {
 
 function backendBase(): string {
   if (isServer()) {
-    return process.env.API_BASE_URL || "http://127.0.0.1:8000";
+    // kaira-web-api слушает 127.0.0.1:8001 (см. deploy/systemd).
+    return process.env.API_BASE_URL || "http://127.0.0.1:8001";
   }
   return "";
 }

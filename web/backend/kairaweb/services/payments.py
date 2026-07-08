@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import ipaddress
 import logging
 from typing import Any
@@ -162,8 +163,13 @@ async def fetch_payment_snapshot(payment_id: str) -> dict[str, Any]:
 
 
 async def process_webhook_success(payment_id: str) -> dict[str, Any]:
-    if (await asyncio.to_thread(db_utils.get_payment_status, payment_id)) == "succeeded":
-        return {"ok": True, "idempotent": True, "status": "succeeded"}
+    # Атомарный захват платежа: повторные/конкурентные уведомления YooKassa
+    # не должны обработаться дважды (check-then-act здесь недостаточно —
+    # между проверкой и записью статуса десятки await).
+    claimed = await asyncio.to_thread(db_utils.claim_payment_processing, payment_id)
+    if not claimed:
+        status = await asyncio.to_thread(db_utils.get_payment_status, payment_id)
+        return {"ok": True, "idempotent": True, "status": status or "processing"}
 
     payment = await _fetch_payment_async(payment_id)
     payment_status = str(getattr(payment, "status", "") or "")
@@ -299,4 +305,4 @@ def is_valid_webhook_secret(header_secret: str | None) -> bool:
     expected = get_settings().yookassa_webhook_secret
     if not expected:
         return True
-    return bool(header_secret) and header_secret == expected
+    return bool(header_secret) and hmac.compare_digest(header_secret, expected)

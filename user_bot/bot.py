@@ -80,8 +80,10 @@ async def ignored_blocked_users(event: ErrorEvent) -> bool:
 
 # ─── MAIN ────────────────────────────────────────────────────────────
 def main() -> None:
+    # DEBUG нельзя в проде: aiogram на этом уровне пишет полные апдейты
+    # (сообщения пользователей, email'ы, deep-link-токены) в journald.
     logging.basicConfig(
-        level=logging.DEBUG,
+        level=(os.getenv("LOG_LEVEL") or "INFO").upper(),
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )

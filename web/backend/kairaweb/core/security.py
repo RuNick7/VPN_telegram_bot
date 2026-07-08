@@ -18,9 +18,12 @@ TELEGRAM_AUTH_MAX_AGE_SECONDS = 24 * 60 * 60
 
 
 def get_client_ip(request: Request) -> str:
-    forwarded_for = request.headers.get("x-forwarded-for")
-    if forwarded_for:
-        return forwarded_for.split(",")[0].strip()
+    # Trust only X-Real-IP, which our nginx sets from $remote_addr. The first
+    # X-Forwarded-For entry is client-controlled (nginx appends to it), so
+    # using it would let attackers spoof IPs and bypass rate limits.
+    real_ip = (request.headers.get("x-real-ip") or "").strip()
+    if real_ip:
+        return real_ip
     return request.client.host if request.client else "unknown"
 
 

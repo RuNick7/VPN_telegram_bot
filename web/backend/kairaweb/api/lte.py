@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from kairaweb.api.deps import current_user
+from kairaweb.api.deps import CurrentUser
 from kairaweb.core.settings import ensure_user_bot_on_path, get_settings
 from kairaweb.services.payments import create_lte_payment
 
@@ -37,7 +37,7 @@ async def lte_packages() -> dict[str, Any]:
 
 
 @router.post("/buy")
-async def lte_buy(payload: LtePurchaseRequest, request: Request, user=current_user) -> dict[str, Any]:
+async def lte_buy(payload: LtePurchaseRequest, request: Request, user: dict = CurrentUser) -> dict[str, Any]:
     settings = get_settings()
     return_url = (payload.return_url or settings.web_payment_return_url).strip()
     if not return_url:

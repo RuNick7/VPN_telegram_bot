@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, Request
 
-from kairaweb.api.deps import current_user
+from kairaweb.api.deps import CurrentUser
 from kairaweb.services.servers import list_servers_for_user
 
 
@@ -16,6 +16,6 @@ logger = logging.getLogger(__name__)
 
 
 @router.get("/servers")
-async def servers(request: Request, user=current_user) -> dict[str, Any]:
+async def servers(request: Request, user: dict = CurrentUser) -> dict[str, Any]:
     items = await list_servers_for_user(int(user["telegram_id"]))
     return {"servers": items}

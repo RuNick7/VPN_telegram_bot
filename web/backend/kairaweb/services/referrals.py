@@ -128,24 +128,29 @@ async def redeem_promo(telegram_id: int, code: str) -> dict[str, Any]:
             creator_id = None
         if creator_id is not None and creator_id == int(telegram_id):
             raise PromoError("Нельзя активировать собственный подарочный промокод.")
-        if await asyncio.to_thread(db_utils.has_any_usage, cleaned):
+        # Claim до начисления: одноразовый код нельзя погасить дважды даже
+        # при конкурентных запросах (бот + сайт, два человека одновременно).
+        if not await asyncio.to_thread(
+            db_utils.try_claim_promo_usage, cleaned, int(telegram_id), one_time=True
+        ):
             raise PromoError("Этот подарочный промокод уже использован.")
         added_days = int(promo["value"])
         result = await _extend_subscription_async(int(telegram_id), added_days)
         if isinstance(result, str) and result.startswith("❌"):
+            await asyncio.to_thread(db_utils.release_promo_usage, cleaned, int(telegram_id))
             raise PromoError(result)
-        await asyncio.to_thread(db_utils.save_promo_usage, cleaned, int(telegram_id))
         return {"ok": True, "type": "gift", "added_days": added_days, "code": cleaned}
 
-    if await asyncio.to_thread(db_utils.has_used_promo, cleaned, int(telegram_id)):
-        raise PromoError("Вы уже использовали этот промокод.")
-
     if promo["type"] == "days":
+        if not await asyncio.to_thread(
+            db_utils.try_claim_promo_usage, cleaned, int(telegram_id), one_time=False
+        ):
+            raise PromoError("Вы уже использовали этот промокод.")
         added_days = int(promo["value"])
         result = await _extend_subscription_async(int(telegram_id), added_days)
         if isinstance(result, str) and result.startswith("❌"):
+            await asyncio.to_thread(db_utils.release_promo_usage, cleaned, int(telegram_id))
             raise PromoError(result)
-        await asyncio.to_thread(db_utils.save_promo_usage, cleaned, int(telegram_id))
         return {"ok": True, "type": "days", "added_days": added_days, "code": cleaned}
 
     raise PromoError(f"Тип промокода {promo['type']} пока не поддерживается.")

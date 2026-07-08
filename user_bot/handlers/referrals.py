@@ -47,8 +47,8 @@ def _has_paid_before(user_row) -> bool:
     if not user_row:
         return False
     try:
-        created_at = int((user_row["created_at"] if isinstance(user_row, dict) else user_row[10]) or 0)
-        subscription_ends = int((user_row["subscription_ends"] if isinstance(user_row, dict) else user_row[3]) or 0)
+        created_at = int(user_row["created_at"] or 0)
+        subscription_ends = int(user_row["subscription_ends"] or 0)
     except (TypeError, ValueError, IndexError, KeyError):
         return False
     if created_at <= 0 or subscription_ends <= 0:
@@ -65,16 +65,15 @@ async def referral_program_entry(message: types.Message, state: FSMContext) -> N
     + статистика «приведённых».
     """
     await state.clear()
-    user = get_user_by_id(message.from_user.id)
+    user = await asyncio.to_thread(get_user_by_id, message.from_user.id)
     if not user:
-        referred_cnt = 0
         await message.answer(
             escape_markdown_v2("Профиль ещё не создан. Используйте /start."),
             parse_mode="MarkdownV2",
             reply_markup=back_to_menu_keyboard(),
         )
         return
-    referred_cnt = user["referred_people"] if isinstance(user, dict) else user[6]
+    referred_cnt = int(user["referred_people"] or 0)
 
     if user["referrer_tag"]:
         text = escape_markdown_v2(
@@ -108,6 +107,12 @@ async def referral_program_entry(message: types.Message, state: FSMContext) -> N
 
 @router.callback_query(F.data == "referral_set_tag")
 async def referral_set_tag(cb: CallbackQuery, state: FSMContext) -> None:
+    # Кнопка остаётся в старых сообщениях: повторное нажатие не должно
+    # позволять менять уже указанного пригласившего.
+    user_row = await asyncio.to_thread(get_user_by_id, cb.from_user.id)
+    if user_row and (user_row["referrer_tag"] or ""):
+        await cb.answer("Пригласивший уже указан — изменить его нельзя.", show_alert=True)
+        return
     await cb.answer()
     await state.set_state(ReferralFSM.waiting_for_tag)
     await cb.message.answer(
@@ -154,7 +159,7 @@ async def process_referral_nick(message: types.Message, state: FSMContext) -> No
         )
         return
 
-    ref_user = get_user_by_tag(tag_raw[1:])
+    ref_user = await asyncio.to_thread(get_user_by_tag, tag_raw[1:])
     if not ref_user:
         await message.answer(
             escape_markdown_v2(
@@ -166,11 +171,21 @@ async def process_referral_nick(message: types.Message, state: FSMContext) -> No
         )
         return
 
-    user_row = get_user_by_id(message.from_user.id)
-    set_referrer_tag(message.from_user.id, tag_raw[1:])
+    user_row = await asyncio.to_thread(get_user_by_id, message.from_user.id)
+    if user_row and (user_row["referrer_tag"] or ""):
+        await state.clear()
+        await message.answer(
+            escape_markdown_v2("Пригласивший уже указан — изменить его нельзя."),
+            parse_mode="MarkdownV2",
+            reply_markup=back_to_menu_keyboard(),
+        )
+        return
+    await asyncio.to_thread(set_referrer_tag, message.from_user.id, tag_raw[1:])
     paid_before = _has_paid_before(user_row)
     if paid_before:
-        applied = db_utils.award_referral(tag_raw[1:], message.from_user.id)
+        applied = await asyncio.to_thread(
+            db_utils.award_referral, tag_raw[1:], message.from_user.id
+        )
         if applied:
             text = (
                 f"Отлично! Ты указал @{tag_raw[1:]}\n\n"
@@ -233,7 +248,7 @@ async def handle_promo_code(message: Message, state: FSMContext) -> None:
     telegram_id = message.from_user.id
     escaped_code = escape_markdown_v2(promo_code)
 
-    promo = db_utils.get_promo_by_code(promo_code)
+    promo = await asyncio.to_thread(db_utils.get_promo_by_code, promo_code)
     if not promo or not promo["is_active"]:
         text = f"❌ Промокод *{escaped_code}* недействителен\\."
     elif promo["type"] == "gift":
@@ -245,31 +260,35 @@ async def handle_promo_code(message: Message, state: FSMContext) -> None:
 
         if creator_id is not None and creator_id == telegram_id:
             text = f"❌ Нельзя активировать собственный подарочный промокод *{escaped_code}*\\."
-        elif db_utils.has_any_usage(promo_code):
+        elif not await asyncio.to_thread(
+            db_utils.try_claim_promo_usage, promo_code, telegram_id, one_time=True
+        ):
+            # Claim до начисления: одноразовый код нельзя погасить дважды,
+            # даже если два человека вводят его одновременно.
             text = f"❌ Этот подарочный промокод *{escaped_code}* уже был использован\\."
         else:
             added_days = promo["value"]
             result = await _extend_subscription_async(telegram_id, added_days)
             if isinstance(result, str) and result.startswith("❌"):
+                await asyncio.to_thread(db_utils.release_promo_usage, promo_code, telegram_id)
                 text = f"⚠️ Не удалось продлить подписку: {result}"
             else:
-                db_utils.save_promo_usage(promo_code, telegram_id)
                 text = f"✅ Промокод *{escaped_code}* активирован\\! Подписка продлена на *{added_days}* дней\\."
-    elif db_utils.has_used_promo(promo_code, telegram_id):
-        text = f"❌ Вы уже использовали промокод *{escaped_code}*\\."
-    else:
-        if promo["type"] == "days":
+    elif promo["type"] == "days":
+        if not await asyncio.to_thread(
+            db_utils.try_claim_promo_usage, promo_code, telegram_id, one_time=False
+        ):
+            text = f"❌ Вы уже использовали промокод *{escaped_code}*\\."
+        else:
             added_days = promo["value"]
             result = await _extend_subscription_async(telegram_id, added_days)
             if isinstance(result, str) and result.startswith("❌"):
+                await asyncio.to_thread(db_utils.release_promo_usage, promo_code, telegram_id)
                 text = f"⚠️ Не удалось продлить подписку: {result}"
             else:
                 text = f"✅ Промокод *{escaped_code}* активирован\\! Подписка продлена на *{added_days}* дней\\."
-        else:
-            text = f"❌ Тип промокода *{promo['type']}* пока не поддерживается\\."
-
-        if not text.startswith("⚠️"):
-            db_utils.save_promo_usage(promo_code, telegram_id)
+    else:
+        text = f"❌ Тип промокода *{promo['type']}* пока не поддерживается\\."
 
     await message.answer(
         text.replace("\\", ""),

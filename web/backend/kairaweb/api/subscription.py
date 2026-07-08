@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from kairaweb.api.deps import current_user
+from kairaweb.api.deps import CurrentUser
 from kairaweb.core.settings import get_settings
 from kairaweb.services.instructions import build_qr_data_url
 from kairaweb.services.payments import create_subscription_payment
@@ -29,7 +29,7 @@ class ExtendRequest(BaseModel):
 
 
 @router.get("")
-async def subscription_snapshot(request: Request, user=current_user) -> dict[str, Any]:
+async def subscription_snapshot(request: Request, user: dict = CurrentUser) -> dict[str, Any]:
     telegram_id = int(user["telegram_id"])
     snapshot = await get_subscription_snapshot(telegram_id)
     snapshot["qr_data_url"] = build_qr_data_url(snapshot.get("subscription_url") or "")
@@ -37,7 +37,7 @@ async def subscription_snapshot(request: Request, user=current_user) -> dict[str
 
 
 @router.get("/tariffs")
-async def subscription_tariffs(request: Request, user=current_user) -> dict[str, Any]:
+async def subscription_tariffs(request: Request, user: dict = CurrentUser) -> dict[str, Any]:
     telegram_id = int(user["telegram_id"])
     user_row = get_user_record(telegram_id) or {}
     referred = int(user_row.get("referred_people") or 0)
@@ -48,7 +48,7 @@ async def subscription_tariffs(request: Request, user=current_user) -> dict[str,
 
 
 @router.post("/extend")
-async def subscription_extend(payload: ExtendRequest, request: Request, user=current_user) -> dict[str, Any]:
+async def subscription_extend(payload: ExtendRequest, request: Request, user: dict = CurrentUser) -> dict[str, Any]:
     settings = get_settings()
     months = int(payload.months)
     if months not in (1, 3, 6, 12):

@@ -3,7 +3,7 @@ import logging
 import os
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 import requests
 from aiogram import Router, F, types
@@ -43,7 +43,9 @@ CHANNEL_INFO_TEXT_MD = (
     "Подпишитесь, чтобы быть в курсе\\."
 )
 
-WEB_API_BASE_URL = os.getenv("WEB_API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+# Loopback-адрес web-api (kaira-web-api слушает 127.0.0.1:8001).
+# Не путать с публичным API_BASE_URL: /api/internal/* снаружи закрыт nginx'ом.
+WEB_API_BASE_URL = os.getenv("WEB_API_BASE_URL", "http://127.0.0.1:8001").rstrip("/")
 WEB_INTERNAL_SECRET = os.getenv("WEB_INTERNAL_SECRET", "")
 WEB_LINK_TIMEOUT_SECONDS = 10.0
 
@@ -159,9 +161,9 @@ async def _render_main_menu(
         return
 
     row = await asyncio.to_thread(get_user_by_id, user_id)
-    sub_ends = row["subscription_ends"] if isinstance(row, dict) else row[2]
+    sub_ends = int(row["subscription_ends"] or 0)
     days_left = max(0, (sub_ends - now_ts) // SECONDS_IN_DAY)
-    expire_date = datetime.utcfromtimestamp(sub_ends).strftime("%d.%m.%Y")
+    expire_date = datetime.fromtimestamp(sub_ends, tz=timezone.utc).strftime("%d.%m.%Y")
 
     if username:
         await asyncio.to_thread(update_telegram_tag, user_id, username)

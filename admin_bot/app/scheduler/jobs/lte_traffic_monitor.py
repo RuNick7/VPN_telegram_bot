@@ -103,39 +103,51 @@ def _resolve_lte_node_uuids(nodes: list[dict[str, Any]]) -> set[str]:
     return selected
 
 
+_USAGE_ENDPOINT_TEMPLATES = [
+    "/users/stats/usage/{user_uuid}/range",
+    "/users/stats/usage/range/{user_uuid}",
+    "/bandwidth-stats/users/{user_uuid}/legacy",
+    "/bandwidth-stats/users/{user_uuid}",
+]
+# Запоминаем сработавший endpoint, чтобы не перебирать заново все варианты
+# для каждого пользователя на каждом проходе монитора.
+_working_usage_template: str | None = None
+
+
 async def _fetch_user_lte_usage_bytes(user_uuid: str, from_ts: int, to_ts: int, lte_nodes: set[str]) -> int:
     """
     Fetch user usage and aggregate only LTE nodes.
 
     Tries both old and new Remnawave endpoints.
     """
+    global _working_usage_template
     if not lte_nodes:
         return 0
 
     params = {"start": _iso_date(from_ts), "end": _iso_date(to_ts)}
-    endpoints = [
-        f"/users/stats/usage/{user_uuid}/range",
-        f"/users/stats/usage/range/{user_uuid}",
-        f"/bandwidth-stats/users/{user_uuid}/legacy",
-        f"/bandwidth-stats/users/{user_uuid}",
-    ]
+    templates = list(_USAGE_ENDPOINT_TEMPLATES)
+    if _working_usage_template in templates:
+        templates.remove(_working_usage_template)
+        templates.insert(0, _working_usage_template)
     last_error: Exception | None = None
-    for endpoint in endpoints:
+    for template in templates:
+        endpoint = template.format(user_uuid=user_uuid)
         try:
             raw = await user_service.client.request("GET", endpoint, params=params)
-            rows = _extract_usage_rows(raw)
-            if not rows:
-                return 0
-            total = 0
-            for row in rows:
-                node_uuid = _extract_node_uuid(row)
-                if node_uuid and node_uuid not in lte_nodes:
-                    continue
-                total += max(0, _extract_total_bytes(row))
-            return total
         except Exception as exc:
             last_error = exc
             continue
+        _working_usage_template = template
+        rows = _extract_usage_rows(raw)
+        if not rows:
+            return 0
+        total = 0
+        for row in rows:
+            node_uuid = _extract_node_uuid(row)
+            if node_uuid and node_uuid not in lte_nodes:
+                continue
+            total += max(0, _extract_total_bytes(row))
+        return total
     if last_error:
         raise last_error
     return 0
@@ -190,6 +202,7 @@ async def run_lte_traffic_monitor() -> None:
         ends_map = await get_subscription_ends_map()
 
         users = await _list_all_users()
+        failed_users = 0
         for user in users:
             user_uuid = user.get("uuid")
             if not user_uuid:
@@ -198,86 +211,95 @@ async def run_lte_traffic_monitor() -> None:
             if tg_id is None:
                 continue
 
-            initial_cycle_start = _extract_created_ts(user, now)
-            state = await lte_limits_repo.create_if_missing(
-                tg_id=tg_id,
-                cycle_start_ts=initial_cycle_start,
-            )
-            cycle_start_ts = int(state.get("cycle_start_ts") or now)
-            paid_balance = max(0, int(state.get("paid_balance_bytes") or 0))
-            cycle_paid_spent = max(0, int(state.get("cycle_paid_spent_bytes") or 0))
+            # Ошибка по одному пользователю не должна прерывать весь проход.
+            try:
+                initial_cycle_start = _extract_created_ts(user, now)
+                state = await lte_limits_repo.create_if_missing(
+                    tg_id=tg_id,
+                    cycle_start_ts=initial_cycle_start,
+                )
+                cycle_start_ts = int(state.get("cycle_start_ts") or now)
+                paid_balance = max(0, int(state.get("paid_balance_bytes") or 0))
+                cycle_paid_spent = max(0, int(state.get("cycle_paid_spent_bytes") or 0))
 
-            # Move cycle window by 30-day chunks; purchased balance is carried over.
-            while now >= cycle_start_ts + period_seconds:
-                cycle_start_ts += period_seconds
-                cycle_paid_spent = 0
+                # Move cycle window by 30-day chunks; purchased balance is carried over.
+                while now >= cycle_start_ts + period_seconds:
+                    cycle_start_ts += period_seconds
+                    cycle_paid_spent = 0
 
-            usage_bytes = await _fetch_user_lte_usage_bytes(
-                user_uuid=str(user_uuid),
-                from_ts=cycle_start_ts,
-                to_ts=now,
-                lte_nodes=lte_nodes,
-            )
+                usage_bytes = await _fetch_user_lte_usage_bytes(
+                    user_uuid=str(user_uuid),
+                    from_ts=cycle_start_ts,
+                    to_ts=now,
+                    lte_nodes=lte_nodes,
+                )
 
-            paid_needed = max(0, usage_bytes - free_bytes)
-            if paid_needed > cycle_paid_spent:
-                additional_needed = paid_needed - cycle_paid_spent
-                additional_from_paid = min(additional_needed, paid_balance)
-                paid_balance -= additional_from_paid
-                cycle_paid_spent += additional_from_paid
+                paid_needed = max(0, usage_bytes - free_bytes)
+                additional_from_paid = 0
+                if paid_needed > cycle_paid_spent:
+                    additional_needed = paid_needed - cycle_paid_spent
+                    additional_from_paid = min(additional_needed, paid_balance)
+                    paid_balance -= additional_from_paid
+                    cycle_paid_spent += additional_from_paid
 
-            over_limit_bytes = max(0, paid_needed - cycle_paid_spent)
-            sub_ends_ts = int(ends_map.get(tg_id, 0))
-            subscription_expired = sub_ends_ts <= now
-            # Subscription gate: lapsed users lose LTE even if balance > 0.
-            should_block = bool(over_limit_bytes > 0 or subscription_expired)
-            free_remaining = max(0, free_bytes - usage_bytes)
-            remaining_bytes = max(0, free_remaining + paid_balance)
+                over_limit_bytes = max(0, paid_needed - cycle_paid_spent)
+                sub_ends_ts = int(ends_map.get(tg_id, 0))
+                subscription_expired = sub_ends_ts <= now
+                # Subscription gate: lapsed users lose LTE even if balance > 0.
+                should_block = bool(over_limit_bytes > 0 or subscription_expired)
+                free_remaining = max(0, free_bytes - usage_bytes)
+                remaining_bytes = max(0, free_remaining + paid_balance)
 
-            squad_uuids = _extract_user_squad_uuids(user)
-            has_lte = str(lte_squad_uuid) in squad_uuids
-            in_free_only = bool(
-                free_squad_uuid
-                and free_squad_uuid in squad_uuids
-                and not any(uuid != free_squad_uuid for uuid in squad_uuids if uuid)
-            )
-            desired_squads = list(squad_uuids)
+                squad_uuids = _extract_user_squad_uuids(user)
+                has_lte = str(lte_squad_uuid) in squad_uuids
+                in_free_only = bool(
+                    free_squad_uuid
+                    and free_squad_uuid in squad_uuids
+                    and not any(uuid != free_squad_uuid for uuid in squad_uuids if uuid)
+                )
+                desired_squads = list(squad_uuids)
 
-            if should_block and has_lte:
-                desired_squads = [uuid for uuid in squad_uuids if uuid != str(lte_squad_uuid)]
-                await user_service._update_user_internal_squads(str(user_uuid), desired_squads)
-                await user_service.force_disconnect_user(str(user_uuid))
-                blocked_now += 1
-            elif (
-                not should_block
-                and not has_lte
-                and not in_free_only
-            ):
-                # Don't add LTE to a user that has been demoted to FREE only:
-                # the subscription monitor owns that state and would just
-                # remove LTE again on the next cycle.
-                desired_squads.append(str(lte_squad_uuid))
-                await user_service._update_user_internal_squads(str(user_uuid), desired_squads)
-                unblocked_now += 1
+                if should_block and has_lte:
+                    desired_squads = [uuid for uuid in squad_uuids if uuid != str(lte_squad_uuid)]
+                    await user_service._update_user_internal_squads(str(user_uuid), desired_squads)
+                    await user_service.force_disconnect_user(str(user_uuid))
+                    blocked_now += 1
+                elif (
+                    not should_block
+                    and not has_lte
+                    and not in_free_only
+                ):
+                    # Don't add LTE to a user that has been demoted to FREE only:
+                    # the subscription monitor owns that state and would just
+                    # remove LTE again on the next cycle.
+                    desired_squads.append(str(lte_squad_uuid))
+                    await user_service._update_user_internal_squads(str(user_uuid), desired_squads)
+                    unblocked_now += 1
 
-            await lte_limits_repo.save_state(
-                tg_id=tg_id,
-                cycle_start_ts=cycle_start_ts,
-                paid_balance_bytes=paid_balance,
-                cycle_paid_spent_bytes=cycle_paid_spent,
-                is_blocked=should_block,
-                last_total_usage_bytes=usage_bytes,
-                last_remaining_bytes=remaining_bytes,
-            )
+                await lte_limits_repo.save_state(
+                    tg_id=tg_id,
+                    cycle_start_ts=cycle_start_ts,
+                    paid_spent_delta_bytes=additional_from_paid,
+                    cycle_paid_spent_bytes=cycle_paid_spent,
+                    is_blocked=should_block,
+                    last_total_usage_bytes=usage_bytes,
+                    last_remaining_bytes=remaining_bytes,
+                )
+            except Exception as exc:
+                failed_users += 1
+                logger.warning("LTE monitor: tg_id=%s failed: %s", tg_id, exc)
 
-        if blocked_now or unblocked_now:
-            await send_admin_message(
-                "📶 LTE лимит-монитор:\n"
-                f"• заблокировано: {blocked_now}\n"
-                f"• разблокировано: {unblocked_now}\n"
-                f"• окно: последние {settings.lte_period_days} дней\n"
-                f"• бесплатный лимит: {settings.lte_free_gb_per_30d} ГБ"
-            )
+        if blocked_now or unblocked_now or failed_users:
+            message_lines = [
+                "📶 LTE лимит-монитор:",
+                f"• заблокировано: {blocked_now}",
+                f"• разблокировано: {unblocked_now}",
+                f"• окно: последние {settings.lte_period_days} дней",
+                f"• бесплатный лимит: {settings.lte_free_gb_per_30d} ГБ",
+            ]
+            if failed_users:
+                message_lines.append(f"• ошибок по пользователям: {failed_users}")
+            await send_admin_message("\n".join(message_lines))
     except Exception as exc:
         logger.error("LTE traffic monitor failed: %s", exc, exc_info=True)
         await send_admin_message(

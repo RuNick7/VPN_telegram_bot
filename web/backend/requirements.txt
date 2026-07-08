@@ -1,8 +1,12 @@
 fastapi
 uvicorn[standard]
+# web-api импортирует модули user_bot (handlers.payments, vpn_service),
+# поэтому нужны и их зависимости
+aiogram
 python-dotenv
 PyJWT
 requests
 remnawave
+remnawave_api
 yookassa
 pywebpush

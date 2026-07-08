@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from kairaweb.api.deps import current_user
+from kairaweb.api.deps import CurrentUser
 from kairaweb.core.settings import get_settings
 from kairaweb.services.referrals import (
     PromoError,
@@ -32,7 +32,7 @@ class PromoRedeemRequest(BaseModel):
 
 
 @router.get("/referrals")
-async def get_referrals(request: Request, user=current_user) -> dict[str, Any]:
+async def get_referrals(request: Request, user: dict = CurrentUser) -> dict[str, Any]:
     settings = get_settings()
     overview = await referral_overview(int(user["telegram_id"]))
     bot_username = settings.telegram_bot_username
@@ -42,7 +42,7 @@ async def get_referrals(request: Request, user=current_user) -> dict[str, Any]:
 
 
 @router.post("/referrals/set")
-async def set_referrer_endpoint(payload: ReferralSetRequest, request: Request, user=current_user) -> dict[str, Any]:
+async def set_referrer_endpoint(payload: ReferralSetRequest, request: Request, user: dict = CurrentUser) -> dict[str, Any]:
     try:
         return await set_referrer(int(user["telegram_id"]), payload.referrer_tag)
     except ReferralError as exc:
@@ -50,7 +50,7 @@ async def set_referrer_endpoint(payload: ReferralSetRequest, request: Request, u
 
 
 @router.post("/promo/redeem")
-async def promo_redeem(payload: PromoRedeemRequest, request: Request, user=current_user) -> dict[str, Any]:
+async def promo_redeem(payload: PromoRedeemRequest, request: Request, user: dict = CurrentUser) -> dict[str, Any]:
     try:
         return await redeem_promo(int(user["telegram_id"]), payload.code)
     except PromoError as exc:

@@ -40,21 +40,25 @@ class LTETrafficLimitsRepository:
         self,
         tg_id: int,
         cycle_start_ts: int,
-        paid_balance_bytes: int,
+        paid_spent_delta_bytes: int,
         cycle_paid_spent_bytes: int,
         is_blocked: bool,
         last_total_usage_bytes: int,
         last_remaining_bytes: int,
     ) -> None:
+        # paid_balance_bytes уменьшается на дельту, потраченную за этот проход
+        # монитора, а не перезаписывается абсолютным значением: между чтением
+        # состояния и записью webhook мог зачислить купленные ГБ, и абсолютная
+        # запись затирала бы это пополнение.
         await db.execute(
             """
             INSERT INTO lte_traffic_limits (
                 tg_id, cycle_start_ts, paid_balance_bytes, cycle_paid_spent_bytes, is_blocked,
                 last_total_usage_bytes, last_remaining_bytes, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ) VALUES (?, ?, 0, ?, ?, ?, ?, CURRENT_TIMESTAMP)
             ON CONFLICT(tg_id) DO UPDATE SET
                 cycle_start_ts = excluded.cycle_start_ts,
-                paid_balance_bytes = excluded.paid_balance_bytes,
+                paid_balance_bytes = MAX(0, paid_balance_bytes - ?),
                 cycle_paid_spent_bytes = excluded.cycle_paid_spent_bytes,
                 is_blocked = excluded.is_blocked,
                 last_total_usage_bytes = excluded.last_total_usage_bytes,
@@ -64,11 +68,11 @@ class LTETrafficLimitsRepository:
             (
                 tg_id,
                 int(cycle_start_ts),
-                max(0, int(paid_balance_bytes)),
                 max(0, int(cycle_paid_spent_bytes)),
                 1 if is_blocked else 0,
                 max(0, int(last_total_usage_bytes)),
                 max(0, int(last_remaining_bytes)),
+                max(0, int(paid_spent_delta_bytes)),
             ),
         )
         await db.commit()

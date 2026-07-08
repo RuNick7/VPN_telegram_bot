@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import traceback
 
 from aiogram import Router, F, types
@@ -41,6 +42,10 @@ LTE_GB_PRICES: dict[int, int] = {
     25: 75,
     50: 99,
 }
+
+# Куда YooKassa возвращает пользователя после оплаты — обратно в наш бот.
+_BOT_USERNAME = (os.getenv("TELEGRAM_BOT_USERNAME") or "").strip().lstrip("@")
+PAYMENT_RETURN_URL = f"https://t.me/{_BOT_USERNAME}" if _BOT_USERNAME else "https://t.me"
 
 
 async def _send_pay_menu(
@@ -174,7 +179,7 @@ async def buy_lte_gb_callback(callback_query: types.CallbackQuery) -> None:
 
     telegram_id = callback_query.from_user.id
     description = f"Покупка LTE трафика: {gb_amount} ГБ"
-    return_url = "https://t.me/NitraTunnel_Bot"
+    return_url = PAYMENT_RETURN_URL
 
     info_text = (
         "📶 *Пакет выбран*\n\n"
@@ -246,8 +251,8 @@ async def buy_tariff_callback(callback_query: types.CallbackQuery) -> None:
         await callback_query.message.edit_text("❌ Ошибка при определении цены.")
         return
 
-    description = f"Оплата подписки на {months} мес\\. с {referred_people} реферал(ов)"
-    return_url = "https://t.me/NitraTunnel_Bot"
+    description = f"Оплата подписки на {months} мес. с {referred_people} реферал(ов)"
+    return_url = PAYMENT_RETURN_URL
     days_to_add = months * 30
 
     try:
@@ -291,10 +296,7 @@ async def gift_subscription_cmd(message: types.Message) -> None:
     сколько подписок пользователь уже подарил.
     """
     user_row = await asyncio.to_thread(get_user_by_id, message.from_user.id)
-    if not user_row:
-        gifted = 0
-    else:
-        gifted = user_row["gifted_subscriptions"] if isinstance(user_row, dict) else user_row[5]
+    gifted = int(user_row["gifted_subscriptions"] or 0) if user_row else 0
 
     tariffs = {
         1: {"duration": "1 месяц", "price": 89},
@@ -306,7 +308,7 @@ async def gift_subscription_cmd(message: types.Message) -> None:
     text_md = (
         "🎁 *Подарить подписку другу*\n\n"
         "Мы сгенерируем специальный промокод, который ваш друг сможет ввести в боте и получить доступ\\.\n\n"
-        f"_У тебя уже подарено_: *{gifted}* _подписок_"
+        f"_У тебя уже подарено_: *{gifted}* _подписок_\n\n"
         f"*Выберите срок подарка:*\n\n"
     )
 
@@ -320,10 +322,7 @@ async def gift_subscription_cmd(message: types.Message) -> None:
 @router.callback_query(F.data == "gift_subscription")
 async def gift_subscription_cb(cb: CallbackQuery) -> None:
     user_row = await asyncio.to_thread(get_user_by_id, cb.from_user.id)
-    if not user_row:
-        gifted = 0
-    else:
-        gifted = user_row["gifted_subscriptions"] if isinstance(user_row, dict) else user_row[5]
+    gifted = int(user_row["gifted_subscriptions"] or 0) if user_row else 0
 
     tariffs = {
         1: {"duration": "1 месяц", "price": 89},
@@ -335,7 +334,7 @@ async def gift_subscription_cb(cb: CallbackQuery) -> None:
     text_md = (
         "🎁 *Подарить подписку другу*\n\n"
         "Мы сгенерируем специальный промокод, который ваш друг сможет ввести в боте и получить доступ\\.\n\n"
-        f"_У тебя уже подарено_: *{gifted}* _подписок_"
+        f"_У тебя уже подарено_: *{gifted}* _подписок_\n\n"
         f"*Выберите срок подарка:*\n\n"
     )
     await cb.answer()
@@ -371,7 +370,7 @@ async def buy_gift_callback(callback: CallbackQuery) -> None:
     gift = gift_tariffs[months]
     telegram_id = callback.from_user.id
     description = f"Подарочная подписка на {gift['duration']}"
-    return_url = "https://yourdomain.com/return"
+    return_url = PAYMENT_RETURN_URL
 
     try:
         payment = await _create_payment_async(

@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
-from kairaweb.api.deps import current_user
+from kairaweb.api.deps import CurrentUser
 from kairaweb.services.user_service import (
     get_lte_remaining_bytes,
     get_subscription_snapshot,
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 @router.get("/me")
-async def get_me(request: Request, user=current_user) -> dict[str, Any]:
+async def get_me(request: Request, user: dict = CurrentUser) -> dict[str, Any]:
     telegram_id = int(user["telegram_id"])
     user_row = get_user_record(telegram_id) or {}
     response: dict[str, Any] = {

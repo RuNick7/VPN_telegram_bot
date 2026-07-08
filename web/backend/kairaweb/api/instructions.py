@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
-from kairaweb.api.deps import current_user
+from kairaweb.api.deps import CurrentUser
 from kairaweb.services.instructions import SUPPORTED_PLATFORMS, build_instructions, build_qr_data_url
 from kairaweb.services.user_service import get_subscription_snapshot
 
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 
 @router.get("/instructions/{platform}")
-async def instructions(platform: str, request: Request, user=current_user) -> dict[str, Any]:
+async def instructions(platform: str, request: Request, user: dict = CurrentUser) -> dict[str, Any]:
     platform = platform.lower().strip()
     if platform not in SUPPORTED_PLATFORMS:
         raise HTTPException(status_code=404, detail="Unsupported platform.")

@@ -12,7 +12,6 @@ from data import db_utils
 from data.db_utils import (
     add_lte_paid_gb,
     generate_gift_code,
-    get_payment_status,
     update_payment_status,
 )
 from handlers.utils import escape_markdown_v2
@@ -28,9 +27,11 @@ REMNAWAVE_EXTEND_TIMEOUT_SECONDS = 20.0
 REQUEST_BODY_TIMEOUT_SECONDS = 10.0
 
 # Web-кабинет: push-уведомления через internal API (loopback).
+# Именно WEB_API_BASE_URL, а не публичный API_BASE_URL: снаружи /api/internal/*
+# закрыт nginx'ом (444), достучаться можно только по 127.0.0.1.
 WEB_INTERNAL_PUSH_URL = (
     os.getenv("WEB_INTERNAL_PUSH_URL")
-    or f"{(os.getenv('API_BASE_URL') or 'http://127.0.0.1:8001').rstrip('/')}"
+    or f"{(os.getenv('WEB_API_BASE_URL') or 'http://127.0.0.1:8001').rstrip('/')}"
     "/api/internal/push/send"
 )
 WEB_INTERNAL_SECRET = (os.getenv("WEB_INTERNAL_SECRET") or "").strip()
@@ -145,9 +146,11 @@ async def yookassa_webhook_handler(request: web.Request):
     if event == "payment.succeeded" or effective_status == "succeeded":
         logger.info("Платёж успешно завершён: %s", payment_id)
 
-        existing_status = await asyncio.to_thread(get_payment_status, payment_id)
-        if existing_status == "succeeded":
-            logger.info("Платёж %s уже обработан. Пропуск.", payment_id)
+        # Атомарный захват: повторное уведомление YooKassa (ретрай или гонка)
+        # не должно продлить подписку/сгенерировать gift-код второй раз.
+        claimed = await asyncio.to_thread(db_utils.claim_payment_processing, payment_id)
+        if not claimed:
+            logger.info("Платёж %s уже обработан или обрабатывается. Пропуск.", payment_id)
             return web.json_response({"status": "ok"}, status=200)
 
         # Считываем данные из metadata
@@ -183,6 +186,7 @@ async def yookassa_webhook_handler(request: web.Request):
             result = ""
             user_message = ""
             group_message = ""
+            processed_ok = True
 
             if purchase_type == "lte_gb":
                 try:
@@ -191,6 +195,7 @@ async def yookassa_webhook_handler(request: web.Request):
                     lte_gb = 0
                 if lte_gb <= 0:
                     logger.warning("Некорректный lte_gb в metadata: %s", lte_gb_raw)
+                    processed_ok = False
                     user_message = (
                         "⚠️ Платёж прошёл, но пакет LTE ГБ не удалось определить.\n"
                         "Пожалуйста, напишите в поддержку."
@@ -282,6 +287,7 @@ async def yookassa_webhook_handler(request: web.Request):
                     logger.exception(f"[Referral] Ошибка: {e}")
 
                 if isinstance(result, str) and result.startswith("❌"):
+                    processed_ok = False
                     user_message = (
                         "⚠️ Платёж прошёл, но при продлении возникла ошибка.\n"
                         "Мы уже занимаемся этим вопросом."
@@ -302,8 +308,14 @@ async def yookassa_webhook_handler(request: web.Request):
                         f"Тариф продлен на {days_to_extend} дней"
                     )
 
-            # ✅ Обновляем статус
-            await asyncio.to_thread(update_payment_status, payment_id, "succeeded")
+            # ✅ Обновляем статус. При ошибке начисления пишем processing_error,
+            # а не succeeded: ретрай YooKassa сможет захватить платёж повторно
+            # и допродлить подписку, когда панель снова заработает.
+            await asyncio.to_thread(
+                update_payment_status,
+                payment_id,
+                "succeeded" if processed_ok else "processing_error",
+            )
 
             # 🔔 Web push (best-effort, не блокирует на ошибках)
             if purchase_type == "lte_gb":
@@ -354,6 +366,7 @@ async def yookassa_webhook_handler(request: web.Request):
                 logger.warning("ADMIN_IDS не задан, уведомление админу не отправлено")
         else:
             logger.warning("telegram_id не найден в metadata.")
+            await asyncio.to_thread(update_payment_status, payment_id, "processing_error")
     else:
         logger.info("Получено событие '%s'. Обработка не требуется.", event)
     # Можно обрабатывать и другие события (payment.waiting_for_capture и т.д.),

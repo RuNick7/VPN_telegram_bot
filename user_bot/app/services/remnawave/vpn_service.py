@@ -39,11 +39,29 @@ def _infinite_expire_iso() -> str:
     return _parse_infinite_expire_at().astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+# Кэш токена панели: без него каждый вызов (_client + ensure_token) делает
+# отдельный POST /api/auth/login — одно продление по платежу давало 3 логина.
+_TOKEN_TTL_SECONDS = 900
+_token_cache: dict = {"token": None, "ts": 0.0}
+
+
+def invalidate_cached_token() -> None:
+    """Сбросить кэш токена (например, после 401 от панели)."""
+    _token_cache["token"] = None
+    _token_cache["ts"] = 0.0
+
+
+def _cached_token() -> str | None:
+    if _token_cache["token"] and (time.time() - _token_cache["ts"]) < _TOKEN_TTL_SECONDS:
+        return _token_cache["token"]
+    return None
+
+
 def _client() -> RemnawaveClient:
     settings = get_remnawave_settings()
     return RemnawaveClient(
         base_url=settings.base_url,
-        token=settings.token,
+        token=settings.token or _cached_token(),
         username=settings.username,
         password=settings.password,
         timeout_seconds=settings.timeout_seconds,
@@ -301,7 +319,16 @@ def _restore_paid_squad_after_payment(client: RemnawaveClient, telegram_id: int)
 
 
 def get_token(_telegram_id: int) -> str:
-    return _client().ensure_token()
+    settings = get_remnawave_settings()
+    if settings.token:
+        return settings.token
+    cached = _cached_token()
+    if cached:
+        return cached
+    token = _client().ensure_token()
+    _token_cache["token"] = token
+    _token_cache["ts"] = time.time()
+    return token
 
 
 def get_user_expire(username: str, token: str | None = None) -> int:
@@ -422,6 +449,7 @@ def extend_subscription_by_telegram_id(telegram_id: int, days_to_add: int) -> st
         )
     except Exception as exc:
         logging.error("[Remnawave] Ошибка продления подписки: %s", exc)
+        invalidate_cached_token()
         return f"❌ Ошибка: {str(exc)}"
 
 

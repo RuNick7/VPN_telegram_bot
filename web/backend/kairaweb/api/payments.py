@@ -7,7 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
-from kairaweb.api.deps import current_user
+from kairaweb.api.deps import CurrentUser
 from kairaweb.core.security import get_client_ip
 from kairaweb.services.payments import (
     fetch_payment_snapshot,
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 
 @router.get("/{payment_id}")
-async def get_payment(payment_id: str, request: Request, user=current_user) -> dict[str, Any]:
+async def get_payment(payment_id: str, request: Request, user: dict = CurrentUser) -> dict[str, Any]:
     try:
         payment = await fetch_payment_snapshot(payment_id)
     except Exception as exc:

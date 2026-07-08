@@ -98,21 +98,16 @@ async def upsert_subscription_expire(
         )
         row = await cursor.fetchone()
         if row:
+            # Обновляем только срок подписки: рефералы, подарки и created_at
+            # принадлежат пользователю и не должны сбрасываться правкой даты.
             await db.execute(
                 """
                 UPDATE subscription
                 SET subscription_ends = ?,
-                    reminded = 0,
-                    telegram_tag = '',
-                    gifted_subscriptions = 0,
-                    referred_people = 0,
-                    referrer_tag = NULL,
-                    is_referred = 0,
-                    nurture_stage = 0,
-                    created_at = ?
+                    reminded = 0
                 WHERE telegram_id = ?
                 """,
-                (subscription_ends_ts, created_at_ts, telegram_id),
+                (subscription_ends_ts, telegram_id),
             )
         else:
             await db.execute(
@@ -157,22 +152,17 @@ async def upsert_subscription_telegram_id(
         )
         row = await cursor.fetchone()
         if row:
+            # Меняем только telegram_id (и срок, если передан): остальные поля
+            # пользователя не должны обнуляться при смене ID.
             if subscription_ends_ts is None:
                 await db.execute(
                     """
                     UPDATE subscription
                     SET telegram_id = ?,
-                        reminded = 0,
-                        telegram_tag = '',
-                        gifted_subscriptions = 0,
-                        referred_people = 0,
-                        referrer_tag = NULL,
-                        is_referred = 0,
-                        nurture_stage = 0,
-                        created_at = ?
+                        reminded = 0
                     WHERE telegram_id = ?
                     """,
-                    (new_telegram_id, created_at_ts, old_telegram_id),
+                    (new_telegram_id, old_telegram_id),
                 )
             else:
                 await db.execute(
@@ -180,17 +170,10 @@ async def upsert_subscription_telegram_id(
                     UPDATE subscription
                     SET telegram_id = ?,
                         subscription_ends = ?,
-                        reminded = 0,
-                        telegram_tag = '',
-                        gifted_subscriptions = 0,
-                        referred_people = 0,
-                        referrer_tag = NULL,
-                        is_referred = 0,
-                        nurture_stage = 0,
-                        created_at = ?
+                        reminded = 0
                     WHERE telegram_id = ?
                     """,
-                    (new_telegram_id, subscription_ends_ts, created_at_ts, old_telegram_id),
+                    (new_telegram_id, subscription_ends_ts, old_telegram_id),
                 )
         else:
             if subscription_ends_ts is None:
@@ -219,17 +202,16 @@ async def upsert_subscription_telegram_id(
 async def update_subscription_referred_people(telegram_id: int, referred_people: int) -> bool:
     """Update referred_people for a user in subscription DB."""
     db_path = _get_db_path()
-    created_at_ts = int(datetime.now(timezone.utc).timestamp())
     async with aiosqlite.connect(db_path) as db:
         await _ensure_subscription_table(db, db_path)
+        # created_at не трогаем: от него зависят email-gate и nurture-рассылки.
         cursor = await db.execute(
             """
             UPDATE subscription
-            SET referred_people = ?,
-                created_at = ?
+            SET referred_people = ?
             WHERE telegram_id = ?
             """,
-            (int(referred_people), created_at_ts, int(telegram_id)),
+            (int(referred_people), int(telegram_id)),
         )
         await db.commit()
         return cursor.rowcount > 0

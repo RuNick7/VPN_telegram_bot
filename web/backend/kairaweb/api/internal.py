@@ -9,6 +9,7 @@ the public internet).
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
 import os
 from typing import Any
@@ -46,7 +47,7 @@ def _check_internal_secret(header_value: str | None) -> None:
     expected = (os.getenv("WEB_INTERNAL_SECRET") or "").strip()
     if not expected:
         raise HTTPException(status_code=403, detail="Internal endpoint disabled.")
-    if not header_value or header_value != expected:
+    if not header_value or not hmac.compare_digest(header_value, expected):
         raise HTTPException(status_code=401, detail="Invalid internal secret.")
 
 

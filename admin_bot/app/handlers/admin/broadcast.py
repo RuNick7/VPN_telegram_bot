@@ -304,6 +304,11 @@ async def _do_broadcast(
                 )
                 return
 
+    # После первой успешной загрузки байтов медиа переключаемся на file_id
+    # этого сообщения: иначе одно и то же видео заливается в Telegram заново
+    # для каждого получателя.
+    media_file_id: str | None = data.get("file_id") if not use_user_bot_for_media else None
+
     for start in range(0, len(ids), BATCH_SIZE):
         batch = ids[start : start + BATCH_SIZE]
         for tg_id in batch:
@@ -311,32 +316,36 @@ async def _do_broadcast(
                 if kind == "text":
                     await send_bot.send_message(tg_id, data.get("text", ""), reply_markup=reply_markup)
                 elif kind == "photo":
-                    if photo_file is not None:
-                        await send_bot.send_photo(
+                    if media_file_id is None and photo_file is not None:
+                        sent_msg = await send_bot.send_photo(
                             tg_id,
                             photo_file,
                             caption=data.get("caption"),
                             reply_markup=reply_markup,
                         )
+                        if sent_msg.photo:
+                            media_file_id = sent_msg.photo[-1].file_id
                     else:
                         await send_bot.send_photo(
                             tg_id,
-                            data.get("file_id"),
+                            media_file_id or data.get("file_id"),
                             caption=data.get("caption"),
                             reply_markup=reply_markup,
                         )
                 elif kind == "video":
-                    if video_file is not None:
-                        await send_bot.send_video(
+                    if media_file_id is None and video_file is not None:
+                        sent_msg = await send_bot.send_video(
                             tg_id,
                             video_file,
                             caption=data.get("caption"),
                             reply_markup=reply_markup,
                         )
+                        if sent_msg.video:
+                            media_file_id = sent_msg.video.file_id
                     else:
                         await send_bot.send_video(
                             tg_id,
-                            data.get("file_id"),
+                            media_file_id or data.get("file_id"),
                             caption=data.get("caption"),
                             reply_markup=reply_markup,
                         )

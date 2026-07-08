@@ -72,6 +72,9 @@ htmlcov/
 *.swp
 *.swo
 
+# --- Claude Code local session config ---
+.claude/
+
 # --- OS ---
 .DS_Store
 Thumbs.db

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -144,7 +145,11 @@ async def telegram_widget_login(payload: TelegramWidgetPayload, request: Request
 async def email_request_login(payload: EmailRequest, request: Request) -> Response:
     email = normalize_email(payload.email)
     try:
-        body = request_magic_link_for_login(ip=get_client_ip(request), email=email)
+        # В thread-pool: внутри синхронные SQLite-запросы и SMTP-отправка
+        # (до 15 секунд), которые иначе блокируют весь event loop.
+        body = await asyncio.to_thread(
+            request_magic_link_for_login, ip=get_client_ip(request), email=email
+        )
     except AuthError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.message) from exc
     return Response(content=_json(body), media_type="application/json")
@@ -157,7 +162,8 @@ async def email_request_signup(payload: EmailSignupRequest, request: Request) ->
     if status_payload["status"] != "confirmed" or not status_payload.get("telegram_id"):
         raise HTTPException(status_code=400, detail="Telegram account is not linked yet.")
     try:
-        body = request_magic_link_for_signup(
+        body = await asyncio.to_thread(
+            request_magic_link_for_signup,
             ip=get_client_ip(request),
             telegram_id=int(status_payload["telegram_id"]),
             email=email,
@@ -173,7 +179,7 @@ async def verify_magic(payload: MagicLinkVerifyRequest, request: Request) -> Res
     if not payload.token.strip():
         raise HTTPException(status_code=400, detail="Token is required.")
     try:
-        result = verify_magic_link(payload.token.strip())
+        result = await asyncio.to_thread(verify_magic_link, payload.token.strip())
     except AuthError as exc:
         raise HTTPException(status_code=exc.status, detail=exc.message) from exc
     user_claims = _user_claims(telegram_id=int(result["telegram_id"]))

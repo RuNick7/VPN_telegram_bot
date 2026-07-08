@@ -14,7 +14,11 @@ from aiogram.types import CallbackQuery, FSInputFile
 from aiogram.types.input_file import BufferedInputFile
 import qrcode
 
-from app.services.remnawave.vpn_service import get_token, get_subscription_url
+from app.services.remnawave.vpn_service import (
+    get_token,
+    get_subscription_url,
+    invalidate_cached_token,
+)
 from handlers.keyboards import (
     back_to_devices_keyboard,
     manual_setup_keyboard,
@@ -163,6 +167,9 @@ async def _get_subscription_url_or_pay_prompt(cb: CallbackQuery) -> str | None:
                 reply_markup=pay_keyboard(),
             )
             return None
+        # Возможно, закэшированный токен панели протух — сбрасываем, чтобы
+        # следующая попытка пользователя прошла через свежий login.
+        invalidate_cached_token()
         raise
 
 

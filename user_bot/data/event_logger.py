@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging, pathlib, os, asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
 from pathlib import Path
@@ -65,7 +65,7 @@ class EventLogger(BaseMiddleware):
                 INSERT INTO bot_events (user_id, callback_data, step, ts)
                 VALUES (?, ?, ?, ?)
                 """,
-                (cb.from_user.id, cb.data, step, datetime.utcnow()),
+                (cb.from_user.id, cb.data, step, datetime.now(timezone.utc).isoformat()),
             )
             conn.commit()
 
