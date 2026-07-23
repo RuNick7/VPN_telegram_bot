@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -142,8 +143,16 @@ async def _answer_video_with_cache_fallback(
 async def _get_subscription_url_or_pay_prompt(cb: CallbackQuery) -> str | None:
     tg_id = cb.from_user.id
     try:
-        token = get_token(tg_id)
-        return get_subscription_url(tg_id, token)
+        # Sync HTTP вызовы Remnawave SDK выносим в thread, иначе они блокируют
+        # event loop polling-бота на время сетевого запроса.
+        token = await asyncio.wait_for(asyncio.to_thread(get_token, tg_id), timeout=10.0)
+        return await asyncio.wait_for(
+            asyncio.to_thread(get_subscription_url, tg_id, token),
+            timeout=10.0,
+        )
+    except asyncio.TimeoutError:
+        await cb.answer("⏱ Сервер не отвечает, попробуйте через минуту.", show_alert=True)
+        return None
     except Exception as exc:
         if "User not found" in str(exc):
             await cb.answer()

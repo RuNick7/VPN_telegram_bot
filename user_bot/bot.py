@@ -4,6 +4,8 @@ import os, asyncio, logging, pathlib
 from dotenv import load_dotenv
 
 from aiogram import Bot, Dispatcher
+from aiogram.types import ErrorEvent
+from aiogram.exceptions import TelegramForbiddenError
 from data.event_logger import EventLogger           # ← NEW
 from precache_videos import precache_videos, _load_cache
 from utils.reminders import reminders_scheduler
@@ -20,6 +22,7 @@ ADMIN_ID = int(admin_ids_raw.split(",")[0].strip() or "0")
 bot = Bot(token=USER_BOT_TOKEN)
 dp  = Dispatcher()
 VIDEO_ID_CACHE: dict = {}
+reminders_task: asyncio.Task | None = None
 
 # ─── MIDDLEWARE: сбор кликов ─────────────────────────────────────────
 evlog = EventLogger()          # экземпляр; соединится при startup
@@ -28,24 +31,52 @@ dp.message.middleware(EmailGateMiddleware())
 
 # ─── STARTUP HOOK ────────────────────────────────────────────────────
 async def on_startup(dispatcher: Dispatcher) -> None:
+    global reminders_task
     global VIDEO_ID_CACHE
     if ADMIN_ID:
-        VIDEO_ID_CACHE = await precache_videos(bot, ADMIN_ID)
-        print("Video cache ready:", VIDEO_ID_CACHE)
+        try:
+            VIDEO_ID_CACHE = await precache_videos(bot, ADMIN_ID)
+            print("Video cache ready:", VIDEO_ID_CACHE)
+        except asyncio.CancelledError:
+            logging.info("Startup cancelled during video precache.")
+            raise
+        except Exception:
+            logging.exception("Video precache failed; continue without blocking startup.")
     else:
         logging.warning("ADMIN_ID not set; skipping video precache")
 
     reminders_task = asyncio.create_task(reminders_scheduler(bot))   # фоновый планировщик
-    reminders_task.add_done_callback(
-        lambda task: logging.error("reminders_scheduler stopped: %s", task.exception())
-        if task.exception() else None
-    )
+
+    def _reminders_done(task: asyncio.Task) -> None:
+        if task.cancelled():
+            logging.info("reminders_scheduler cancelled.")
+            return
+        exc = task.exception()
+        if exc:
+            logging.error("reminders_scheduler stopped: %s", exc)
+
+    reminders_task.add_done_callback(_reminders_done)
     # открываем SQLite для middleware
     await evlog.startup()
 
 # ─── SHUTDOWN HOOK ───────────────────────────────────────────────────
 async def on_shutdown(dispatcher: Dispatcher) -> None:
+    global reminders_task
+    if reminders_task and not reminders_task.done():
+        reminders_task.cancel()
+        try:
+            await reminders_task
+        except asyncio.CancelledError:
+            pass
     await evlog.shutdown()
+
+
+@dp.error()
+async def ignored_blocked_users(event: ErrorEvent) -> bool:
+    if isinstance(event.exception, TelegramForbiddenError):
+        logging.warning("Telegram user blocked bot; skipping update: %s", event.exception)
+        return True
+    return False
 
 # ─── MAIN ────────────────────────────────────────────────────────────
 def main() -> None:

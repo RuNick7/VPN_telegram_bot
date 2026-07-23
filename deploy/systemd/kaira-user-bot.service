@@ -1,0 +1,41 @@
+[Unit]
+Description=KairaVPN user bot (aiogram polling)
+Documentation=https://github.com/your-org/KairaVPN_admin_bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kaira
+Group=kaira
+WorkingDirectory=/opt/kaira/KairaVPN_admin_bot/user_bot
+EnvironmentFile=/opt/kaira/KairaVPN_admin_bot/.env
+ExecStart=/opt/kaira/KairaVPN_admin_bot/.venv/bin/python -u bot.py
+
+# Перезапуск при любом падении/SIGKILL
+Restart=always
+RestartSec=3
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+# Корректное завершение: SIGINT (как Ctrl+C) - aiogram/aiohttp ловят его
+# и закрывают сессии. Если за TimeoutStopSec не успели — SIGKILL.
+KillSignal=SIGINT
+SendSIGKILL=yes
+TimeoutStartSec=30
+TimeoutStopSec=10
+
+# Дополнительные лимиты
+LimitNOFILE=65535
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kaira-user-bot
+
+# Базовые sandbox-настройки. При желании можно ужесточать.
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
