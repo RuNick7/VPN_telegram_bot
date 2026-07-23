@@ -18,9 +18,9 @@ from app.services.users import user_service
 from app.services.subscription_db import (
     upsert_subscription_expire,
     upsert_subscription_telegram_id,
+    update_subscription_referred_people,
     delete_subscription_user,
     delete_subscription_user_by_username,
-    get_subscription_rows_by_telegram_id,
 )
 from app.states.admin import (
     UserCreateState,
@@ -92,7 +92,8 @@ def _edit_field_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="Tag", callback_data="admin:edit_user:field:tag")
             ],
             [
-                InlineKeyboardButton(text="HWID лимит", callback_data="admin:edit_user:field:hwid_device_limit")
+                InlineKeyboardButton(text="HWID лимит", callback_data="admin:edit_user:field:hwid_device_limit"),
+                InlineKeyboardButton(text="Рефералы", callback_data="admin:edit_user:field:referred_people"),
             ]
         ]
     )
@@ -225,16 +226,7 @@ def _is_online(user: dict) -> bool:
     return bool(user.get("onlineAt") or user.get("online_at"))
 
 
-def _fmt_ts_utc(ts: int | None) -> str:
-    if not ts:
-        return "-"
-    try:
-        return datetime.fromtimestamp(int(ts), tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    except Exception:
-        return str(ts)
-
-
-def _build_user_search_report(telegram_id: int, rem_user: dict | None, db_rows: list[dict]) -> str:
+def _build_user_search_report(telegram_id: int, rem_user: dict | None) -> str:
     lines: list[str] = [f"🔎 Поиск пользователя: <code>{telegram_id}</code>", ""]
 
     if rem_user:
@@ -260,23 +252,6 @@ def _build_user_search_report(telegram_id: int, rem_user: dict | None, db_rows: 
         )
     else:
         lines.extend(["<b>Remnawave</b>", "не найден", ""])
-
-    lines.append(f"<b>subscription.db</b> (записей: {len(db_rows)})")
-    if not db_rows:
-        lines.append("не найден")
-    else:
-        for row in db_rows:
-            lines.extend(
-                [
-                    f"• id=<code>{row.get('id', '-')}</code>"
-                    f" ends=<code>{_fmt_ts_utc(row.get('subscription_ends'))}</code>"
-                    f" reminded=<code>{row.get('reminded', '-')}</code>"
-                    f" stage=<code>{row.get('nurture_stage', '-')}</code>",
-                    f"  tag=<code>{html.escape(str(row.get('telegram_tag') or '-'))}</code>"
-                    f" referred=<code>{row.get('referred_people', 0)}</code>"
-                    f" gifted=<code>{row.get('gifted_subscriptions', 0)}</code>",
-                ]
-            )
 
     return "\n".join(lines)
 
@@ -443,14 +418,7 @@ async def handle_user_search_input(message: Message, state: FSMContext):
     except Exception as e:
         await message.answer(f"⚠️ Ошибка запроса к Remnawave: {str(e)}")
 
-    try:
-        db_rows = await get_subscription_rows_by_telegram_id(telegram_id)
-    except Exception as e:
-        await message.answer(f"⚠️ Ошибка чтения subscription.db: {str(e)}")
-        await state.clear()
-        return
-
-    report = _build_user_search_report(telegram_id, rem_user, db_rows)
+    report = _build_user_search_report(telegram_id, rem_user)
     await message.answer(report, parse_mode="HTML")
     await state.clear()
 
@@ -834,6 +802,8 @@ async def edit_user_field(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer("Введите лимит трафика в ГБ (например 1 или 1.5):")
     elif field == "hwid_device_limit":
         await callback.message.answer("Введите лимит устройств HWID:")
+    elif field == "referred_people":
+        await callback.message.answer("Введите количество рефералов (целое число >= 0):")
     else:
         await callback.message.answer("Введите новое значение:")
     await callback.answer()
@@ -923,6 +893,13 @@ async def edit_user_value_input(message: Message, state: FSMContext):
         await _apply_user_update(message, state, {"expire_at": expire_at})
         return
 
+    if field == "referred_people":
+        if not text.isdigit():
+            await message.answer("❌ Введите целое число >= 0.")
+            return
+        await _apply_user_update(message, state, {"referred_people": int(text)})
+        return
+
 
     if field == "tag":
         await _apply_user_update(message, state, {"tag": text})
@@ -947,6 +924,34 @@ async def _apply_user_update(
         return
 
     try:
+        if "referred_people" in payload:
+            resolved_telegram_id = telegram_id
+            if not resolved_telegram_id:
+                username = str(data.get("username") or "").strip()
+                if username.isdigit():
+                    resolved_telegram_id = int(username)
+            if not resolved_telegram_id:
+                await message.answer("❌ Не удалось определить telegram_id для обновления рефералов.")
+                await state.clear()
+                return
+
+            updated = await update_subscription_referred_people(
+                int(resolved_telegram_id),
+                int(payload["referred_people"]),
+            )
+            if not updated:
+                await message.answer(
+                    "❌ Запись в subscription.db не найдена для этого пользователя."
+                )
+                await state.clear()
+                return
+            await message.answer(
+                "✅ Количество рефералов обновлено в subscription.db.",
+                reply_markup=_edit_again_keyboard(),
+            )
+            await state.set_state(UserEditState.field)
+            return
+
         response = await user_service.update_user(user_uuid, payload)
         if "expire_at" in payload and telegram_id:
             await upsert_subscription_expire(

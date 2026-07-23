@@ -1,0 +1,49 @@
+[Unit]
+Description=KairaVPN web cabinet API (FastAPI / uvicorn)
+Documentation=https://github.com/your-org/KairaVPN_admin_bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kaira
+Group=kaira
+WorkingDirectory=/opt/kaira/KairaVPN_admin_bot/web/backend
+EnvironmentFile=/opt/kaira/KairaVPN_admin_bot/.env
+
+Environment=PYTHONUNBUFFERED=1
+Environment=WEB_API_HOST=127.0.0.1
+Environment=WEB_API_PORT=8001
+Environment=WEB_API_WORKERS=2
+
+ExecStart=/opt/kaira/KairaVPN_admin_bot/.venv/bin/uvicorn \
+    kairaweb.main:app \
+    --host ${WEB_API_HOST} \
+    --port ${WEB_API_PORT} \
+    --workers ${WEB_API_WORKERS} \
+    --proxy-headers \
+    --forwarded-allow-ips=127.0.0.1 \
+    --no-access-log
+
+Restart=always
+RestartSec=3
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+KillSignal=SIGINT
+SendSIGKILL=yes
+TimeoutStartSec=30
+TimeoutStopSec=10
+
+LimitNOFILE=65535
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kaira-web-api
+
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
