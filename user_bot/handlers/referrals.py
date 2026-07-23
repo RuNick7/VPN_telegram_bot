@@ -1,3 +1,5 @@
+import asyncio
+
 from aiogram import Router, F, types
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -7,10 +9,29 @@ from aiogram.types import CallbackQuery, Message
 from data import db_utils
 from data.db_utils import get_user_by_id, get_user_by_tag, set_referrer_tag
 from handlers.keyboards import back_to_menu_keyboard, referral_intro_keyboard
+from handlers.constants import TRIAL_DAYS, SECONDS_IN_DAY
 from handlers.utils import escape_markdown_v2
 
 
 router = Router()
+
+# Жёсткий потолок на синхронный Remnawave SDK (через requests).
+REMNAWAVE_EXTEND_TIMEOUT_SECONDS = 20.0
+
+
+async def _extend_subscription_async(telegram_id: int, added_days: int) -> str:
+    """Sync remnawave extend в thread-pool с таймаутом."""
+    from app.services.remnawave import vpn_service as vpn
+
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(
+                vpn.extend_subscription_by_telegram_id, telegram_id, added_days
+            ),
+            timeout=REMNAWAVE_EXTEND_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        return f"❌ Таймаут продления подписки (>{REMNAWAVE_EXTEND_TIMEOUT_SECONDS}s)"
 
 
 class ReferralFSM(StatesGroup):
@@ -21,6 +42,21 @@ class PromoState(StatesGroup):
     waiting_for_promo = State()
 
 
+def _has_paid_before(user_row) -> bool:
+    """Best-effort check: user extended beyond initial trial period."""
+    if not user_row:
+        return False
+    try:
+        created_at = int((user_row["created_at"] if isinstance(user_row, dict) else user_row[10]) or 0)
+        subscription_ends = int((user_row["subscription_ends"] if isinstance(user_row, dict) else user_row[3]) or 0)
+    except (TypeError, ValueError, IndexError, KeyError):
+        return False
+    if created_at <= 0 or subscription_ends <= 0:
+        return False
+    trial_end = created_at + TRIAL_DAYS * SECONDS_IN_DAY
+    return subscription_ends > trial_end
+
+
 @router.message(Command("ref"))
 async def referral_program_entry(message: types.Message, state: FSMContext) -> None:
     """
@@ -28,6 +64,7 @@ async def referral_program_entry(message: types.Message, state: FSMContext) -> N
     пользователь уже привёл. Если пригласившего нет – пояснение программы
     + статистика «приведённых».
     """
+    await state.clear()
     user = get_user_by_id(message.from_user.id)
     if not user:
         referred_cnt = 0
@@ -67,7 +104,17 @@ async def referral_program_entry(message: types.Message, state: FSMContext) -> N
         parse_mode="MarkdownV2",
         reply_markup=referral_intro_keyboard(),
     )
+
+
+@router.callback_query(F.data == "referral_set_tag")
+async def referral_set_tag(cb: CallbackQuery, state: FSMContext) -> None:
+    await cb.answer()
     await state.set_state(ReferralFSM.waiting_for_tag)
+    await cb.message.answer(
+        "✍️ Введите @ник пригласившего.\n\n"
+        "Можно отменить: /cancel",
+        reply_markup=back_to_menu_keyboard(),
+    )
 
 
 @router.message(ReferralFSM.waiting_for_tag)
@@ -80,6 +127,14 @@ async def process_referral_nick(message: types.Message, state: FSMContext) -> No
             reply_markup=back_to_menu_keyboard(),
         )
         await state.clear()
+        return
+
+    if tag_raw.startswith("/"):
+        await state.clear()
+        await message.answer(
+            "↩️ Ввод пригласившего отменён.",
+            reply_markup=back_to_menu_keyboard(),
+        )
         return
 
     if not tag_raw.startswith("@"):
@@ -111,11 +166,28 @@ async def process_referral_nick(message: types.Message, state: FSMContext) -> No
         )
         return
 
+    user_row = get_user_by_id(message.from_user.id)
     set_referrer_tag(message.from_user.id, tag_raw[1:])
+    paid_before = _has_paid_before(user_row)
+    if paid_before:
+        applied = db_utils.award_referral(tag_raw[1:], message.from_user.id)
+        if applied:
+            text = (
+                f"Отлично! Ты указал @{tag_raw[1:]}\n\n"
+                "Ты уже оплачивал подписку ранее, поэтому бонус пригласившему начислен сразу ✅"
+            )
+        else:
+            text = (
+                f"Отлично! Ты указал @{tag_raw[1:]}\n\n"
+                "Реферальный бонус уже был учтён ранее ✅"
+            )
+    else:
+        text = (
+            f"Отлично! Ты указал @{tag_raw[1:]}\n\n"
+            "Бонус будет начислен другу после твоей оплаты ✅"
+        )
     await message.answer(
-        escape_markdown_v2(
-            f"Отлично! Ты указал @{tag_raw[1:]}\n\nБонус будет начислен другу после твоей оплаты ✅"
-        ),
+        escape_markdown_v2(text),
         parse_mode="MarkdownV2",
         reply_markup=back_to_menu_keyboard(),
     )
@@ -177,8 +249,7 @@ async def handle_promo_code(message: Message, state: FSMContext) -> None:
             text = f"❌ Этот подарочный промокод *{escaped_code}* уже был использован\\."
         else:
             added_days = promo["value"]
-            from app.services.remnawave import vpn_service as vpn
-            result = vpn.extend_subscription_by_telegram_id(telegram_id, added_days)
+            result = await _extend_subscription_async(telegram_id, added_days)
             if isinstance(result, str) and result.startswith("❌"):
                 text = f"⚠️ Не удалось продлить подписку: {result}"
             else:
@@ -189,8 +260,7 @@ async def handle_promo_code(message: Message, state: FSMContext) -> None:
     else:
         if promo["type"] == "days":
             added_days = promo["value"]
-            from app.services.remnawave import vpn_service as vpn
-            result = vpn.extend_subscription_by_telegram_id(telegram_id, added_days)
+            result = await _extend_subscription_async(telegram_id, added_days)
             if isinstance(result, str) and result.startswith("❌"):
                 text = f"⚠️ Не удалось продлить подписку: {result}"
             else:

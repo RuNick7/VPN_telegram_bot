@@ -1,9 +1,11 @@
 # main.py
 # ──────────────────────────────────────────────────────────────────────
-import os, asyncio, logging, pathlib
+import os, asyncio, logging, pathlib, time
 from dotenv import load_dotenv
 
 from aiogram import Bot, Dispatcher
+from aiogram.types import ErrorEvent
+from aiogram.exceptions import TelegramForbiddenError
 from data.event_logger import EventLogger           # ← NEW
 from precache_videos import precache_videos, _load_cache
 from utils.reminders import reminders_scheduler
@@ -20,6 +22,24 @@ ADMIN_ID = int(admin_ids_raw.split(",")[0].strip() or "0")
 bot = Bot(token=USER_BOT_TOKEN)
 dp  = Dispatcher()
 VIDEO_ID_CACHE: dict = {}
+reminders_task: asyncio.Task | None = None
+_heartbeat_task: asyncio.Task | None = None
+
+_HEARTBEAT_PATH = pathlib.Path(
+    os.getenv("USER_BOT_HEARTBEAT_PATH", str(ROOT_DIR / "user_bot" / "data" / "heartbeat"))
+)
+_HEARTBEAT_INTERVAL = 120  # seconds
+
+
+async def _heartbeat_writer() -> None:
+    """Touch heartbeat file every 2 minutes so admin_bot can detect stuck event loops."""
+    _HEARTBEAT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    while True:
+        try:
+            _HEARTBEAT_PATH.write_text(str(time.time()))
+        except Exception:
+            logging.exception("Failed to write heartbeat file")
+        await asyncio.sleep(_HEARTBEAT_INTERVAL)
 
 # ─── MIDDLEWARE: сбор кликов ─────────────────────────────────────────
 evlog = EventLogger()          # экземпляр; соединится при startup
@@ -28,24 +48,57 @@ dp.message.middleware(EmailGateMiddleware())
 
 # ─── STARTUP HOOK ────────────────────────────────────────────────────
 async def on_startup(dispatcher: Dispatcher) -> None:
+    global reminders_task
     global VIDEO_ID_CACHE
     if ADMIN_ID:
-        VIDEO_ID_CACHE = await precache_videos(bot, ADMIN_ID)
-        print("Video cache ready:", VIDEO_ID_CACHE)
+        try:
+            VIDEO_ID_CACHE = await precache_videos(bot, ADMIN_ID)
+            print("Video cache ready:", VIDEO_ID_CACHE)
+        except asyncio.CancelledError:
+            logging.info("Startup cancelled during video precache.")
+            raise
+        except Exception:
+            logging.exception("Video precache failed; continue without blocking startup.")
     else:
         logging.warning("ADMIN_ID not set; skipping video precache")
 
     reminders_task = asyncio.create_task(reminders_scheduler(bot))   # фоновый планировщик
-    reminders_task.add_done_callback(
-        lambda task: logging.error("reminders_scheduler stopped: %s", task.exception())
-        if task.exception() else None
-    )
+
+    def _reminders_done(task: asyncio.Task) -> None:
+        if task.cancelled():
+            logging.info("reminders_scheduler cancelled.")
+            return
+        exc = task.exception()
+        if exc:
+            logging.error("reminders_scheduler stopped: %s", exc)
+
+    reminders_task.add_done_callback(_reminders_done)
+
+    global _heartbeat_task
+    _heartbeat_task = asyncio.create_task(_heartbeat_writer())
+
     # открываем SQLite для middleware
     await evlog.startup()
 
 # ─── SHUTDOWN HOOK ───────────────────────────────────────────────────
 async def on_shutdown(dispatcher: Dispatcher) -> None:
+    global reminders_task, _heartbeat_task
+    for task in (reminders_task, _heartbeat_task):
+        if task and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
     await evlog.shutdown()
+
+
+@dp.error()
+async def ignored_blocked_users(event: ErrorEvent) -> bool:
+    if isinstance(event.exception, TelegramForbiddenError):
+        logging.warning("Telegram user blocked bot; skipping update: %s", event.exception)
+        return True
+    return False
 
 # ─── MAIN ────────────────────────────────────────────────────────────
 def main() -> None:

@@ -293,6 +293,36 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             "CREATE INDEX IF NOT EXISTS idx_promo_usage_telegram_id ON promo_usage(telegram_id)",
         ],
     )
+    _ensure_table(
+        conn,
+        "lte_traffic_limits",
+        {
+            "tg_id": "INTEGER PRIMARY KEY",
+            "cycle_start_ts": "INTEGER",
+            "paid_balance_bytes": "INTEGER",
+            "cycle_paid_spent_bytes": "INTEGER",
+            "is_blocked": "INTEGER",
+            "last_total_usage_bytes": "INTEGER",
+            "last_remaining_bytes": "INTEGER",
+            "notified_lte_low": "INTEGER",
+            "notified_lte_zero": "INTEGER",
+            "updated_at": "INTEGER",
+        },
+        defaults={
+            "cycle_start_ts": 0,
+            "paid_balance_bytes": 0,
+            "cycle_paid_spent_bytes": 0,
+            "is_blocked": 0,
+            "last_total_usage_bytes": 0,
+            "last_remaining_bytes": 0,
+            "notified_lte_low": 0,
+            "notified_lte_zero": 0,
+            "updated_at": 0,
+        },
+        indexes=[
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_lte_traffic_limits_tg_id ON lte_traffic_limits(tg_id)"
+        ],
+    )
     _ensure_payments_table(conn)
 
 
@@ -348,3 +378,55 @@ def update_subscription_expire(telegram_id: int, new_expire: int):
             logging.info("Срок подписки обновлён для telegram_id: %s, новый expire: %s", telegram_id, new_expire)
     except Exception as e:
         logging.error("Ошибка обновления срока подписки для telegram_id %s: %s", telegram_id, e)
+
+
+def add_lte_paid_gb(telegram_id: int, gb_amount: int) -> None:
+    """Increase purchased LTE balance for user."""
+    if gb_amount <= 0:
+        return
+    bytes_to_add = int(gb_amount) * 1024 * 1024 * 1024
+    now_ts = int(time.time())
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO lte_traffic_limits (
+                tg_id, cycle_start_ts, paid_balance_bytes, cycle_paid_spent_bytes,
+                is_blocked, last_total_usage_bytes, last_remaining_bytes, updated_at
+            ) VALUES (?, 0, ?, 0, 0, 0, 0, ?)
+            ON CONFLICT(tg_id) DO UPDATE SET
+                paid_balance_bytes = COALESCE(paid_balance_bytes, 0) + excluded.paid_balance_bytes,
+                updated_at = excluded.updated_at
+            """,
+            (telegram_id, bytes_to_add, now_ts),
+        )
+        conn.commit()
+
+
+def get_lte_remaining_bytes(telegram_id: int, free_gb: int = 1) -> int:
+    """
+    Return cached remaining LTE bytes.
+
+    Falls back to free quota + paid balance if monitor did not calculate
+    detailed remaining yet.
+    """
+    free_bytes = max(0, int(free_gb)) * 1024 * 1024 * 1024
+    with get_db() as conn:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT paid_balance_bytes, last_remaining_bytes
+            FROM lte_traffic_limits
+            WHERE tg_id = ?
+            """,
+            (telegram_id,),
+        )
+        row = cursor.fetchone()
+        if not row:
+            return free_bytes
+        last_remaining = int(row["last_remaining_bytes"] or 0)
+        if last_remaining > 0:
+            return last_remaining
+        paid_balance = int(row["paid_balance_bytes"] or 0)
+        return max(0, free_bytes + paid_balance)
