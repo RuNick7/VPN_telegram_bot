@@ -64,7 +64,14 @@ async def yookassa_webhook_handler(request: web.Request):
 
     # YooKassa SDK синхронный (использует requests). Уносим его в thread-pool,
     # чтобы не блокировать event loop, и накладываем жёсткий таймаут.
-    payment_api = None
+    #
+    # БЕЗОПАСНОСТЬ: notification.event/notification.object — это тело запроса,
+    # его не проверяет никто (подписи/секрета у вебхука нет). Единственный
+    # источник правды о статусе платежа — прямой ответ YooKassa на fetch по
+    # payment_id. Если запрос не удался — обрываем обработку, а не работаем
+    # дальше на основе непроверенных данных из запроса: иначе любой, кто знает
+    # URL вебхука, может подделать payment_id/status/metadata и получить
+    # бесплатное продление подписки или подарочный код.
     try:
         payment_api = await asyncio.wait_for(
             asyncio.to_thread(fetch_payment, payment_id),
@@ -84,6 +91,7 @@ async def yookassa_webhook_handler(request: web.Request):
                 )
             except Exception as send_err:
                 logger.error("Ошибка отправки админу: %s", send_err)
+        return web.json_response({"error": "Upstream verification timeout"}, status=504)
     except Exception as e:
         logger.error("Не удалось запросить платеж %s из YooKassa: %s", payment_id, e)
         if ADMIN_ID:
@@ -94,11 +102,15 @@ async def yookassa_webhook_handler(request: web.Request):
                 )
             except Exception as send_err:
                 logger.error("Ошибка отправки админу: %s", send_err)
+        return web.json_response({"error": "Upstream verification failed"}, status=502)
 
-    effective_payment = payment_api or payment
+    # effective_status/metadata ниже всегда берутся из payment_api (проверенный
+    # ответ YooKassa), а не из notification.object. `event` из тела запроса
+    # больше не участвует в решении о начислении — используется только для лога.
+    effective_payment = payment_api
     effective_status = getattr(effective_payment, "status", None)
 
-    if event == "payment.succeeded" or effective_status == "succeeded":
+    if effective_status == "succeeded":
         logger.info("Платёж успешно завершён: %s", payment_id)
 
         # Атомарный захват: повторное уведомление YooKassa (ретрай или гонка)

@@ -9,4 +9,5 @@ python-dotenv>=1.0.1
 qrcode[pil]
 requests~=2.32.3
 remnawave
+remnawave_api
 yookassa~=3.5.0
