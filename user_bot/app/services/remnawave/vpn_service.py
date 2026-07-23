@@ -3,12 +3,63 @@ import time
 import threading
 from datetime import datetime, timezone
 
+import asyncpg
 from remnawave_api.models.users import CreateUserRequestDto
 
 from app.clients.remnawave.client import RemnawaveClient
 from app.config.settings import get_remnawave_settings
-from data import db_utils
-from data.db_utils import get_db, update_subscription_expire
+from tgvpn_shared.sync_bridge import run_sync
+
+# Phase 1 stopgap: this module's public functions are synchronous (they make
+# blocking Remnawave HTTP calls via `requests`, always invoked through
+# `asyncio.to_thread` by callers) while Postgres access is async-only. Rather
+# than restructure the sync/async boundary here -- that's Phase 2, once the
+# Remnawave client itself becomes natively async -- these small helpers bridge
+# the handful of DB touches through `run_sync`. See
+# shared/tgvpn_shared/sync_bridge.py for why this doesn't reuse the shared
+# connection pool.
+
+
+async def _user_in_db(conn: asyncpg.Connection, telegram_id: int) -> bool:
+    row = await conn.fetchrow("SELECT 1 FROM users WHERE telegram_id = $1", telegram_id)
+    return row is not None
+
+
+async def _create_user_record(conn: asyncpg.Connection, telegram_id: int, username: str) -> None:
+    await conn.execute(
+        """
+        INSERT INTO users (telegram_id, telegram_tag, subscription_ends, reminded, nurture_stage, created_at)
+        VALUES ($1, $2, to_timestamp(0), FALSE, 0, now())
+        """,
+        telegram_id, username,
+    )
+
+
+async def _update_subscription_expire(conn: asyncpg.Connection, telegram_id: int, new_expire: int) -> None:
+    await conn.execute(
+        "UPDATE users SET subscription_ends = to_timestamp($1) WHERE telegram_id = $2",
+        new_expire, telegram_id,
+    )
+
+
+async def _ensure_user_record_and_update_expire(
+    conn: asyncpg.Connection, telegram_id: int, username: str, new_expire: int
+) -> None:
+    async with conn.transaction():
+        if not await _user_in_db(conn, telegram_id):
+            await _create_user_record(conn, telegram_id, username)
+        await _update_subscription_expire(conn, telegram_id, new_expire)
+
+
+async def _get_user_subscription_ends(conn: asyncpg.Connection, telegram_id: int) -> int | None:
+    return await conn.fetchval(
+        "SELECT EXTRACT(EPOCH FROM subscription_ends)::bigint FROM users WHERE telegram_id = $1",
+        telegram_id,
+    )
+
+
+async def _reset_reminded_flag_async(conn: asyncpg.Connection, telegram_id: int) -> None:
+    await conn.execute("UPDATE users SET reminded = FALSE WHERE telegram_id = $1", telegram_id)
 
 
 def _utc_iso_from_timestamp(timestamp: int) -> str:
@@ -297,9 +348,7 @@ def extend_subscription_by_telegram_id(telegram_id: int, days_to_add: int) -> st
         payload = {"username": username, "expireAt": _utc_iso_from_timestamp(new_expire)}
 
         _client().update_user(payload, token_override=token)
-        if not db_utils.user_in_db(telegram_id):
-            db_utils.create_user_record(telegram_id, username)
-        update_subscription_expire(telegram_id, new_expire)
+        run_sync(lambda conn: _ensure_user_record_and_update_expire(conn, telegram_id, username, new_expire))
         _reset_reminded_flag(telegram_id)
         return (
             f"✅ Подписка @{username} продлена на {days_to_add} дней.\n"
@@ -320,19 +369,16 @@ def ensure_vpn_profile_created_if_missing(telegram_id: int) -> None:
         logging.info("[Remnawave] Профиль %s уже существует — не создаём повторно.", username)
     except Exception as exc:
         if "User not found" in str(exc):
-            user = db_utils.get_user_by_id(telegram_id)
-            if not user:
+            subscription_ends = run_sync(lambda conn: _get_user_subscription_ends(conn, telegram_id))
+            if subscription_ends is None:
                 logging.warning("[Remnawave] Пользователь %s не найден в БД.", telegram_id)
                 return
-            days_left = max((user["subscription_ends"] - int(time.time())) // 86400, 1)
+            days_left = max((subscription_ends - int(time.time())) // 86400, 1)
             result = extend_subscription_by_telegram_id(telegram_id, days_left)
             logging.info("[Remnawave] Профиль создан: %s", result)
         else:
             logging.error("[Remnawave] Ошибка при проверке профиля: %s", exc)
 
 
-def _reset_reminded_flag(username: int) -> None:
-    with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute("UPDATE subscription SET reminded = 0 WHERE telegram_id = ?", (username,))
-        conn.commit()
+def _reset_reminded_flag(telegram_id: int) -> None:
+    run_sync(lambda conn: _reset_reminded_flag_async(conn, telegram_id))

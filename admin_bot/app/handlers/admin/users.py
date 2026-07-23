@@ -15,13 +15,9 @@ from aiogram.fsm.context import FSMContext
 
 from app.services.access import check_admin_access
 from app.services.users import user_service
-from app.services.subscription_db import (
-    upsert_subscription_expire,
-    upsert_subscription_telegram_id,
-    delete_subscription_user,
-    delete_subscription_user_by_username,
-    get_subscription_rows_by_telegram_id,
-)
+from tgvpn_shared.db import UserRepository
+
+_users_repo = UserRepository()
 from app.states.admin import (
     UserCreateState,
     UserEditState,
@@ -444,7 +440,7 @@ async def handle_user_search_input(message: Message, state: FSMContext):
         await message.answer(f"⚠️ Ошибка запроса к Remnawave: {str(e)}")
 
     try:
-        db_rows = await get_subscription_rows_by_telegram_id(telegram_id)
+        db_rows = await _users_repo.get_subscription_rows_by_telegram_id(telegram_id)
     except Exception as e:
         await message.answer(f"⚠️ Ошибка чтения subscription.db: {str(e)}")
         await state.clear()
@@ -529,9 +525,9 @@ async def delete_user_select(callback: CallbackQuery, state: FSMContext):
         deleted_in_panel = True
 
         if telegram_id:
-            deleted_in_db = await delete_subscription_user(int(telegram_id))
+            deleted_in_db = await _users_repo.delete_subscription_user(int(telegram_id))
         else:
-            deleted_in_db = await delete_subscription_user_by_username(username)
+            deleted_in_db = await _users_repo.delete_subscription_user_by_username(username)
 
         where = []
         if deleted_in_panel:
@@ -791,9 +787,9 @@ async def delete_user_by_username(message: Message, state: FSMContext):
             panel_note = "Пользователь не найден в Remnawave."
 
         if telegram_id:
-            deleted_in_db = await delete_subscription_user(int(telegram_id))
+            deleted_in_db = await _users_repo.delete_subscription_user(int(telegram_id))
         else:
-            deleted_in_db = await delete_subscription_user_by_username(username)
+            deleted_in_db = await _users_repo.delete_subscription_user_by_username(username)
 
         if not deleted_in_db and not deleted_in_panel:
             await message.answer("❌ Пользователь не найден ни в Remnawave, ни в БД.")
@@ -949,17 +945,17 @@ async def _apply_user_update(
     try:
         response = await user_service.update_user(user_uuid, payload)
         if "expire_at" in payload and telegram_id:
-            await upsert_subscription_expire(
+            await _users_repo.upsert_subscription_expire(
                 telegram_id=telegram_id,
-                subscription_ends=payload["expire_at"]
+                subscription_ends=int(payload["expire_at"].timestamp()),
             )
         if new_telegram_id and telegram_id:
             expire_at_value = data.get("expire_at")
             expire_dt = _parse_iso_datetime(expire_at_value) if isinstance(expire_at_value, str) else None
-            await upsert_subscription_telegram_id(
+            await _users_repo.upsert_subscription_telegram_id(
                 old_telegram_id=telegram_id,
                 new_telegram_id=new_telegram_id,
-                subscription_ends=expire_dt
+                subscription_ends=int(expire_dt.timestamp()) if expire_dt else None,
             )
             await state.update_data(telegram_id=new_telegram_id)
         await message.answer(

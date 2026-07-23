@@ -9,7 +9,7 @@ aborting, letting anyone who knew the webhook URL forge free subscription
 extensions or gift codes.
 """
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock
 
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
@@ -28,8 +28,8 @@ def _raise_not_found(payment_id):
 async def test_forged_payment_is_rejected_when_verification_fails(monkeypatch):
     monkeypatch.setattr(webhook_module, "fetch_payment", _raise_not_found)
 
-    claim_mock = MagicMock()
-    monkeypatch.setattr(webhook_module.db_utils, "claim_payment_processing", claim_mock)
+    claim_mock = AsyncMock()
+    monkeypatch.setattr(webhook_module._payments, "claim_payment_processing", claim_mock)
 
     app = web.Application()
     app.router.add_post("/webhook-yookassa", webhook_module.yookassa_webhook_handler)
@@ -69,8 +69,8 @@ async def test_real_payment_id_with_forged_event_but_unpaid_status_is_ignored(mo
 
     monkeypatch.setattr(webhook_module, "fetch_payment", lambda payment_id: _PendingPayment())
 
-    claim_mock = MagicMock()
-    monkeypatch.setattr(webhook_module.db_utils, "claim_payment_processing", claim_mock)
+    claim_mock = AsyncMock()
+    monkeypatch.setattr(webhook_module._payments, "claim_payment_processing", claim_mock)
 
     app = web.Application()
     app.router.add_post("/webhook-yookassa", webhook_module.yookassa_webhook_handler)

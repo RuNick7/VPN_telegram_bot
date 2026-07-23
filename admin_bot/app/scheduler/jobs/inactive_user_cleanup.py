@@ -4,10 +4,11 @@ import logging
 import time
 
 from app.notify.admin import send_admin_message
-from app.services.subscription_db import get_inactive_telegram_ids_for_cleanup
 from app.services.users import user_service
+from tgvpn_shared.db import UserRepository
 
 logger = logging.getLogger(__name__)
+_users_repo = UserRepository()
 
 INACTIVE_DAYS = 30
 ERROR_THROTTLE_SECONDS = 3600
@@ -24,7 +25,7 @@ async def run_inactive_user_cleanup() -> None:
     skipped = 0
     failures: list[str] = []
     try:
-        inactive_ids = await get_inactive_telegram_ids_for_cleanup(INACTIVE_DAYS)
+        inactive_ids = await _users_repo.get_inactive_telegram_ids_for_cleanup(INACTIVE_DAYS)
         if not inactive_ids:
             logger.info("Inactive cleanup: no users to process.")
             return

@@ -7,8 +7,7 @@ from aiogram import Router, F, types
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
-from data import db_utils
-from data.db_utils import get_user_by_id
+from tgvpn_shared.db import UserRepository
 from handlers.keyboards import (
     gift_payment_keyboard,
     gift_tariffs_keyboard,
@@ -20,6 +19,7 @@ from payments.yookassa_client import create_payment
 
 
 router = Router()
+_users = UserRepository()
 
 # Жёсткий потолок на синхронный YooKassa SDK (Payment.create использует requests).
 # Без этого один залипший запрос блокирует весь polling-бот.
@@ -45,7 +45,7 @@ async def _send_tariff_menu(
     as_edit: bool = False,
 ) -> None:
     tg_id = target.from_user.id
-    usr = await asyncio.to_thread(db_utils.get_user_by_id, tg_id)
+    usr = await _users.get_user_by_id(tg_id)
     ref_count = usr["referred_people"] if usr else 0
 
     tariffs = {
@@ -114,7 +114,7 @@ async def buy_tariff_callback(callback_query: types.CallbackQuery) -> None:
         return
 
     telegram_id = callback_query.from_user.id
-    user = await asyncio.to_thread(db_utils.get_user_by_id, telegram_id)
+    user = await _users.get_user_by_id(telegram_id)
     referred_people = user["referred_people"] if user else 0
 
     try:
@@ -168,7 +168,7 @@ async def gift_subscription_cmd(message: types.Message) -> None:
     Показывает тарифы для подарочной подписки + статистику:
     сколько подписок пользователь уже подарил.
     """
-    user_row = await asyncio.to_thread(get_user_by_id, message.from_user.id)
+    user_row = await _users.get_user_by_id(message.from_user.id)
     gifted = int(user_row["gifted_subscriptions"] or 0) if user_row else 0
 
     tariffs = {
@@ -194,7 +194,7 @@ async def gift_subscription_cmd(message: types.Message) -> None:
 
 @router.callback_query(F.data == "gift_subscription")
 async def gift_subscription_cb(cb: CallbackQuery) -> None:
-    user_row = await asyncio.to_thread(get_user_by_id, cb.from_user.id)
+    user_row = await _users.get_user_by_id(cb.from_user.id)
     gifted = int(user_row["gifted_subscriptions"] or 0) if user_row else 0
 
     tariffs = {

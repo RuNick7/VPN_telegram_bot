@@ -7,13 +7,16 @@ from yookassa.domain.notification import WebhookNotification
 
 from app.services.remnawave.vpn_service import extend_subscription_by_telegram_id
 from bot import bot
-from data import db_utils
-from data.db_utils import generate_gift_code, update_payment_status
+from tgvpn_shared.db import PaymentRepository, PromoRepository, UserRepository, generate_gift_code
 from handlers.utils import escape_markdown_v2
 from payments.yookassa_client import fetch_payment
 
 ADMIN_ID = int((os.getenv("ADMIN_IDS") or "").split(",")[0].strip() or "0")
 logger = logging.getLogger(__name__)
+
+_users = UserRepository()
+_payments = PaymentRepository()
+_promo = PromoRepository()
 
 # Жёсткие потолки на блокирующие сетевые вызовы, чтобы зависший
 # upstream (YooKassa/Remnawave) никогда не клал event loop надолго.
@@ -115,7 +118,7 @@ async def yookassa_webhook_handler(request: web.Request):
 
         # Атомарный захват: повторное уведомление YooKassa (ретрай или гонка)
         # не должно продлить подписку/сгенерировать gift-код второй раз.
-        claimed = await asyncio.to_thread(db_utils.claim_payment_processing, payment_id)
+        claimed = await _payments.claim_payment_processing(payment_id)
         if not claimed:
             logger.info("Платёж %s уже обработан или обрабатывается. Пропуск.", payment_id)
             return web.json_response({"status": "ok"}, status=200)
@@ -155,14 +158,12 @@ async def yookassa_webhook_handler(request: web.Request):
 
             if is_gift:
                 # 🎁 Генерация подарочного кода
-                gift_code = await asyncio.to_thread(generate_gift_code)
+                gift_code = generate_gift_code()
                 escape_gift_code = escape_markdown_v2(gift_code)
-                await asyncio.to_thread(
-                    db_utils.create_gift_promo, gift_code, days_to_extend, telegram_id
-                )
+                await _promo.create_gift_promo(gift_code, days_to_extend, telegram_id)
                 # Увеличиваем счётчик
                 try:
-                    await asyncio.to_thread(db_utils.increment_gifted_subscriptions, telegram_id)
+                    await _users.increment_gifted_subscriptions(telegram_id)
                     logger.info(f"[GIFT] Пользователь {telegram_id} теперь подарил ещё одну подписку.")
                 except Exception as e:
                     logger.error(f"[GIFT] Не удалось обновить gifted_subscriptions для {telegram_id}: {e}")
@@ -204,11 +205,9 @@ async def yookassa_webhook_handler(request: web.Request):
 
                 # ✅ Проверка на реферала
                 try:
-                    user = await asyncio.to_thread(db_utils.get_user_by_id, telegram_id)
+                    user = await _users.get_user_by_id(telegram_id)
                     if user and user["referrer_tag"]:
-                        applied = await asyncio.to_thread(
-                            db_utils.award_referral, user["referrer_tag"], telegram_id
-                        )
+                        applied = await _users.award_referral(user["referrer_tag"], telegram_id)
                         if applied:
                             logger.info(f"[Referral] Зачислен реферал: @{user['referrer_tag']} от {telegram_id}")
                         else:
@@ -243,8 +242,7 @@ async def yookassa_webhook_handler(request: web.Request):
             # ✅ Обновляем статус. При ошибке начисления пишем processing_error,
             # а не succeeded: ретрай YooKassa сможет захватить платёж повторно
             # и допродлить подписку, когда панель снова заработает.
-            await asyncio.to_thread(
-                update_payment_status,
+            await _payments.update_payment_status(
                 payment_id,
                 "succeeded" if processed_ok else "processing_error",
             )
@@ -266,7 +264,7 @@ async def yookassa_webhook_handler(request: web.Request):
                 logger.warning("ADMIN_IDS не задан, уведомление админу не отправлено")
         else:
             logger.warning("telegram_id не найден в metadata.")
-            await asyncio.to_thread(update_payment_status, payment_id, "processing_error")
+            await _payments.update_payment_status(payment_id, "processing_error")
     else:
         logger.info("Получено событие '%s'. Обработка не требуется.", event)
     # Можно обрабатывать и другие события (payment.waiting_for_capture и т.д.),

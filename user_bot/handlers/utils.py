@@ -2,7 +2,6 @@ import re
 import time
 
 from handlers.constants import PRICES, SECONDS_IN_DAY
-from data.db_utils import get_db
 
 
 def escape_markdown_v2(text: str) -> str:
@@ -26,30 +25,3 @@ def get_subscription_price(months: int, referred_people: int) -> int:
         raise ValueError("Недопустимый срок подписки")
     tier = min(referred_people, 5)
     return PRICES[tier][months]
-
-
-def get_subscription_info(telegram_id: int) -> dict | None:
-    """
-    Получает информацию о подписке для указанного telegram_id из базы данных.
-    Возвращает словарь вида:
-        {
-            "subscription_ends": int,         # время окончания подписки (Unix timestamp)
-            "gifted_subscriptions": int,       # количество подаренных подписок
-            "referred_people": int             # количество приведённых людей
-        }
-    Если записи нет, возвращает None.
-    """
-    with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT subscription_ends, gifted_subscriptions, referred_people FROM subscription WHERE telegram_id = ?",
-            (telegram_id,),
-        )
-        result = cursor.fetchone()
-    if result:
-        return {
-            "subscription_ends": result[0],
-            "gifted_subscriptions": result[1],
-            "referred_people": result[2],
-        }
-    return None

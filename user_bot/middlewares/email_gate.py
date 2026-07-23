@@ -1,11 +1,12 @@
-import asyncio
 import time
 
 from aiogram import BaseMiddleware
 from aiogram.types import Message
 
-from data.db_utils import get_user_by_id
+from tgvpn_shared.db import UserRepository
 from handlers.email_state import EmailCaptureState
+
+_users = UserRepository()
 
 
 class EmailGateMiddleware(BaseMiddleware):
@@ -32,7 +33,7 @@ class EmailGateMiddleware(BaseMiddleware):
             )
             return
 
-        user = await asyncio.to_thread(get_user_by_id, event.from_user.id)
+        user = await _users.get_user_by_id(event.from_user.id)
         if not user:
             return await handler(event, data)
 

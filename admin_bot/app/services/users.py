@@ -9,7 +9,9 @@ from remnawave_api.models.users import CreateUserRequestDto
 
 from app.api.client import RemnawaveClient
 from app.config.settings import settings
-from app.services.subscription_db import insert_subscription_user
+from tgvpn_shared.db import UserRepository
+
+_users_repo = UserRepository()
 
 
 class UserService:
@@ -194,9 +196,9 @@ class UserService:
                 self.log.error("Failed to assign internal squad for %s: %s", username, e)
 
         if telegram_id is not None:
-            await insert_subscription_user(
+            await _users_repo.insert_subscription_user(
                 telegram_id=telegram_id,
-                subscription_ends=expire_at,
+                subscription_ends=int(expire_at.timestamp()),
                 telegram_tag=username,
             )
         return user

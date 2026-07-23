@@ -12,8 +12,10 @@ from aiogram.fsm.context import FSMContext
 
 from app.config.settings import settings
 from app.services.access import check_admin_access
-from app.services.subscription_db import get_all_telegram_ids
+from tgvpn_shared.db import UserRepository
 from app.states.admin import BroadcastState
+
+_users_repo = UserRepository()
 
 router = Router(name="admin_broadcast")
 logger = logging.getLogger(__name__)
@@ -243,7 +245,7 @@ async def send_broadcast(callback: CallbackQuery, state: FSMContext):
 
     data = await state.get_data()
     kind = data.get("kind")
-    ids = await get_all_telegram_ids()
+    ids = await _users_repo.get_all_telegram_ids()
 
     if not ids:
         await callback.message.answer("❌ В базе нет пользователей.", reply_markup=_menu_keyboard())

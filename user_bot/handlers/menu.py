@@ -14,20 +14,14 @@ from app.services.remnawave.vpn_service import (
     create_vpn_user_by_telegram_id,
     ensure_vpn_profile_created_if_missing,
 )
-from data.db_utils import (
-    create_user_record,
-    get_user_by_id,
-    update_subscription_expire,
-    update_user_email,
-    update_telegram_tag,
-    user_in_db,
-)
+from tgvpn_shared.db import UserRepository
 from handlers.email_state import EmailCaptureState
 from handlers.constants import SECONDS_IN_DAY, TRIAL_DAYS
 from handlers.keyboards import help_menu_keyboard, os_keyboard, pay_keyboard
 
 
 router = Router()
+_users = UserRepository()
 STATUS_CHANNEL_URL = os.getenv("STATUS_CHANNEL_URL", "https://t.me/nitratex1")
 CHANNEL_INFO_TEXT_MD = (
     "📢 *У нас есть Telegram\\-канал бота*\n\n"
@@ -74,13 +68,13 @@ async def _render_main_menu(
     if is_cb:
         await chat_obj.answer()
 
-    user_already_in_db = await asyncio.to_thread(user_in_db, user_id)
+    user_already_in_db = await _users.user_in_db(user_id)
     if not user_already_in_db:
-        await asyncio.to_thread(create_user_record, user_id, username)
+        await _users.create_user_record(user_id, username)
         await asyncio.to_thread(create_vpn_user_by_telegram_id, user_id, TRIAL_DAYS)
         await asyncio.to_thread(ensure_vpn_profile_created_if_missing, user_id)
         expire_ts = now_ts + TRIAL_DAYS * SECONDS_IN_DAY
-        await asyncio.to_thread(update_subscription_expire, user_id, expire_ts)
+        await _users.update_subscription_expire(user_id, expire_ts)
 
         msg = await bot.send_message(
             chat_id,
@@ -106,13 +100,13 @@ async def _render_main_menu(
             pass
         return
 
-    row = await asyncio.to_thread(get_user_by_id, user_id)
+    row = await _users.get_user_by_id(user_id)
     sub_ends = int(row["subscription_ends"] or 0)
     days_left = max(0, (sub_ends - now_ts) // SECONDS_IN_DAY)
     expire_date = datetime.fromtimestamp(sub_ends, tz=timezone.utc).strftime("%d.%m.%Y")
 
     if username:
-        await asyncio.to_thread(update_telegram_tag, user_id, username)
+        await _users.update_telegram_tag(user_id, username)
 
     if sub_ends > now_ts:
         header = (
@@ -232,7 +226,7 @@ async def capture_email(message: types.Message, state: FSMContext) -> None:
             )
         return
 
-    await asyncio.to_thread(update_user_email, message.from_user.id, email.lower())
+    await _users.update_user_email(message.from_user.id, email.lower())
     await state.clear()
     await message.answer(
         "✅ Email сохранён.\n"

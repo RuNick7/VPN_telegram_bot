@@ -8,7 +8,7 @@ from app.bot.factory import create_bot, create_dp
 from app.bot.routers import get_all_routers
 from app.notify.log_setup import setup_logging
 from app.scheduler.setup import create_scheduler
-from app.db.sqlite import db
+from tgvpn_shared.db import close_pool
 
 
 async def main() -> None:
@@ -30,7 +30,7 @@ async def main() -> None:
     try:
         await dp.start_polling(bot)
     finally:
-        await db.close()
+        await close_pool()
 
 
 if __name__ == "__main__":

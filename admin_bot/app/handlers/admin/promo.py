@@ -8,10 +8,11 @@ from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKe
 from aiogram.fsm.context import FSMContext
 
 from app.services.access import check_admin_access
-from app.services.subscription_db import insert_promo_code, delete_promo_code
+from tgvpn_shared.db import PromoRepository
 from app.states.admin import PromoCreateState, PromoDeleteState
 
 router = Router(name="admin_promo")
+_promo = PromoRepository()
 
 
 def _menu_keyboard() -> InlineKeyboardMarkup:
@@ -174,7 +175,7 @@ async def promo_create_one_time(callback: CallbackQuery, state: FSMContext):
         return
 
     try:
-        await insert_promo_code(code=code, promo_type=promo_type, value=value, one_time=one_time)
+        await _promo.insert_promo_code(code=code, promo_type=promo_type, value=value, one_time=one_time)
         await callback.message.answer(
             f"✅ Промокод создан:\n"
             f"code: {code}\n"
@@ -216,7 +217,7 @@ async def promo_delete_code(message: Message, state: FSMContext):
         return
 
     try:
-        deleted = await delete_promo_code(code)
+        deleted = await _promo.delete_promo_code(code)
         if deleted:
             await message.answer(f"✅ Промокод {code} удален.", reply_markup=_menu_keyboard())
         else:

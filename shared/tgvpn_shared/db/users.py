@@ -143,6 +143,13 @@ class UserRepository:
                 )
                 return True
 
+    async def increment_gifted_subscriptions(self, telegram_id: int) -> None:
+        pool = await get_pool()
+        await pool.execute(
+            "UPDATE users SET gifted_subscriptions = gifted_subscriptions + 1 WHERE telegram_id = $1",
+            telegram_id,
+        )
+
     async def update_telegram_tag(self, telegram_id: int, telegram_tag: str) -> None:
         pool = await get_pool()
         await pool.execute(
@@ -263,3 +270,54 @@ class UserRepository:
             inactive_days,
         )
         return [int(row["telegram_id"]) for row in rows]
+
+    # --- reminders/nurture (formerly defined ad hoc in user_bot/utils/reminders.py) ---
+
+    async def get_users_with_expiring_subscriptions(self) -> list[dict]:
+        """Users whose subscription ends within the next 24h and haven't been reminded yet."""
+        pool = await get_pool()
+        rows = await pool.fetch(
+            """
+            SELECT
+                telegram_id,
+                EXTRACT(EPOCH FROM subscription_ends)::bigint AS subscription_ends,
+                telegram_tag
+            FROM users
+            WHERE reminded = FALSE
+              AND subscription_ends BETWEEN now() AND now() + INTERVAL '1 day'
+            """
+        )
+        return [{**dict(row), "chat_id": row["telegram_id"]} for row in rows]
+
+    async def mark_reminded_if_needed(self, telegram_id: int) -> bool:
+        pool = await get_pool()
+        result = await pool.execute(
+            "UPDATE users SET reminded = TRUE WHERE telegram_id = $1 AND reminded = FALSE",
+            telegram_id,
+        )
+        return result != "UPDATE 0"
+
+    async def set_reminded_flag(self, telegram_id: int, value: bool) -> None:
+        pool = await get_pool()
+        await pool.execute(
+            "UPDATE users SET reminded = $1 WHERE telegram_id = $2",
+            value, telegram_id,
+        )
+
+    async def get_users_for_nurture(self, now_ts: int, target_stage: int, days_after: int) -> list[asyncpg.Record]:
+        """Users at nurture_stage == target_stage-1, created at least days_after days ago."""
+        pool = await get_pool()
+        cutoff_ts = now_ts - days_after * 86400
+        return await pool.fetch(
+            "SELECT telegram_id FROM users WHERE nurture_stage = $1 AND created_at <= to_timestamp($2)",
+            target_stage - 1, cutoff_ts,
+        )
+
+    async def update_nurture_stage(self, telegram_ids: list[int], stage: int) -> None:
+        if not telegram_ids:
+            return
+        pool = await get_pool()
+        await pool.execute(
+            "UPDATE users SET nurture_stage = $1 WHERE telegram_id = ANY($2::bigint[])",
+            stage, telegram_ids,
+        )
