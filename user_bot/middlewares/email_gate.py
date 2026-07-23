@@ -1,3 +1,4 @@
+import asyncio
 import time
 
 from aiogram import BaseMiddleware
@@ -31,7 +32,7 @@ class EmailGateMiddleware(BaseMiddleware):
             )
             return
 
-        user = get_user_by_id(event.from_user.id)
+        user = await asyncio.to_thread(get_user_by_id, event.from_user.id)
         if not user:
             return await handler(event, data)
 

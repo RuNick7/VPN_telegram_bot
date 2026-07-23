@@ -1,7 +1,7 @@
 """Application settings loaded from environment variables using pydantic-settings."""
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import field_validator, Field
+from pydantic import field_validator, Field, AliasChoices
 from typing import List, ClassVar
 from pathlib import Path
 
@@ -24,7 +24,10 @@ class Settings(BaseSettings):
 
     # API Configuration
     remnawave_api_url: str = Field("https://api.remnawave.com", validation_alias="REMNAWAVE_BASE_URL")
-    remnawave_api_key: str = Field("", validation_alias="REMNAWAVE_TOKEN")
+    remnawave_api_key: str = Field(
+        "",
+        validation_alias=AliasChoices("REMNAWAVE_TOKEN", "REMNAWAVE_API_KEY"),
+    )
     remnawave_timeout_seconds: int = Field(5, validation_alias="REMNAWAVE_TIMEOUT_SECONDS")
 
     # Database
@@ -41,6 +44,29 @@ class Settings(BaseSettings):
     node_ram_max_percent: int = 70
     internal_squad_max_users: int = 30
     internal_squad_prefix: str = "internal"
+    lte_traffic_monitor_enabled: bool = Field(True, validation_alias="LTE_TRAFFIC_MONITOR_ENABLED")
+    lte_squad_name: str = Field("LTE", validation_alias="LTE_SQUAD_NAME")
+    lte_free_gb_per_30d: int = Field(1, validation_alias="LTE_FREE_GB_PER_30D")
+    lte_period_days: int = Field(30, validation_alias="LTE_PERIOD_DAYS")
+    lte_limited_node_uuids: List[str] = Field(default_factory=list, validation_alias="LTE_LIMITED_NODE_UUIDS")
+    lte_limited_node_name_keywords: List[str] = Field(
+        default_factory=lambda: ["LTE"],
+        validation_alias="LTE_LIMITED_NODE_NAME_KEYWORDS",
+    )
+
+    # Free squad / infinite-expire model. When a user's subscription ends locally
+    # we strip paid squads, demote them to FREE_SQUAD_NAME (limited servers) and
+    # force-disconnect open sessions. Panel expireAt is kept at INFINITE_EXPIRE_DATE
+    # so we are the single source of truth for subscription days.
+    free_squad_name: str = Field("FREE", validation_alias="FREE_SQUAD_NAME")
+    subscription_expire_monitor_enabled: bool = Field(
+        True,
+        validation_alias="SUBSCRIPTION_EXPIRE_MONITOR_ENABLED",
+    )
+    infinite_expire_date: str = Field(
+        "2099-12-31T23:59:59.000Z",
+        validation_alias="INFINITE_EXPIRE_DATE",
+    )
 
     # Logging
     log_level: str = "INFO"
@@ -57,6 +83,42 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [int(item.strip()) for item in value.split(",") if item.strip()]
         return value
+
+    @field_validator("lte_limited_node_uuids", "lte_limited_node_name_keywords", mode="before")
+    @classmethod
+    def parse_csv_list(cls, value):
+        """Parse comma-separated values into list[str]."""
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [item.strip() for item in value.split(",") if item.strip()]
+        if isinstance(value, list):
+            return [str(item).strip() for item in value if str(item).strip()]
+        return []
+
+    @field_validator("lte_squad_name", mode="before")
+    @classmethod
+    def normalize_lte_squad_name(cls, value):
+        """Ensure LTE squad name is non-empty."""
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return "LTE"
+
+    @field_validator("free_squad_name", mode="before")
+    @classmethod
+    def normalize_free_squad_name(cls, value):
+        """Ensure FREE squad name is non-empty."""
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return "FREE"
+
+    @field_validator("infinite_expire_date", mode="before")
+    @classmethod
+    def normalize_infinite_expire(cls, value):
+        """Strip whitespace, fall back to a far-future date."""
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return "2099-12-31T23:59:59.000Z"
 
     @field_validator("remnawave_api_url", "remnawave_api_key", mode="before")
     @classmethod

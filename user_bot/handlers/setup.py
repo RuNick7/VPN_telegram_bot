@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -142,8 +143,16 @@ async def _answer_video_with_cache_fallback(
 async def _get_subscription_url_or_pay_prompt(cb: CallbackQuery) -> str | None:
     tg_id = cb.from_user.id
     try:
-        token = get_token(tg_id)
-        return get_subscription_url(tg_id, token)
+        # Sync HTTP вызовы Remnawave SDK выносим в thread, иначе они блокируют
+        # event loop polling-бота на время сетевого запроса.
+        token = await asyncio.wait_for(asyncio.to_thread(get_token, tg_id), timeout=10.0)
+        return await asyncio.wait_for(
+            asyncio.to_thread(get_subscription_url, tg_id, token),
+            timeout=10.0,
+        )
+    except asyncio.TimeoutError:
+        await cb.answer("⏱ Сервер не отвечает, попробуйте через минуту.", show_alert=True)
+        return None
     except Exception as exc:
         if "User not found" in str(exc):
             await cb.answer()
@@ -291,38 +300,30 @@ async def linux_instruction(cb: CallbackQuery) -> None:
     if not subscription_url:
         return
 
-    hiddify_raw = f"hiddify://import/{subscription_url}"
-    hiddify_wrap = (
-        "https://vless-outline.ru/auto/?url="
-        f"{quote(hiddify_raw, safe=':/?=&')}"
-    )
-
-    play_url = (
-        "https://github.com/hiddify/hiddify-app/releases/tag/v2.5.7"
-    )
+    releases_url = "https://github.com/coolcoala/koala-clash/releases"
 
     text = (
-        "<b>Настройка VPN на Linux (NekoRay)</b>\n\n"
-        "<b>Шаг 1.</b> Скачайте NekoRay с GitHub:\n"
-        "<a href=\"https://github.com/MatsuriDayo/nekoray/releases/download/4.0.1/nekoray-4.0.1-2024-12-12-linux64.zip\">"
-        "ZIP для Linux</a>\n"
-        "<a href=\"https://github.com/MatsuriDayo/nekoray/releases/download/4.0.1/nekoray-4.0.1-2024-12-12-debian-x64.deb\">"
-        "DEB для Debian/Ubuntu</a>\n\n"
-        "<b>Шаг 2.</b> Распакуйте архив в выбранную директорию (или установите DEB).\n\n"
-        "<b>Шаг 3.</b> Перейдите в папку nekoray и запустите launcher или nekobox "
-        "(или запустите из меню приложений, если установили DEB).\n\n"
+        "<b>Настройка VPN на Linux (Koala Clash)</b>\n\n"
+        "<b>Шаг 1.</b> Скачайте Koala Clash:\n"
+        f"<a href=\"{releases_url}\">GitHub Releases</a> — выберите файл под вашу систему:\n"
+        "• DEB — Debian/Ubuntu\n"
+        "• RPM — Fedora/RHEL\n"
+        "• PACMAN (.pkg.tar.xz) — Arch Linux\n\n"
+        "<b>Шаг 2.</b> Установите скачанный пакет:\n"
+        "• <code>sudo dpkg -i koala-clash_*.deb</code> (Debian/Ubuntu)\n"
+        "• <code>sudo rpm -i koala-clash_*.rpm</code> (Fedora/RHEL)\n"
+        "• Arch Linux: <code>koala-clash-bin</code> через AUR\n\n"
+        "<b>Шаг 3.</b> Запустите Koala Clash из меню приложений.\n\n"
         "<b>Шаг 4.</b> Скопируйте вашу ссылку на подписку:\n\n"
         f"<code>{subscription_url}</code>\n\n"
-        "<b>Шаг 5.</b> Выберите Сервер → Добавить профиль из буфера обмена.\n\n"
-        "<b>Шаг 6.</b> Выберите «Как подписку (создать новую группу)».\n\n"
-        "<b>Шаг 7.</b> Откройте появившуюся вкладку.\n\n"
-        "<b>Шаг 8.</b> Включите «Режим TUN» вверху экрана. При необходимости перезапустите приложение, "
-        "если Nekobox попросит об этом. Это пропустит весь интернет-трафик через VPN. "
-        "Чтобы оставить VPN только для браузера (без расширений), выберите «Системный прокси».\n\n"
-        "<b>Шаг 9.</b> Нажмите «URL‑Тест» — это проверит доступные конфигурации.\n\n"
-        "<b>Шаг 10.</b> Нажмите правой кнопкой мыши по конфигурации → «Запустить». "
-        "Чтобы выключить VPN, выберите «Остановить».\n\n"
-        "<b>Шаг 11.</b> Для обновления подписок: Сервер → Текущая группа → Обновить подписки.\n\n"
+        "<b>Шаг 5.</b> Перейдите в раздел <b>Profiles</b> и нажмите <b>Add Profile</b>.\n\n"
+        "<b>Шаг 6.</b> Выберите <b>Import from URL</b>, вставьте ссылку и нажмите <b>Import</b>.\n\n"
+        "<b>Шаг 7.</b> Для базового режима (только браузер/HTTP): перейдите в "
+        "<b>Settings → System Setting</b> и включите <b>System Proxy</b>.\n\n"
+        "<b>Шаг 8.</b> Для полного туннеля всего трафика: в <b>Settings → System Setting</b> "
+        "включите <b>TUN Mode</b> (при первом запуске потребуются права администратора).\n\n"
+        "<b>Шаг 9.</b> VPN активен, когда в карточке <b>System Info</b> отображается <b>Service Mode</b>.\n\n"
+        "<b>Шаг 10.</b> Для обновления подписки: нажмите правой кнопкой на профиль → <b>Update</b>.\n\n"
     )
 
     await cb.message.answer(

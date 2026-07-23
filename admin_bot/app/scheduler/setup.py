@@ -5,7 +5,14 @@ import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from app.scheduler.jobs import daily_backup, node_monitor, subscription_db_backup, inactive_user_cleanup
+from app.scheduler.jobs import (
+    daily_backup,
+    node_monitor,
+    subscription_db_backup,
+    inactive_user_cleanup,
+    lte_traffic_monitor,
+    subscription_expire_monitor,
+)
 from app.config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -51,5 +58,28 @@ def create_scheduler() -> AsyncIOScheduler:
         name="Inactive Remnawave User Cleanup",
         replace_existing=True,
     )
+
+    scheduler.add_job(
+        lte_traffic_monitor.run_lte_traffic_monitor,
+        trigger="interval",
+        minutes=settings.monitor_interval_minutes,
+        id="lte_traffic_monitor",
+        name="LTE Traffic Limit Monitor",
+        replace_existing=True,
+    )
+
+    if settings.subscription_expire_monitor_enabled:
+        scheduler.add_job(
+            subscription_expire_monitor.run_subscription_expire_monitor,
+            trigger="interval",
+            minutes=settings.monitor_interval_minutes,
+            id="subscription_expire_monitor",
+            name="Subscription Expire Monitor (FREE squad demotion/promotion)",
+            replace_existing=True,
+        )
+    else:
+        logger.info(
+            "Subscription expire monitor disabled by SUBSCRIPTION_EXPIRE_MONITOR_ENABLED=false"
+        )
 
     return scheduler
