@@ -1,0 +1,53 @@
+{
+  "name": "KairaVPN",
+  "short_name": "Kaira",
+  "description": "Быстрый и безопасный VPN с Telegram-входом",
+  "start_url": "/cabinet?utm_source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0b13",
+  "theme_color": "#0b0b13",
+  "lang": "ru",
+  "dir": "ltr",
+  "categories": ["utilities", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Кабинет",
+      "short_name": "Кабинет",
+      "url": "/cabinet",
+      "description": "Состояние подписки и подключения"
+    },
+    {
+      "name": "Подключение",
+      "short_name": "Подключить",
+      "url": "/cabinet/install",
+      "description": "Установка и подключение VPN"
+    },
+    {
+      "name": "Серверы",
+      "short_name": "Серверы",
+      "url": "/cabinet/servers"
+    }
+  ]
+}
