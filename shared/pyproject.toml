@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tgvpn-shared"
+version = "0.1.0"
+description = "Shared Postgres repository layer for admin_bot and user_bot"
+requires-python = ">=3.11"
+dependencies = [
+    "asyncpg>=0.29.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["tgvpn_shared*"]
