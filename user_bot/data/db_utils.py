@@ -15,14 +15,22 @@ DEFAULT_DB_PATH = Path(__file__).resolve().parent / "subscription.db"
 DB_PATH = os.getenv("DB_PATH", str(DEFAULT_DB_PATH))
 _db = None
 
+# Схему достаточно проверить один раз на процесс: гонять DDL/PRAGMA table_info
+# на каждом открытии соединения — заметный оверхед на каждый запрос к БД.
+_SCHEMA_READY = False
+
+
 @contextmanager
 def get_db():
+    global _SCHEMA_READY
     if not DB_PATH:
         raise RuntimeError("DB_PATH is not set and default path is empty.")
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout = 5000")
-    _ensure_schema(conn)
+    if not _SCHEMA_READY:
+        _ensure_schema(conn)
+        _SCHEMA_READY = True
     try:
         yield conn
     finally:
@@ -214,6 +222,85 @@ def get_payment_status(payment_id: str) -> str | None:
         return row[0] if row else None
 
 
+def claim_payment_processing(payment_id: str, stale_seconds: int = 600) -> bool:
+    """
+    Атомарно захватывает платёж в обработку (status='processing').
+
+    Возвращает False, если платёж уже обработан ('succeeded') или прямо сейчас
+    обрабатывается другим webhook-запросом — защита от повторных уведомлений
+    YooKassa. Захват со статусом 'processing' старше stale_seconds разрешён,
+    чтобы упавшая посреди обработки попытка не блокировала ретраи навсегда.
+    """
+    now_ts = int(time.time())
+    with get_db() as conn:
+        cursor = conn.cursor()
+        _ensure_payments_table(conn)
+        cursor.execute(
+            """
+            INSERT OR IGNORE INTO payments (payment_id, status, created_at, updated_at)
+            VALUES (?, '', ?, ?)
+            """,
+            (payment_id, now_ts, now_ts),
+        )
+        cursor.execute(
+            """
+            UPDATE payments
+            SET status = 'processing', updated_at = ?
+            WHERE payment_id = ?
+              AND status != 'succeeded'
+              AND (status != 'processing' OR updated_at < ?)
+            """,
+            (now_ts, payment_id, now_ts - stale_seconds),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def try_claim_promo_usage(code: str, telegram_id: int, *, one_time: bool) -> bool:
+    """
+    Атомарно фиксирует использование промокода ДО начисления дней.
+
+    Для one_time-кодов (gift) claim проходит только у первого пользователя;
+    для многоразовых — один раз на пользователя. Возвращает False, если код
+    уже занят. При неудачном начислении откатите claim через
+    release_promo_usage().
+    """
+    with get_db() as conn:
+        cursor = conn.cursor()
+        if one_time:
+            cursor.execute(
+                """
+                INSERT INTO promo_usage (code, telegram_id)
+                SELECT ?, ?
+                WHERE NOT EXISTS (SELECT 1 FROM promo_usage WHERE code = ?)
+                """,
+                (code, telegram_id, code),
+            )
+        else:
+            cursor.execute(
+                """
+                INSERT INTO promo_usage (code, telegram_id)
+                SELECT ?, ?
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM promo_usage WHERE code = ? AND telegram_id = ?
+                )
+                """,
+                (code, telegram_id, code, telegram_id),
+            )
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+def release_promo_usage(code: str, telegram_id: int) -> None:
+    """Откатывает claim промокода, если начисление не удалось."""
+    with get_db() as conn:
+        conn.execute(
+            "DELETE FROM promo_usage WHERE code = ? AND telegram_id = ?",
+            (code, telegram_id),
+        )
+        conn.commit()
+
+
 def _ensure_payments_table(conn: sqlite3.Connection) -> None:
     _ensure_table(
         conn,
@@ -291,6 +378,21 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         indexes=[
             "CREATE INDEX IF NOT EXISTS idx_promo_usage_code ON promo_usage(code)",
             "CREATE INDEX IF NOT EXISTS idx_promo_usage_telegram_id ON promo_usage(telegram_id)",
+        ],
+    )
+    _ensure_table(
+        conn,
+        "bot_events",
+        {
+            "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
+            "user_id": "INTEGER",
+            "callback_data": "TEXT",
+            "step": "TEXT",
+            "ts": "TEXT",
+        },
+        defaults={"user_id": 0, "callback_data": "", "step": "", "ts": ""},
+        indexes=[
+            "CREATE INDEX IF NOT EXISTS idx_bot_events_user_id ON bot_events(user_id)",
         ],
     )
     _ensure_payments_table(conn)

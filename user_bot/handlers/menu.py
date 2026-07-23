@@ -3,7 +3,7 @@ import logging
 import os
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 from aiogram import Router, F, types
 from aiogram.filters import Command
@@ -74,12 +74,13 @@ async def _render_main_menu(
     if is_cb:
         await chat_obj.answer()
 
-    if not user_in_db(user_id):
-        create_user_record(user_id, username)
-        create_vpn_user_by_telegram_id(user_id, TRIAL_DAYS)
-        ensure_vpn_profile_created_if_missing(user_id)
+    user_already_in_db = await asyncio.to_thread(user_in_db, user_id)
+    if not user_already_in_db:
+        await asyncio.to_thread(create_user_record, user_id, username)
+        await asyncio.to_thread(create_vpn_user_by_telegram_id, user_id, TRIAL_DAYS)
+        await asyncio.to_thread(ensure_vpn_profile_created_if_missing, user_id)
         expire_ts = now_ts + TRIAL_DAYS * SECONDS_IN_DAY
-        update_subscription_expire(user_id, expire_ts)
+        await asyncio.to_thread(update_subscription_expire, user_id, expire_ts)
 
         msg = await bot.send_message(
             chat_id,
@@ -105,13 +106,13 @@ async def _render_main_menu(
             pass
         return
 
-    row = get_user_by_id(user_id)
-    sub_ends = row["subscription_ends"] if isinstance(row, dict) else row[2]
+    row = await asyncio.to_thread(get_user_by_id, user_id)
+    sub_ends = int(row["subscription_ends"] or 0)
     days_left = max(0, (sub_ends - now_ts) // SECONDS_IN_DAY)
-    expire_date = datetime.utcfromtimestamp(sub_ends).strftime("%d.%m.%Y")
+    expire_date = datetime.fromtimestamp(sub_ends, tz=timezone.utc).strftime("%d.%m.%Y")
 
     if username:
-        update_telegram_tag(user_id, username)
+        await asyncio.to_thread(update_telegram_tag, user_id, username)
 
     if sub_ends > now_ts:
         header = (
@@ -231,7 +232,7 @@ async def capture_email(message: types.Message, state: FSMContext) -> None:
             )
         return
 
-    update_user_email(message.from_user.id, email.lower())
+    await asyncio.to_thread(update_user_email, message.from_user.id, email.lower())
     await state.clear()
     await message.answer(
         "✅ Email сохранён.\n"

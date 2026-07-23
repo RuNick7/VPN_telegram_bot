@@ -1,18 +1,25 @@
+import asyncio
+import logging
+import os
+
 from aiohttp import web
 from yookassa.domain.notification import WebhookNotification
-import logging
-import json
-from data import db_utils
-import os
-from bot import bot
-from handlers.utils import escape_markdown_v2
+
 from app.services.remnawave.vpn_service import extend_subscription_by_telegram_id
-from data.db_utils import get_payment_status, update_payment_status
-from data.db_utils import generate_gift_code
+from bot import bot
+from data import db_utils
+from data.db_utils import generate_gift_code, update_payment_status
+from handlers.utils import escape_markdown_v2
 from payments.yookassa_client import fetch_payment
 
 ADMIN_ID = int((os.getenv("ADMIN_IDS") or "").split(",")[0].strip() or "0")
 logger = logging.getLogger(__name__)
+
+# Жёсткие потолки на блокирующие сетевые вызовы, чтобы зависший
+# upstream (YooKassa/Remnawave) никогда не клал event loop надолго.
+YOOKASSA_FETCH_TIMEOUT_SECONDS = 15.0
+REMNAWAVE_EXTEND_TIMEOUT_SECONDS = 20.0
+REQUEST_BODY_TIMEOUT_SECONDS = 10.0
 
 
 async def _send_markdown_or_plain(chat_id: int, text: str) -> None:
@@ -27,7 +34,13 @@ async def _send_markdown_or_plain(chat_id: int, text: str) -> None:
 async def yookassa_webhook_handler(request: web.Request):
     logger.info("Получен запрос вебхука от Yookassa.")
     try:
-        payload = await request.json()
+        payload = await asyncio.wait_for(
+            request.json(),
+            timeout=REQUEST_BODY_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logger.error("Webhook body read timeout after %ss", REQUEST_BODY_TIMEOUT_SECONDS)
+        return web.json_response({"error": "Body read timeout"}, status=408)
     except Exception as e:
         logger.error("Ошибка при разборе JSON: %s", e)
         return web.json_response({"error": "Invalid JSON"}, status=400)
@@ -49,9 +62,28 @@ async def yookassa_webhook_handler(request: web.Request):
         logger.warning("Webhook payload has no payment.id: %s", payload)
         return web.json_response({"error": "Invalid payload: missing payment id"}, status=400)
 
+    # YooKassa SDK синхронный (использует requests). Уносим его в thread-pool,
+    # чтобы не блокировать event loop, и накладываем жёсткий таймаут.
     payment_api = None
     try:
-        payment_api = fetch_payment(payment_id)
+        payment_api = await asyncio.wait_for(
+            asyncio.to_thread(fetch_payment, payment_id),
+            timeout=YOOKASSA_FETCH_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logger.error(
+            "YooKassa fetch_payment timeout (>%ss) для %s",
+            YOOKASSA_FETCH_TIMEOUT_SECONDS,
+            payment_id,
+        )
+        if ADMIN_ID:
+            try:
+                await bot.send_message(
+                    ADMIN_ID,
+                    f"⏱ YooKassa API timeout для платежа {payment_id}",
+                )
+            except Exception as send_err:
+                logger.error("Ошибка отправки админу: %s", send_err)
     except Exception as e:
         logger.error("Не удалось запросить платеж %s из YooKassa: %s", payment_id, e)
         if ADMIN_ID:
@@ -67,15 +99,22 @@ async def yookassa_webhook_handler(request: web.Request):
     effective_status = getattr(effective_payment, "status", None)
 
     if event == "payment.succeeded" or effective_status == "succeeded":
-        print(f"Платеж успешно завершён: {payment_id}")
+        logger.info("Платёж успешно завершён: %s", payment_id)
 
-        if get_payment_status(payment_id) == "succeeded":
-            logger.info("Платёж %s уже обработан. Пропуск.", payment_id)
+        # Атомарный захват: повторное уведомление YooKassa (ретрай или гонка)
+        # не должно продлить подписку/сгенерировать gift-код второй раз.
+        claimed = await asyncio.to_thread(db_utils.claim_payment_processing, payment_id)
+        if not claimed:
+            logger.info("Платёж %s уже обработан или обрабатывается. Пропуск.", payment_id)
             return web.json_response({"status": "ok"}, status=200)
 
         # Считываем данные из metadata
         metadata = (getattr(effective_payment, "metadata", None) or {}) if effective_payment else {}
-        telegram_id = metadata.get("telegram_id")
+        telegram_id_raw = metadata.get("telegram_id")
+        try:
+            telegram_id = int(telegram_id_raw) if telegram_id_raw is not None else None
+        except (TypeError, ValueError):
+            telegram_id = None
         days_to_extend = metadata.get("days_to_extend", 30)
         is_gift_raw = metadata.get("is_gift", False)
 
@@ -100,15 +139,18 @@ async def yookassa_webhook_handler(request: web.Request):
             result = ""
             user_message = ""
             group_message = ""
+            processed_ok = True
 
             if is_gift:
                 # 🎁 Генерация подарочного кода
-                gift_code = generate_gift_code()
+                gift_code = await asyncio.to_thread(generate_gift_code)
                 escape_gift_code = escape_markdown_v2(gift_code)
-                db_utils.create_gift_promo(gift_code, days_to_extend, creator_id=telegram_id)
+                await asyncio.to_thread(
+                    db_utils.create_gift_promo, gift_code, days_to_extend, telegram_id
+                )
                 # Увеличиваем счётчик
                 try:
-                    db_utils.increment_gifted_subscriptions(telegram_id)
+                    await asyncio.to_thread(db_utils.increment_gifted_subscriptions, telegram_id)
                     logger.info(f"[GIFT] Пользователь {telegram_id} теперь подарил ещё одну подписку.")
                 except Exception as e:
                     logger.error(f"[GIFT] Не удалось обновить gifted_subscriptions для {telegram_id}: {e}")
@@ -127,15 +169,34 @@ async def yookassa_webhook_handler(request: web.Request):
                     f"Код: {escape_gift_code}"
                 )
             else:
-                # 📦 Продлеваем подписку
-                result = extend_subscription_by_telegram_id(telegram_id, days_to_extend)
+                # 📦 Продлеваем подписку (sync HTTP в Remnawave) — выносим в thread
+                # с жёстким таймаутом, чтобы зависший Remnawave не клал webhook.
+                try:
+                    result = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            extend_subscription_by_telegram_id,
+                            telegram_id,
+                            days_to_extend,
+                        ),
+                        timeout=REMNAWAVE_EXTEND_TIMEOUT_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    result = (
+                        f"❌ Таймаут продления подписки (>{REMNAWAVE_EXTEND_TIMEOUT_SECONDS}s)"
+                    )
+                    logger.error(
+                        "extend_subscription_by_telegram_id timeout for %s",
+                        telegram_id,
+                    )
                 logger.info("Результат продления подписки: %s", result)
 
                 # ✅ Проверка на реферала
                 try:
-                    user = db_utils.get_user_by_id(telegram_id)
+                    user = await asyncio.to_thread(db_utils.get_user_by_id, telegram_id)
                     if user and user["referrer_tag"]:
-                        applied = db_utils.award_referral(user["referrer_tag"], telegram_id)
+                        applied = await asyncio.to_thread(
+                            db_utils.award_referral, user["referrer_tag"], telegram_id
+                        )
                         if applied:
                             logger.info(f"[Referral] Зачислен реферал: @{user['referrer_tag']} от {telegram_id}")
                         else:
@@ -146,6 +207,7 @@ async def yookassa_webhook_handler(request: web.Request):
                     logger.exception(f"[Referral] Ошибка: {e}")
 
                 if isinstance(result, str) and result.startswith("❌"):
+                    processed_ok = False
                     user_message = (
                         "⚠️ Платёж прошёл, но при продлении возникла ошибка.\n"
                         "Мы уже занимаемся этим вопросом."
@@ -166,8 +228,14 @@ async def yookassa_webhook_handler(request: web.Request):
                         f"Тариф продлен на {days_to_extend} дней"
                     )
 
-            # ✅ Обновляем статус
-            update_payment_status(payment_id, "succeeded")
+            # ✅ Обновляем статус. При ошибке начисления пишем processing_error,
+            # а не succeeded: ретрай YooKassa сможет захватить платёж повторно
+            # и допродлить подписку, когда панель снова заработает.
+            await asyncio.to_thread(
+                update_payment_status,
+                payment_id,
+                "succeeded" if processed_ok else "processing_error",
+            )
 
             # 🔔 Уведомления
             try:
@@ -186,6 +254,7 @@ async def yookassa_webhook_handler(request: web.Request):
                 logger.warning("ADMIN_IDS не задан, уведомление админу не отправлено")
         else:
             logger.warning("telegram_id не найден в metadata.")
+            await asyncio.to_thread(update_payment_status, payment_id, "processing_error")
     else:
         logger.info("Получено событие '%s'. Обработка не требуется.", event)
     # Можно обрабатывать и другие события (payment.waiting_for_capture и т.д.),

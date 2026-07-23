@@ -43,7 +43,7 @@ def get_remnawave_settings() -> RemnawaveSettings:
         base_url=base_url,
         username=os.getenv("REMNAWAVE_USERNAME"),
         password=os.getenv("REMNAWAVE_PASSWORD"),
-        token=os.getenv("REMNAWAVE_TOKEN"),
+        token=(os.getenv("REMNAWAVE_TOKEN") or os.getenv("REMNAWAVE_API_KEY")),
         timeout_seconds=timeout_seconds,
         internal_squad_max_users=internal_squad_max_users,
         internal_squad_prefix=internal_squad_prefix,

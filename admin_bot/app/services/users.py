@@ -220,9 +220,13 @@ class UserService:
                     payload = response.get("response") or {}
                     # Some API versions wrap user in "user", others return fields directly.
                     if isinstance(payload.get("user"), dict):
-                        return payload.get("user") or {}
-                    return payload
-                return response
+                        user = payload.get("user") or {}
+                    else:
+                        user = payload
+                    if user.get("uuid"):
+                        return user
+                elif response.get("uuid"):
+                    return response
         except Exception:
             # Fall back to paginated scan below.
             pass
@@ -254,12 +258,19 @@ class UserService:
 
     async def update_user(self, user_uuid: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Update user by uuid."""
+        field_aliases = {
+            "expire_at": "expireAt",
+            "traffic_limit_bytes": "trafficLimitBytes",
+            "telegram_id": "telegramId",
+            "hwid_device_limit": "hwidDeviceLimit",
+        }
         payload: Dict[str, Any] = {}
         for key, value in data.items():
+            api_key = field_aliases.get(key, key)
             if isinstance(value, datetime):
-                payload[key] = value.isoformat()
+                payload[api_key] = value.isoformat()
             else:
-                payload[key] = value
+                payload[api_key] = value
         payload["uuid"] = user_uuid
         return await self.client.request("PATCH", "/users", json=payload)
 

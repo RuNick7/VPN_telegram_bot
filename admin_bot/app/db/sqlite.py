@@ -20,6 +20,10 @@ class Database:
 
         self._connection = await aiosqlite.connect(self.db_path)
         self._connection.row_factory = aiosqlite.Row
+        # БД общая с user_bot/webhook (они пишут в WAL): без этих PRAGMA
+        # конкурентная запись даёт "database is locked".
+        await self._connection.execute("PRAGMA journal_mode=WAL")
+        await self._connection.execute("PRAGMA busy_timeout = 5000")
         await self.init_schema()
 
     async def close(self) -> None:

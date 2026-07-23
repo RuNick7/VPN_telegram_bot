@@ -1,4 +1,6 @@
+import asyncio
 import logging
+import os
 import traceback
 
 from aiogram import Router, F, types
@@ -19,6 +21,23 @@ from payments.yookassa_client import create_payment
 
 router = Router()
 
+# Жёсткий потолок на синхронный YooKassa SDK (Payment.create использует requests).
+# Без этого один залипший запрос блокирует весь polling-бот.
+YOOKASSA_CREATE_TIMEOUT_SECONDS = 15.0
+
+
+async def _create_payment_async(**kwargs):
+    """Запускаем sync YooKassa SDK в thread-pool с таймаутом."""
+    return await asyncio.wait_for(
+        asyncio.to_thread(create_payment, **kwargs),
+        timeout=YOOKASSA_CREATE_TIMEOUT_SECONDS,
+    )
+
+
+# Куда YooKassa возвращает пользователя после оплаты — обратно в наш бот.
+_BOT_USERNAME = (os.getenv("TELEGRAM_BOT_USERNAME") or "").strip().lstrip("@")
+PAYMENT_RETURN_URL = f"https://t.me/{_BOT_USERNAME}" if _BOT_USERNAME else "https://t.me"
+
 
 async def _send_tariff_menu(
     target: types.Message | types.CallbackQuery,
@@ -26,7 +45,7 @@ async def _send_tariff_menu(
     as_edit: bool = False,
 ) -> None:
     tg_id = target.from_user.id
-    usr = db_utils.get_user_by_id(tg_id)
+    usr = await asyncio.to_thread(db_utils.get_user_by_id, tg_id)
     ref_count = usr["referred_people"] if usr else 0
 
     tariffs = {
@@ -95,7 +114,7 @@ async def buy_tariff_callback(callback_query: types.CallbackQuery) -> None:
         return
 
     telegram_id = callback_query.from_user.id
-    user = db_utils.get_user_by_id(telegram_id)
+    user = await asyncio.to_thread(db_utils.get_user_by_id, telegram_id)
     referred_people = user["referred_people"] if user else 0
 
     try:
@@ -105,12 +124,12 @@ async def buy_tariff_callback(callback_query: types.CallbackQuery) -> None:
         await callback_query.message.edit_text("❌ Ошибка при определении цены.")
         return
 
-    description = f"Оплата подписки на {months} мес\\. с {referred_people} реферал(ов)"
-    return_url = "https://t.me/NitraTunnel_Bot"
+    description = f"Оплата подписки на {months} мес. с {referred_people} реферал(ов)"
+    return_url = PAYMENT_RETURN_URL
     days_to_add = months * 30
 
     try:
-        payment = create_payment(
+        payment = await _create_payment_async(
             amount=amount,
             description=description,
             return_url=return_url,
@@ -132,6 +151,11 @@ async def buy_tariff_callback(callback_query: types.CallbackQuery) -> None:
             months,
             amount,
         )
+    except asyncio.TimeoutError:
+        logging.error("[ERROR] Таймаут создания платежа: telegram_id=%s months=%s", telegram_id, months)
+        await callback_query.message.edit_text(
+            "❌ YooKassa слишком долго не отвечает. Попробуйте через минуту."
+        )
     except Exception as exc:
         traceback.print_exc()
         logging.error("[ERROR] Ошибка создания платежа для telegram_id %s: %s", telegram_id, exc)
@@ -144,11 +168,8 @@ async def gift_subscription_cmd(message: types.Message) -> None:
     Показывает тарифы для подарочной подписки + статистику:
     сколько подписок пользователь уже подарил.
     """
-    user_row = get_user_by_id(message.from_user.id)
-    if not user_row:
-        gifted = 0
-    else:
-        gifted = user_row["gifted_subscriptions"] if isinstance(user_row, dict) else user_row[5]
+    user_row = await asyncio.to_thread(get_user_by_id, message.from_user.id)
+    gifted = int(user_row["gifted_subscriptions"] or 0) if user_row else 0
 
     tariffs = {
         1: {"duration": "1 месяц", "price": 89},
@@ -160,7 +181,7 @@ async def gift_subscription_cmd(message: types.Message) -> None:
     text_md = (
         "🎁 *Подарить подписку другу*\n\n"
         "Мы сгенерируем специальный промокод, который ваш друг сможет ввести в боте и получить доступ\\.\n\n"
-        f"_У тебя уже подарено_: *{gifted}* _подписок_"
+        f"_У тебя уже подарено_: *{gifted}* _подписок_\n\n"
         f"*Выберите срок подарка:*\n\n"
     )
 
@@ -173,11 +194,8 @@ async def gift_subscription_cmd(message: types.Message) -> None:
 
 @router.callback_query(F.data == "gift_subscription")
 async def gift_subscription_cb(cb: CallbackQuery) -> None:
-    user_row = get_user_by_id(cb.from_user.id)
-    if not user_row:
-        gifted = 0
-    else:
-        gifted = user_row["gifted_subscriptions"] if isinstance(user_row, dict) else user_row[5]
+    user_row = await asyncio.to_thread(get_user_by_id, cb.from_user.id)
+    gifted = int(user_row["gifted_subscriptions"] or 0) if user_row else 0
 
     tariffs = {
         1: {"duration": "1 месяц", "price": 89},
@@ -189,7 +207,7 @@ async def gift_subscription_cb(cb: CallbackQuery) -> None:
     text_md = (
         "🎁 *Подарить подписку другу*\n\n"
         "Мы сгенерируем специальный промокод, который ваш друг сможет ввести в боте и получить доступ\\.\n\n"
-        f"_У тебя уже подарено_: *{gifted}* _подписок_"
+        f"_У тебя уже подарено_: *{gifted}* _подписок_\n\n"
         f"*Выберите срок подарка:*\n\n"
     )
     await cb.answer()
@@ -225,10 +243,10 @@ async def buy_gift_callback(callback: CallbackQuery) -> None:
     gift = gift_tariffs[months]
     telegram_id = callback.from_user.id
     description = f"Подарочная подписка на {gift['duration']}"
-    return_url = "https://yourdomain.com/return"
+    return_url = PAYMENT_RETURN_URL
 
     try:
-        payment = create_payment(
+        payment = await _create_payment_async(
             amount=gift["price"],
             description=description,
             return_url=return_url,
@@ -241,6 +259,11 @@ async def buy_gift_callback(callback: CallbackQuery) -> None:
         await callback.message.edit_text(
             "🎁 Для оформления подарка нажмите на кнопку ниже:",
             reply_markup=gift_payment_keyboard(url),
+        )
+    except asyncio.TimeoutError:
+        logging.error("[GIFT ERROR] Таймаут создания платежа: telegram_id=%s", telegram_id)
+        await callback.message.edit_text(
+            "❌ YooKassa слишком долго не отвечает. Попробуйте через минуту."
         )
     except Exception as exc:
         logging.exception("[GIFT ERROR] Ошибка создания платежа: %s", exc)

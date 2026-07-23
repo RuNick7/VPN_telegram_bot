@@ -1,7 +1,7 @@
 """Application settings loaded from environment variables using pydantic-settings."""
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import field_validator, Field
+from pydantic import field_validator, Field, AliasChoices
 from typing import List, ClassVar
 from pathlib import Path
 
@@ -24,7 +24,10 @@ class Settings(BaseSettings):
 
     # API Configuration
     remnawave_api_url: str = Field("https://api.remnawave.com", validation_alias="REMNAWAVE_BASE_URL")
-    remnawave_api_key: str = Field("", validation_alias="REMNAWAVE_TOKEN")
+    remnawave_api_key: str = Field(
+        "",
+        validation_alias=AliasChoices("REMNAWAVE_TOKEN", "REMNAWAVE_API_KEY"),
+    )
     remnawave_timeout_seconds: int = Field(5, validation_alias="REMNAWAVE_TIMEOUT_SECONDS")
 
     # Database
