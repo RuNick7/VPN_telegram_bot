@@ -15,5 +15,65 @@ services:
       timeout: 3s
       retries: 10
 
+  migrate:
+    image: migrate/migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./migrations:/migrations
+    command:
+      [
+        "-path=/migrations",
+        "-database=postgresql://${POSTGRES_USER:-tgvpn}:${POSTGRES_PASSWORD:-tgvpn}@postgres:5432/${POSTGRES_DB:-tgvpn}?sslmode=disable",
+        "up",
+      ]
+
+  admin_bot:
+    build:
+      context: .
+      dockerfile: admin_bot/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tgvpn}:${POSTGRES_PASSWORD:-tgvpn}@postgres:5432/${POSTGRES_DB:-tgvpn}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  user_bot:
+    build:
+      context: .
+      dockerfile: user_bot/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tgvpn}:${POSTGRES_PASSWORD:-tgvpn}@postgres:5432/${POSTGRES_DB:-tgvpn}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  user_bot_webhook:
+    build:
+      context: .
+      dockerfile: user_bot/Dockerfile
+    command: ["python", "run_webhook.py"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tgvpn}:${POSTGRES_PASSWORD:-tgvpn}@postgres:5432/${POSTGRES_DB:-tgvpn}
+      WEBHOOK_HOST: 0.0.0.0
+    ports:
+      - "${WEBHOOK_HOST_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
 volumes:
   postgres-data:
