@@ -75,16 +75,57 @@ async def test_reset_awarded_can_be_disabled():
 
 async def test_set_referred_people_overwrites_the_counter():
     await _make_user(1008)
-    assert await repo.set_referred_people(1008, 42) is True
+    assert await repo.set_referred_people(1008, 42) == 42
     assert (await repo.get_user_by_id(1008))["referred_people"] == 42
 
 
 async def test_referred_people_never_goes_negative():
     await _make_user(1009)
-    await repo.set_referred_people(1009, -5)
-    assert (await repo.get_user_by_id(1009))["referred_people"] == 0
+    assert await repo.set_referred_people(1009, -5) == 0
+
+
+async def test_count_can_be_set_without_the_user_having_a_referrer():
+    """
+    Granting a discount is independent of who (if anyone) invited this user --
+    the counter is "people they brought in", not "who brought them".
+    """
+    await _make_user(1010)
+    assert await repo.set_referred_people(1010, 5) == 5
+
+    row = await repo.get_user_by_id(1010)
+    assert row["referred_people"] == 5
+    assert not row["referrer_tag"]
+
+
+async def test_adjust_adds_and_subtracts_relative_to_the_current_value():
+    await _make_user(1011)
+    await repo.set_referred_people(1011, 4)
+
+    assert await repo.adjust_referred_people(1011, 3) == 7
+    assert await repo.adjust_referred_people(1011, -2) == 5
+
+
+async def test_adjust_clamps_at_zero_rather_than_going_negative():
+    await _make_user(1012)
+    await repo.set_referred_people(1012, 2)
+    assert await repo.adjust_referred_people(1012, -10) == 0
+
+
+async def test_adjust_is_atomic_under_concurrent_edits():
+    """
+    Two admins bumping the counter at once must both land -- a read-then-write
+    implementation would silently drop one of them.
+    """
+    import asyncio
+
+    await _make_user(1013)
+    await repo.set_referred_people(1013, 0)
+
+    await asyncio.gather(*(repo.adjust_referred_people(1013, 1) for _ in range(10)))
+    assert (await repo.get_user_by_id(1013))["referred_people"] == 10
 
 
 async def test_writes_to_a_missing_user_report_failure():
     assert await repo.admin_set_referrer(999_999_999, "x") is False
-    assert await repo.set_referred_people(999_999_999, 1) is False
+    assert await repo.set_referred_people(999_999_999, 1) is None
+    assert await repo.adjust_referred_people(999_999_999, 1) is None

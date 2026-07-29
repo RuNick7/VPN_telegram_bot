@@ -213,15 +213,42 @@ async def choose_field(callback: CallbackQuery, state: FSMContext):
             "Введите @ник пригласившего (или <code>-</code>, чтобы очистить).\n\n"
             "Бонус пригласившему начислится при следующей оплате этого пользователя."
         ),
-        "referred_people": "Введите новое количество приглашённых (число):",
     }
     if field == "expire_at":
         await callback.message.answer(
             "Выберите новый срок действия:", reply_markup=edit_expire_keyboard()
         )
+    elif field == "referred_people":
+        await callback.message.answer(
+            await _referred_people_prompt(await state.get_data()), parse_mode="HTML"
+        )
     else:
         await callback.message.answer(prompts.get(field, "Введите новое значение:"))
     await callback.answer()
+
+
+async def _referred_people_prompt(data: dict) -> str:
+    """
+    Ask for a new invite count, showing what it currently is and what it buys.
+
+    The count isn't decoration: it picks the user's price tier, so an admin
+    setting it is really granting a discount and should see which one.
+    """
+    current = "?"
+    telegram_id = data.get("telegram_id")
+    if telegram_id:
+        row = await users_repo.get_user_by_id(int(telegram_id))
+        if row is not None:
+            current = int(row["referred_people"] or 0)
+
+    return (
+        f"Приглашённых сейчас: <b>{current}</b>\n"
+        f"(скидочный тариф считается от этого числа, максимум на {MAX_DISCOUNT_TIER})\n\n"
+        "Введите новое значение:\n"
+        "• <code>5</code> — установить ровно 5\n"
+        "• <code>+3</code> — добавить 3\n"
+        "• <code>-2</code> — убавить 2"
+    )
 
 
 @router.callback_query(F.data == "admin:edit_user:back")
@@ -305,6 +332,30 @@ DB_ONLY_FIELDS = {"referrer_tag", "referred_people"}
 # Typed instead of a nickname to clear the referrer.
 CLEAR_TOKENS = {"-", "—", "none", "нет", "очистить"}
 
+# `get_subscription_price` caps the discount tier at this many referrals, so
+# setting a higher number buys nothing extra. Kept here rather than imported
+# because it lives in user_bot, which admin_bot cannot import.
+MAX_DISCOUNT_TIER = 5
+
+
+def parse_count_input(text: str) -> tuple[int, bool] | None:
+    """
+    Parse `5`, `+3`, or `-2` into `(value, is_relative)`.
+
+    Relative input exists because "he invited 3 more" is the common edit, and
+    doing it as a delta means the admin doesn't have to read the current value
+    and do the arithmetic themselves.
+    """
+    text = text.strip().replace(" ", "")
+    if not text:
+        return None
+    relative = text[0] in "+-"
+    digits = text[1:] if relative else text
+    if not digits.isdigit():
+        return None
+    value = int(digits)
+    return (-value if text[0] == "-" else value), relative
+
 
 async def _apply_db_only_update(
     message: Message, state: FSMContext, field: str, text: str
@@ -330,18 +381,28 @@ async def _apply_db_only_update(
             if tag == "":
                 await message.answer("❌ Введите @ник или <code>-</code> для очистки.")
                 return
-            updated = await users_repo.admin_set_referrer(int(telegram_id), tag)
+            if not await users_repo.admin_set_referrer(int(telegram_id), tag):
+                await message.answer(f"❌ Пользователь {telegram_id} не найден в базе.")
+                return
             result = f"пригласивший: @{tag}" if tag else "пригласивший очищен"
         else:
-            if not text.isdigit():
-                await message.answer("❌ Введите количество числом.")
+            parsed = parse_count_input(text)
+            if parsed is None:
+                await message.answer(
+                    "❌ Введите число: <code>5</code>, <code>+3</code> или <code>-2</code>."
+                )
                 return
-            updated = await users_repo.set_referred_people(int(telegram_id), int(text))
-            result = f"приглашено: {text}"
+            value, relative = parsed
+            if relative:
+                new_count = await users_repo.adjust_referred_people(int(telegram_id), value)
+            else:
+                new_count = await users_repo.set_referred_people(int(telegram_id), value)
 
-        if not updated:
-            await message.answer(f"❌ Пользователь {telegram_id} не найден в базе.")
-            return
+            if new_count is None:
+                await message.answer(f"❌ Пользователь {telegram_id} не найден в базе.")
+                return
+            tier = min(new_count, MAX_DISCOUNT_TIER)
+            result = f"приглашено: {new_count} (скидочный тариф {tier}/{MAX_DISCOUNT_TIER})"
 
         await message.answer(f"✅ Обновлено — {result}.", reply_markup=edit_again_keyboard())
         await state.set_state(UserEditState.field)

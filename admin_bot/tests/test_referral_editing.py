@@ -5,7 +5,12 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from aiogram.types import Chat, Message, User
 
-from app.handlers.admin.users.edit import CLEAR_TOKENS, DB_ONLY_FIELDS, _apply_db_only_update
+from app.handlers.admin.users.edit import (
+    CLEAR_TOKENS,
+    DB_ONLY_FIELDS,
+    _apply_db_only_update,
+    parse_count_input,
+)
 
 ADMIN = User(id=111, is_bot=False, first_name="Admin")
 
@@ -58,26 +63,58 @@ async def test_clear_tokens_null_the_referrer(token):
     assert "очищен" in answer.await_args.args[0]
 
 
-async def test_referred_people_requires_a_number():
+@pytest.mark.parametrize("bad", ["abc", "", "  ", "5x", "+", "-", "1.5"])
+async def test_referred_people_rejects_non_numbers(bad):
     message, answer = make_message()
     repo = AsyncMock()
 
     with patch("app.handlers.admin.users.edit.users_repo", repo):
-        await _apply_db_only_update(message, make_state(telegram_id=555), "referred_people", "abc")
+        await _apply_db_only_update(message, make_state(telegram_id=555), "referred_people", bad)
 
     repo.set_referred_people.assert_not_awaited()
-    assert "числом" in answer.await_args.args[0]
+    repo.adjust_referred_people.assert_not_awaited()
+    assert "❌" in answer.await_args.args[0]
 
 
-async def test_referred_people_writes_the_count():
+async def test_plain_number_sets_the_count():
     message, _ = make_message()
     repo = AsyncMock()
-    repo.set_referred_people = AsyncMock(return_value=True)
+    repo.set_referred_people = AsyncMock(return_value=7)
 
     with patch("app.handlers.admin.users.edit.users_repo", repo):
         await _apply_db_only_update(message, make_state(telegram_id=555), "referred_people", "7")
 
     repo.set_referred_people.assert_awaited_once_with(555, 7)
+    repo.adjust_referred_people.assert_not_awaited()
+
+
+@pytest.mark.parametrize("text, delta", [("+3", 3), ("-2", -2), ("+ 3", 3)])
+async def test_signed_number_adjusts_relatively(text, delta):
+    """`+3` must add, not set to 3 -- the two differ for any non-zero start."""
+    message, _ = make_message()
+    repo = AsyncMock()
+    repo.adjust_referred_people = AsyncMock(return_value=10)
+
+    with patch("app.handlers.admin.users.edit.users_repo", repo):
+        await _apply_db_only_update(message, make_state(telegram_id=555), "referred_people", text)
+
+    repo.adjust_referred_people.assert_awaited_once_with(555, delta)
+    repo.set_referred_people.assert_not_awaited()
+
+
+async def test_result_reports_the_resulting_discount_tier():
+    """The count picks a price tier, so the admin is told what they granted."""
+    message, answer = make_message()
+    repo = AsyncMock()
+    repo.set_referred_people = AsyncMock(return_value=9)
+
+    with patch("app.handlers.admin.users.edit.users_repo", repo):
+        await _apply_db_only_update(message, make_state(telegram_id=555), "referred_people", "9")
+
+    reply = answer.await_args.args[0]
+    assert "9" in reply
+    # Tier saturates at 5, so 9 referrals still reads as 5/5 rather than 9/5.
+    assert "5/5" in reply
 
 
 async def test_user_without_telegram_id_is_reported_not_silently_skipped():
@@ -104,3 +141,45 @@ async def test_missing_database_row_is_reported():
         await _apply_db_only_update(message, make_state(telegram_id=555), "referrer_tag", "@bob")
 
     assert "не найден" in answer.await_args.args[0]
+
+
+async def test_missing_row_on_a_count_update_is_reported_not_treated_as_zero():
+    """`None` means no such user; `0` is a legitimate new count."""
+    message, answer = make_message()
+    repo = AsyncMock()
+    repo.set_referred_people = AsyncMock(return_value=None)
+
+    with patch("app.handlers.admin.users.edit.users_repo", repo):
+        await _apply_db_only_update(message, make_state(telegram_id=555), "referred_people", "3")
+
+    assert "не найден" in answer.await_args.args[0]
+
+
+async def test_zero_is_a_valid_count_not_a_missing_user():
+    message, answer = make_message()
+    repo = AsyncMock()
+    repo.set_referred_people = AsyncMock(return_value=0)
+
+    with patch("app.handlers.admin.users.edit.users_repo", repo):
+        await _apply_db_only_update(message, make_state(telegram_id=555), "referred_people", "0")
+
+    assert "✅" in answer.await_args.args[0]
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("5", (5, False)),
+        ("0", (0, False)),
+        ("+3", (3, True)),
+        ("-2", (-2, True)),
+        ("+ 3", (3, True)),
+        ("  7  ", (7, False)),
+        ("abc", None),
+        ("", None),
+        ("+", None),
+        ("1.5", None),
+    ],
+)
+def test_parse_count_input(text, expected):
+    assert parse_count_input(text) == expected

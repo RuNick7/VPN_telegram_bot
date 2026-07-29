@@ -152,14 +152,39 @@ class UserRepository:
             )
         return result != "UPDATE 0"
 
-    async def set_referred_people(self, telegram_id: int, count: int) -> bool:
-        """Set the "people this user invited" counter. Returns False if no such user."""
+    async def set_referred_people(self, telegram_id: int, count: int) -> int | None:
+        """
+        Set the "people this user invited" counter. Returns the new value, or
+        None if there is no such user.
+
+        This counter is not just a statistic -- it selects the user's price
+        tier (see `get_subscription_price`), so an admin setting it is granting
+        a discount.
+        """
         pool = await get_pool()
-        result = await pool.execute(
-            "UPDATE users SET referred_people = $1 WHERE telegram_id = $2",
+        return await pool.fetchval(
+            "UPDATE users SET referred_people = $1 WHERE telegram_id = $2 RETURNING referred_people",
             max(0, int(count)), telegram_id,
         )
-        return result != "UPDATE 0"
+
+    async def adjust_referred_people(self, telegram_id: int, delta: int) -> int | None:
+        """
+        Add `delta` to the invited-people counter, clamped at zero.
+
+        Relative rather than absolute so two admins editing at once can't lose
+        each other's change, and so "+3" doesn't require reading the current
+        value first.
+        """
+        pool = await get_pool()
+        return await pool.fetchval(
+            """
+            UPDATE users
+            SET referred_people = GREATEST(0, referred_people + $1)
+            WHERE telegram_id = $2
+            RETURNING referred_people
+            """,
+            int(delta), telegram_id,
+        )
 
     async def award_referral(self, referrer_tag: str, telegram_id: int) -> bool:
         """Atomically marks user as referred and increments referrer count.
