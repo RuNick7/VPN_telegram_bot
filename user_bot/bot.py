@@ -9,6 +9,7 @@ from tgvpn_shared.settings import get_settings
 from app.services.remnawave.vpn_service import close_client as close_remnawave_client
 from data.event_logger import EventLogger           # ← NEW
 from precache_videos import precache_videos, _load_cache
+from utils.heartbeat import heartbeat_loop
 from utils.reminders import reminders_scheduler
 from handlers.user_handlers import router as user_router
 from middlewares.email_gate import EmailGateMiddleware
@@ -22,6 +23,7 @@ bot = Bot(token=settings.user_bot_token)
 dp  = Dispatcher()
 VIDEO_ID_CACHE: dict = {}
 reminders_task: asyncio.Task | None = None
+heartbeat_task: asyncio.Task | None = None
 
 # ─── MIDDLEWARE: сбор кликов ─────────────────────────────────────────
 evlog = EventLogger()          # экземпляр; соединится при startup
@@ -44,6 +46,12 @@ async def on_startup(dispatcher: Dispatcher) -> None:
     else:
         logging.warning("ADMIN_ID not set; skipping video precache")
 
+    global heartbeat_task
+    # Liveness signal for admin_bot's health monitor: a wedged event loop
+    # stops touching the file, which is otherwise indistinguishable from a
+    # healthy idle bot.
+    heartbeat_task = asyncio.create_task(heartbeat_loop())
+
     reminders_task = asyncio.create_task(reminders_scheduler(bot))   # фоновый планировщик
 
     def _reminders_done(task: asyncio.Task) -> None:
@@ -60,7 +68,9 @@ async def on_startup(dispatcher: Dispatcher) -> None:
 
 # ─── SHUTDOWN HOOK ───────────────────────────────────────────────────
 async def on_shutdown(dispatcher: Dispatcher) -> None:
-    global reminders_task
+    global reminders_task, heartbeat_task
+    if heartbeat_task and not heartbeat_task.done():
+        heartbeat_task.cancel()
     if reminders_task and not reminders_task.done():
         reminders_task.cancel()
         try:

@@ -272,6 +272,37 @@ class RemnawaveClient:
                 return
             page += 1
 
+    async def disconnect_user(self, user_uuid: str) -> bool:
+        """
+        Best-effort drop of a user's live sessions. Returns whether it worked.
+
+        Demoting someone off a paid squad doesn't kick them off the servers
+        they are already connected to, so without this an expired user keeps
+        paid access until their client happens to reconnect. Remnawave has
+        renamed this endpoint across versions, so try the known spellings and
+        report failure rather than raising -- a demotion that lands but can't
+        drop the session is still worth keeping.
+        """
+        attempts: list[tuple[str, str, dict[str, Any] | None]] = [
+            ("POST", f"/users/{user_uuid}/actions/disconnect", None),
+            ("POST", f"/users/{user_uuid}/disconnect", None),
+            ("POST", f"/users/disconnect/{user_uuid}", None),
+            ("POST", "/users/bulk/disconnect", {"uuids": [user_uuid]}),
+        ]
+        for method, endpoint, payload in attempts:
+            try:
+                await self.request(method, endpoint, json=payload) if payload else await self.request(
+                    method, endpoint
+                )
+                return True
+            except APINotFoundError:
+                continue
+            except APIError as exc:
+                logger.debug("disconnect via %s failed: %s", endpoint, exc)
+                continue
+        logger.warning("Could not disconnect user %s: no known endpoint accepted it", user_uuid)
+        return False
+
     # -- subscriptions -----------------------------------------------------
 
     async def get_subscription_by_username(self, username: str) -> dict[str, Any]:

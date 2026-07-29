@@ -74,6 +74,45 @@ class Settings(BaseSettings):
     internal_squad_max_users: int = Field(30, validation_alias="INTERNAL_SQUAD_MAX_USERS")
     internal_squad_prefix: str = Field("internal", validation_alias="INTERNAL_SQUAD_PREFIX")
 
+    # -- FREE tier (Phase 3) -----------------------------------------------
+    # Off by default, and deliberately so. Turning it on changes how expiry is
+    # enforced: panel accounts stop expiring on their own and a background job
+    # becomes the only thing moving lapsed users off paid squads. That is safe
+    # only once the health monitor below is known to alert, so enabling it is
+    # a separate, deliberate act from deploying the code.
+    free_tier_enabled: bool = Field(False, validation_alias="FREE_TIER_ENABLED")
+    free_squad_name: str = Field("FREE", validation_alias="FREE_SQUAD_NAME")
+    # How far ahead panel expireAt is pushed once the FREE tier owns expiry.
+    # Remnawave has no "never expires", so this stands in for it.
+    free_tier_panel_expire_years: int = Field(10, validation_alias="FREE_TIER_PANEL_EXPIRE_YEARS")
+
+    # -- LTE quotas (Phase 3) ----------------------------------------------
+    lte_enabled: bool = Field(False, validation_alias="LTE_ENABLED")
+    lte_squad_name: str = Field("LTE", validation_alias="LTE_SQUAD_NAME")
+    lte_cycle_days: int = Field(30, validation_alias="LTE_CYCLE_DAYS")
+    lte_free_gb_per_cycle: int = Field(10, validation_alias="LTE_FREE_GB_PER_CYCLE")
+    # Which nodes count against the LTE quota. UUIDs win when both are set;
+    # the name substrings are the convenient form for a human-managed panel.
+    lte_node_uuids_raw: str = Field("", validation_alias="LTE_NODE_UUIDS")
+    lte_node_name_keywords_raw: str = Field("lte", validation_alias="LTE_NODE_NAME_KEYWORDS")
+
+    # -- Service health monitoring (Phase 3) -------------------------------
+    service_monitor_enabled: bool = Field(True, validation_alias="SERVICE_MONITOR_ENABLED")
+    webhook_health_url: str = Field(
+        "http://127.0.0.1:8000/health", validation_alias="WEBHOOK_HEALTH_URL"
+    )
+    user_bot_heartbeat_path: str = Field(
+        "/tmp/user_bot_heartbeat", validation_alias="USER_BOT_HEARTBEAT_PATH"
+    )
+    service_monitor_stale_minutes: int = Field(
+        10, validation_alias="SERVICE_MONITOR_STALE_MINUTES"
+    )
+    # A job is considered stale at this multiple of its own interval -- one
+    # missed tick can be scheduling jitter, two in a row cannot.
+    job_stale_interval_multiplier: float = Field(
+        2.0, validation_alias="JOB_STALE_INTERVAL_MULTIPLIER"
+    )
+
     # -- Subscription / UX -------------------------------------------------
     trial_days: int = Field(30, validation_alias="TRIAL_DAYS")
     show_video_instructions: bool = Field(True, validation_alias="SHOW_VIDEO_INSTRUCTIONS")
@@ -114,6 +153,25 @@ class Settings(BaseSettings):
     def remnawave_api_token(self) -> str:
         """`REMNAWAVE_TOKEN` and `REMNAWAVE_API_KEY` are interchangeable aliases."""
         return (self.remnawave_token or self.remnawave_api_key).strip()
+
+    @property
+    def lte_node_uuids(self) -> list[str]:
+        """Explicit LTE node UUIDs, comma- or space-separated."""
+        return [part for part in self.lte_node_uuids_raw.replace(",", " ").split() if part]
+
+    @property
+    def lte_node_name_keywords(self) -> list[str]:
+        """Lowercased substrings matched against node names when no UUIDs are set."""
+        raw = self.lte_node_name_keywords_raw.replace(",", " ").split()
+        return [part.lower() for part in raw if part]
+
+    @property
+    def lte_free_bytes_per_cycle(self) -> int:
+        return max(0, self.lte_free_gb_per_cycle) * 1024**3
+
+    @property
+    def lte_cycle_seconds(self) -> int:
+        return max(1, self.lte_cycle_days) * 86400
 
     def require(self, *names: str) -> None:
         """

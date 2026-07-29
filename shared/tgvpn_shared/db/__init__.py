@@ -4,6 +4,8 @@ from .payments import PaymentRepository
 from .promo import PromoRepository, generate_gift_code
 from .events import EventRepository
 from .admin_operators import AdminOperatorRepository
+from .lte import LteRepository
+from .jobs import JobRunRepository
 
 __all__ = [
     "close_pool",
@@ -14,4 +16,6 @@ __all__ = [
     "generate_gift_code",
     "EventRepository",
     "AdminOperatorRepository",
+    "LteRepository",
+    "JobRunRepository",
 ]

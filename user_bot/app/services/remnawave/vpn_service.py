@@ -74,6 +74,26 @@ def _panel_username(telegram_id: int) -> str:
     return str(telegram_id)
 
 
+def panel_expire_timestamp(subscription_ends: int) -> int:
+    """
+    What to write into the panel's `expireAt`.
+
+    Normally the real expiry date, letting the panel cut access off itself.
+
+    With the FREE tier on this becomes a far-future date instead, because a
+    panel-expired account loses *all* access -- including the limited free
+    servers a lapsed user is supposed to fall back to. Expiry is then enforced
+    by `subscription_expire_monitor` moving the user between squads, which is
+    why that job is watched by the health monitor: while this is in effect, a
+    dead job means nobody is ever cut off.
+    """
+    settings = get_settings()
+    if not settings.free_tier_enabled:
+        return subscription_ends
+    years = max(1, settings.free_tier_panel_expire_years)
+    return int(time.time()) + years * 365 * SECONDS_IN_DAY
+
+
 # -- reads -----------------------------------------------------------------
 
 
@@ -118,8 +138,9 @@ async def _assign_internal_squad(user_uuid: str) -> None:
 async def create_vpn_user(telegram_id: int, days_to_add: int) -> bool:
     """Create the panel user for a Telegram account. Returns success."""
     username = _panel_username(telegram_id)
+    subscription_ends = int(time.time()) + int(days_to_add) * SECONDS_IN_DAY
     expire_at = datetime.fromtimestamp(
-        int(time.time()) + int(days_to_add) * SECONDS_IN_DAY, tz=timezone.utc
+        panel_expire_timestamp(subscription_ends), tz=timezone.utc
     )
     body = CreateUserRequestDto(
         username=username,
@@ -146,6 +167,20 @@ async def create_vpn_user(telegram_id: int, days_to_add: int) -> bool:
     return True
 
 
+async def _current_subscription_ends(telegram_id: int) -> int:
+    """
+    The user's real expiry, from whichever system currently owns it.
+
+    With the FREE tier on, the panel's `expireAt` is a far-future placeholder
+    (see `panel_expire_timestamp`) and reading it would extend a subscription
+    from ten years out. Our own database holds the real date in that mode.
+    """
+    if get_settings().free_tier_enabled:
+        info = await _users.get_subscription_info(telegram_id)
+        return int(info["subscription_ends"] or 0) if info else 0
+    return await get_user_expire(telegram_id)
+
+
 async def _current_expire_for_extend(telegram_id: int, days_to_add: int) -> tuple[int | None, str | None]:
     """
     Current expiry for a user, creating the panel profile if it's missing.
@@ -154,18 +189,18 @@ async def _current_expire_for_extend(telegram_id: int, days_to_add: int) -> tupl
     """
     username = _panel_username(telegram_id)
     try:
-        return await get_user_expire(telegram_id), None
+        # The panel lookup is what tells us the account exists at all, so it
+        # happens even when the database owns the date.
+        await get_user_expire(telegram_id)
+        return await _current_subscription_ends(telegram_id), None
     except UserNotFoundError:
         logger.info("[Remnawave] Пользователь @%s не найден, создаём профиль.", username)
-        if not await create_vpn_user(telegram_id, days_to_add):
+        # Created with zero days on purpose: the caller adds `days_to_add`
+        # immediately afterwards, so creating with them too would grant the
+        # period twice. (It did -- this path double-counted before Phase 3.)
+        if not await create_vpn_user(telegram_id, 0):
             return None, f"❌ Не удалось создать пользователя @{username}."
-        try:
-            return await get_user_expire(telegram_id), None
-        except Exception as exc:
-            logger.warning(
-                "[Remnawave] Пользователь @%s создан, но срок не удалось прочитать: %s", username, exc
-            )
-            return int(time.time()), None
+        return int(time.time()), None
     except Exception as exc:
         logger.error("[Remnawave] Ошибка при проверке пользователя @%s: %s", username, exc)
         return None, f"❌ Ошибка проверки пользователя @{username}."
@@ -191,7 +226,9 @@ async def extend_subscription(telegram_id: int, days_to_add: int) -> str:
         days_to_add = int(days_to_add)
         new_expire = max(current_expire, int(time.time())) + days_to_add * SECONDS_IN_DAY
 
-        await get_client().update_user({"username": username, "expireAt": _utc_iso(new_expire)})
+        await get_client().update_user(
+            {"username": username, "expireAt": _utc_iso(panel_expire_timestamp(new_expire))}
+        )
         # Creates the row if the user somehow has none, and clears `reminded`
         # so the expiry reminder can fire again for the new period.
         await _users.upsert_subscription_expire(

@@ -370,6 +370,22 @@ class UserRepository:
         )
         return dict(row) if row else {}
 
+    async def get_subscription_ends_map(self) -> dict[int, int]:
+        """
+        Every user's expiry as `{telegram_id: epoch_seconds}`.
+
+        One query for the whole table: the reconciliation sweep walks every
+        panel user and would otherwise issue a lookup per user.
+        """
+        pool = await get_pool()
+        rows = await pool.fetch(
+            """
+            SELECT telegram_id, EXTRACT(EPOCH FROM subscription_ends)::bigint AS subscription_ends
+            FROM users WHERE telegram_id IS NOT NULL
+            """
+        )
+        return {int(row["telegram_id"]): int(row["subscription_ends"] or 0) for row in rows}
+
     async def get_all_telegram_ids(self) -> list[int]:
         pool = await get_pool()
         rows = await pool.fetch("SELECT telegram_id FROM users WHERE telegram_id IS NOT NULL")

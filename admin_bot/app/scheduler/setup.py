@@ -5,8 +5,16 @@ import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from app.scheduler.jobs import daily_backup, node_monitor, subscription_db_backup, inactive_user_cleanup
 from app.config.settings import settings
+from app.scheduler.jobs import (
+    daily_backup,
+    inactive_user_cleanup,
+    lte_traffic_monitor,
+    node_monitor,
+    service_health_monitor,
+    subscription_db_backup,
+    subscription_expire_monitor,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,5 +59,42 @@ def create_scheduler() -> AsyncIOScheduler:
         name="Inactive Remnawave User Cleanup",
         replace_existing=True,
     )
+
+    # With the FREE tier on, panel accounts no longer expire by themselves --
+    # this job is what actually enforces expiry, so it runs frequently and is
+    # watched by the health monitor below.
+    if settings.free_tier_enabled:
+        scheduler.add_job(
+            subscription_expire_monitor.run_subscription_expire_monitor,
+            trigger="interval",
+            minutes=settings.monitor_interval_minutes,
+            id=subscription_expire_monitor.JOB_NAME,
+            name="Subscription Expiry / FREE Squad Monitor",
+            replace_existing=True,
+        )
+    else:
+        logger.info("FREE tier is disabled (FREE_TIER_ENABLED=false); expiry monitor not scheduled")
+
+    if settings.lte_enabled:
+        scheduler.add_job(
+            lte_traffic_monitor.run_lte_traffic_monitor,
+            trigger="interval",
+            minutes=settings.monitor_interval_minutes,
+            id=lte_traffic_monitor.JOB_NAME,
+            name="LTE Traffic Quota Monitor",
+            replace_existing=True,
+        )
+    else:
+        logger.info("LTE quotas are disabled (LTE_ENABLED=false); traffic monitor not scheduled")
+
+    if settings.service_monitor_enabled:
+        scheduler.add_job(
+            service_health_monitor.run_service_health_monitor,
+            trigger="interval",
+            minutes=settings.monitor_interval_minutes,
+            id="service_health_monitor",
+            name="Service Health Monitor",
+            replace_existing=True,
+        )
 
     return scheduler
