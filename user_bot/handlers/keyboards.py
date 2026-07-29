@@ -1,11 +1,10 @@
-import os
-
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from tgvpn_shared.settings import get_settings
 
-
+_settings = get_settings()
 SUPPORT_URL = "https://t.me/nitratex1"
-FAQ_URL = os.getenv("FAQ_URL", "https://nitratex-company.gitbook.io/kairavpn/")
-STATUS_CHANNEL_URL = os.getenv("STATUS_CHANNEL_URL", "https://t.me/nitratex1")
+FAQ_URL = _settings.faq_url
+STATUS_CHANNEL_URL = _settings.status_channel_url
 
 
 def os_keyboard() -> InlineKeyboardMarkup:

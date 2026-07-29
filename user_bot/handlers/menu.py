@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import os
 import re
 import time
 from datetime import datetime, timezone
@@ -10,10 +9,8 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from app.services.remnawave.vpn_service import (
-    create_vpn_user_by_telegram_id,
-    ensure_vpn_profile_created_if_missing,
-)
+from app.services.remnawave.vpn_service import create_vpn_user, ensure_vpn_profile_exists
+from tgvpn_shared.settings import get_settings
 from tgvpn_shared.db import UserRepository
 from handlers.email_state import EmailCaptureState
 from handlers.constants import SECONDS_IN_DAY, TRIAL_DAYS
@@ -22,7 +19,7 @@ from handlers.keyboards import help_menu_keyboard, os_keyboard, pay_keyboard
 
 router = Router()
 _users = UserRepository()
-STATUS_CHANNEL_URL = os.getenv("STATUS_CHANNEL_URL", "https://t.me/nitratex1")
+STATUS_CHANNEL_URL = get_settings().status_channel_url
 CHANNEL_INFO_TEXT_MD = (
     "📢 *У нас есть Telegram\\-канал бота*\n\n"
     "Там публикуем информацию о техработах, блокировках и важных обновлениях\\.\n"
@@ -71,8 +68,8 @@ async def _render_main_menu(
     user_already_in_db = await _users.user_in_db(user_id)
     if not user_already_in_db:
         await _users.create_user_record(user_id, username)
-        await asyncio.to_thread(create_vpn_user_by_telegram_id, user_id, TRIAL_DAYS)
-        await asyncio.to_thread(ensure_vpn_profile_created_if_missing, user_id)
+        await create_vpn_user(user_id, TRIAL_DAYS)
+        await ensure_vpn_profile_exists(user_id)
         expire_ts = now_ts + TRIAL_DAYS * SECONDS_IN_DAY
         await _users.update_subscription_expire(user_id, expire_ts)
 

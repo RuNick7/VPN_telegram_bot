@@ -2,6 +2,9 @@
 # admin_bot/ and shared/ are visible to COPY.
 FROM python:3.11-slim
 
+# postgresql-client supplies pg_dump, used by the daily database-backup job.
+RUN apt-get update \n    && apt-get install -y --no-install-recommends postgresql-client \n    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY requirements.txt ./

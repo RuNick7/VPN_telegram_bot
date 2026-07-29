@@ -1,0 +1,193 @@
+"""Remnawave client behaviour that doesn't need a live panel."""
+
+import httpx
+import pytest
+
+from tgvpn_shared.remnawave import (
+    APIError,
+    APINotFoundError,
+    APIRateLimitError,
+    APIServerError,
+    APIUnauthorizedError,
+    RemnawaveClient,
+    UserNotFoundError,
+    normalize_base_url,
+    normalize_http_error,
+    normalize_token,
+    unwrap,
+)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "https://panel.example.com",
+        "https://panel.example.com/",
+        "https://panel.example.com/api",
+        "https://panel.example.com/api/",
+        "panel.example.com",
+    ],
+)
+def test_base_url_normalizes_to_single_api_suffix(raw):
+    """All the spellings that show up in real .env files land on one form."""
+    assert normalize_base_url(raw) == "https://panel.example.com/api"
+
+
+@pytest.mark.parametrize("raw", ["", "   ", "https://"])
+def test_base_url_rejects_unusable_values(raw):
+    with pytest.raises(APIError):
+        normalize_base_url(raw)
+
+
+def test_token_strips_pasted_bearer_prefix():
+    assert normalize_token("Bearer abc123") == "abc123"
+    assert normalize_token("bearer  abc123 ") == "abc123"
+    assert normalize_token("  abc123  ") == "abc123"
+    assert normalize_token(None) == ""
+
+
+def test_unwrap_handles_both_envelope_shapes():
+    assert unwrap({"response": {"uuid": "u"}}) == {"uuid": "u"}
+    assert unwrap({"uuid": "u"}) == {"uuid": "u"}
+
+
+@pytest.mark.parametrize(
+    "status, expected",
+    [
+        (401, APIUnauthorizedError),
+        (404, APINotFoundError),
+        (429, APIRateLimitError),
+        (500, APIServerError),
+        (503, APIServerError),
+        (418, APIError),
+    ],
+)
+def test_http_errors_map_onto_the_hierarchy(status, expected):
+    request = httpx.Request("GET", "https://panel.example.com/api/users")
+    response = httpx.Response(status, json={"message": "boom"}, request=request)
+    error = normalize_http_error(httpx.HTTPStatusError("x", request=request, response=response))
+    assert isinstance(error, expected)
+    assert "boom" in str(error)
+
+
+def test_client_requires_some_credential():
+    with pytest.raises(APIError):
+        RemnawaveClient(base_url="https://panel.example.com")
+
+
+def test_client_accepts_username_password_without_token():
+    client = RemnawaveClient(
+        base_url="https://panel.example.com", username="admin", password="secret"
+    )
+    assert client.base_url == "https://panel.example.com/api"
+
+
+def _client_with_transport(handler, **kwargs) -> RemnawaveClient:
+    """A client whose HTTP layer is a scripted MockTransport."""
+    client = RemnawaveClient(base_url="https://panel.example.com", **kwargs)
+    client._client = httpx.AsyncClient(
+        base_url=client.base_url, transport=httpx.MockTransport(handler)
+    )
+    return client
+
+
+async def test_get_user_by_username_raises_user_not_found_on_404():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"message": "not found"})
+
+    client = _client_with_transport(handler, token="tok")
+    with pytest.raises(UserNotFoundError):
+        await client.get_user_by_username("123456789")
+    await client.close()
+
+
+async def test_find_user_by_username_returns_none_instead_of_raising():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"message": "not found"})
+
+    client = _client_with_transport(handler, token="tok")
+    assert await client.find_user_by_username("123456789") is None
+    await client.close()
+
+
+async def test_expired_login_token_triggers_one_retry():
+    """
+    A 401 on a login-issued token means it expired; re-login and replay once.
+
+    This is the behaviour user_bot's old sync client had and admin_bot's async
+    one did not -- the merged client keeps it.
+    """
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        calls.append(path)
+        if path.endswith("/auth/login"):
+            token = "fresh" if len(calls) > 1 else "stale"
+            return httpx.Response(200, json={"response": {"accessToken": token}})
+        if request.headers.get("Authorization") == "Bearer stale":
+            return httpx.Response(401, json={"message": "token expired"})
+        return httpx.Response(200, json={"response": {"users": [], "total": 0}})
+
+    client = _client_with_transport(handler, username="admin", password="secret")
+    result = await client.list_users()
+
+    assert result == {"users": [], "total": 0}
+    # login -> users(401) -> login -> users(200)
+    assert calls == ["/api/auth/login", "/api/users", "/api/auth/login", "/api/users"]
+    await client.close()
+
+
+async def test_static_token_401_is_not_retried():
+    """A rejected static token is a config error, so it surfaces immediately."""
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        return httpx.Response(401, json={"message": "bad token"})
+
+    client = _client_with_transport(handler, token="wrong")
+    with pytest.raises(APIUnauthorizedError):
+        await client.list_users()
+    assert calls == ["/api/users"]
+    await client.close()
+
+
+async def test_login_token_is_cached_across_requests():
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request.url.path)
+        if request.url.path.endswith("/auth/login"):
+            return httpx.Response(200, json={"response": {"accessToken": "tok"}})
+        return httpx.Response(200, json={"response": {"users": [], "total": 0}})
+
+    client = _client_with_transport(handler, username="admin", password="secret")
+    await client.list_users()
+    await client.list_users()
+
+    assert calls.count("/api/auth/login") == 1
+    await client.close()
+
+
+async def test_iter_all_users_walks_every_page():
+    def handler(request: httpx.Request) -> httpx.Response:
+        page = int(request.url.params.get("page", 1))
+        users = [{"uuid": f"u{(page - 1) * 2 + i}"} for i in range(2)] if page <= 2 else []
+        return httpx.Response(200, json={"response": {"users": users, "total": 4}})
+
+    client = _client_with_transport(handler, token="tok")
+    uuids = [user["uuid"] async for user in client.iter_all_users(size=2)]
+    assert uuids == ["u0", "u1", "u2", "u3"]
+    await client.close()
+
+
+async def test_connectivity_failures_surface_as_api_error():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectTimeout("timed out")
+
+    client = _client_with_transport(handler, token="tok")
+    with pytest.raises(APIError) as excinfo:
+        await client.list_users()
+    assert "Request failed" in str(excinfo.value)
+    await client.close()

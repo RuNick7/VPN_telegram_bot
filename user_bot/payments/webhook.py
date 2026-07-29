@@ -1,17 +1,17 @@
 import asyncio
 import logging
-import os
 
 from aiohttp import web
 from yookassa.domain.notification import WebhookNotification
 
-from app.services.remnawave.vpn_service import extend_subscription_by_telegram_id
+from app.services.remnawave.vpn_service import extend_subscription
 from bot import bot
 from tgvpn_shared.db import PaymentRepository, PromoRepository, UserRepository, generate_gift_code
+from tgvpn_shared.settings import get_settings
 from handlers.utils import escape_markdown_v2
 from payments.yookassa_client import fetch_payment
 
-ADMIN_ID = int((os.getenv("ADMIN_IDS") or "").split(",")[0].strip() or "0")
+ADMIN_ID = get_settings().primary_admin_id
 logger = logging.getLogger(__name__)
 
 _users = UserRepository()
@@ -182,25 +182,18 @@ async def yookassa_webhook_handler(request: web.Request):
                     f"Код: {escape_gift_code}"
                 )
             else:
-                # 📦 Продлеваем подписку (sync HTTP в Remnawave) — выносим в thread
-                # с жёстким таймаутом, чтобы зависший Remnawave не клал webhook.
+                # 📦 Продлеваем подписку. Жёсткий таймаут, чтобы зависший
+                # Remnawave не держал обработку вебхука бесконечно.
                 try:
                     result = await asyncio.wait_for(
-                        asyncio.to_thread(
-                            extend_subscription_by_telegram_id,
-                            telegram_id,
-                            days_to_extend,
-                        ),
+                        extend_subscription(telegram_id, days_to_extend),
                         timeout=REMNAWAVE_EXTEND_TIMEOUT_SECONDS,
                     )
                 except asyncio.TimeoutError:
                     result = (
                         f"❌ Таймаут продления подписки (>{REMNAWAVE_EXTEND_TIMEOUT_SECONDS}s)"
                     )
-                    logger.error(
-                        "extend_subscription_by_telegram_id timeout for %s",
-                        telegram_id,
-                    )
+                    logger.error("extend_subscription timeout for %s", telegram_id)
                 logger.info("Результат продления подписки: %s", result)
 
                 # ✅ Проверка на реферала

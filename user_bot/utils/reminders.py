@@ -1,18 +1,18 @@
 import time
 import asyncio
 import logging
-import os
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram import Bot
 from datetime import datetime
 
+from tgvpn_shared.settings import get_settings
 from tgvpn_shared.db import UserRepository
 
 logger = logging.getLogger(__name__)
 _users = UserRepository()
 
 SECONDS_DAY = 86_400
-STATUS_CHANNEL_URL = os.getenv("STATUS_CHANNEL_URL", "https://t.me/nitratex1")
+STATUS_CHANNEL_URL = get_settings().status_channel_url
 
 REMINDER_TEXT = (
     "⚠️ Ваша подписка истекает через 24 часа!\n\n"

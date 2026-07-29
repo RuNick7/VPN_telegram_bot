@@ -1,29 +1,19 @@
-import os
 import logging
-from pathlib import Path
-from dotenv import load_dotenv
+
+from tgvpn_shared.settings import get_settings
 from yookassa import Configuration, Payment
 
-# Загружаем переменные окружения
-ROOT_DIR = Path(__file__).resolve().parents[2]
-load_dotenv(dotenv_path=ROOT_DIR / ".env")
-
-# Настройка логирования
 logger = logging.getLogger(__name__)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 
-# Подключение к YooKassa
-SHOP_ID = os.getenv("YOOKASSA_SHOP_ID")
-SECRET_KEY = os.getenv("YOOKASSA_SECRET_KEY")
+_settings = get_settings()
+_settings.require("yookassa_shop_id", "yookassa_secret_key")
 
-if not SHOP_ID or not SECRET_KEY:
-    raise ValueError("YOOKASSA_SHOP_ID and YOOKASSA_SECRET_KEY must be set in the .env file.")
-
-Configuration.account_id = SHOP_ID
-Configuration.secret_key = SECRET_KEY
+Configuration.account_id = _settings.yookassa_shop_id
+Configuration.secret_key = _settings.yookassa_secret_key
 
 
 def create_payment(amount, description, return_url, telegram_id, days_to_extend, is_gift=False):

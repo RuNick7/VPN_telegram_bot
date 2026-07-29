@@ -11,7 +11,6 @@ from aiogram.types.input_file import BufferedInputFile
 from aiogram.fsm.context import FSMContext
 
 from app.config.settings import settings
-from app.services.access import check_admin_access
 from tgvpn_shared.db import UserRepository
 from app.states.admin import BroadcastState
 
@@ -139,10 +138,6 @@ def _build_broadcast_reply_markup(buttons: list[dict] | None) -> InlineKeyboardM
 @router.callback_query(F.data == "admin:broadcast")
 async def start_broadcast(callback: CallbackQuery, state: FSMContext):
     """Start broadcast flow."""
-    if not await check_admin_access(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещен.", show_alert=True)
-        return
-
     await state.clear()
     await state.set_state(BroadcastState.content)
     await callback.message.answer(
@@ -156,11 +151,6 @@ async def start_broadcast(callback: CallbackQuery, state: FSMContext):
 @router.message(BroadcastState.content)
 async def capture_broadcast_content(message: Message, state: FSMContext):
     """Capture broadcast content (text/photo/video)."""
-    if not await check_admin_access(message.from_user.id):
-        await message.answer("❌ Доступ запрещен.")
-        await state.clear()
-        return
-
     if message.photo:
         file_id = message.photo[-1].file_id
         caption = message.caption or ""
@@ -189,10 +179,6 @@ async def capture_broadcast_content(message: Message, state: FSMContext):
 @router.message(BroadcastState.buttons)
 async def capture_broadcast_buttons(message: Message, state: FSMContext):
     """Capture and validate broadcast buttons."""
-    if not await check_admin_access(message.from_user.id):
-        await message.answer("❌ Доступ запрещен.")
-        await state.clear()
-        return
     if not message.text:
         await message.answer("❌ Отправьте текст с кнопками или `-`.")
         return
@@ -237,9 +223,6 @@ def _short_reason(exc: Exception) -> str:
 @router.callback_query(F.data == "admin:broadcast:send")
 async def send_broadcast(callback: CallbackQuery, state: FSMContext):
     """Send broadcast to all telegram_id from DB. Uses user_bot token if set (пользователи общаются с user_bot)."""
-    if not await check_admin_access(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещен.", show_alert=True)
-        return
     # Acknowledge callback immediately to avoid "query is too old" on long broadcasts.
     await callback.answer("⏳ Запускаю рассылку...")
 

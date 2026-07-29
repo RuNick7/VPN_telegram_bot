@@ -7,7 +7,6 @@ from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
 
-from app.services.access import check_admin_access
 from tgvpn_shared.db import PromoRepository
 from app.states.admin import PromoCreateState, PromoDeleteState
 
@@ -65,10 +64,6 @@ def _generate_code(length: int = 8) -> str:
 @router.callback_query(F.data == "admin:promo_create")
 async def promo_create_start(callback: CallbackQuery, state: FSMContext):
     """Start promo code creation flow."""
-    if not await check_admin_access(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещен.", show_alert=True)
-        return
-
     await state.clear()
     await callback.message.answer(
         "Как задать код промокода?",
@@ -80,10 +75,6 @@ async def promo_create_start(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "admin:promo_create:manual")
 async def promo_create_manual(callback: CallbackQuery, state: FSMContext):
     """Manual promo code input."""
-    if not await check_admin_access(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещен.", show_alert=True)
-        return
-
     await state.set_state(PromoCreateState.code)
     await callback.message.answer("Введите код промокода:", reply_markup=_menu_keyboard())
     await callback.answer()
@@ -92,10 +83,6 @@ async def promo_create_manual(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "admin:promo_create:generate")
 async def promo_create_generate(callback: CallbackQuery, state: FSMContext):
     """Generate promo code."""
-    if not await check_admin_access(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещен.", show_alert=True)
-        return
-
     code = _generate_code()
     await state.update_data(code=code)
     await state.set_state(PromoCreateState.promo_type)
@@ -109,11 +96,6 @@ async def promo_create_generate(callback: CallbackQuery, state: FSMContext):
 @router.message(PromoCreateState.code)
 async def promo_create_code(message: Message, state: FSMContext):
     """Handle manual code input."""
-    if not await check_admin_access(message.from_user.id):
-        await message.answer("❌ Доступ запрещен.")
-        await state.clear()
-        return
-
     code = (message.text or "").strip()
     if not code:
         await message.answer("❌ Код не может быть пустым.")
@@ -127,10 +109,6 @@ async def promo_create_code(message: Message, state: FSMContext):
 @router.callback_query(F.data.startswith("admin:promo_create:type:"))
 async def promo_create_type(callback: CallbackQuery, state: FSMContext):
     """Handle promo type selection."""
-    if not await check_admin_access(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещен.", show_alert=True)
-        return
-
     promo_type = callback.data.split(":")[-1]
     await state.update_data(promo_type=promo_type)
     await state.set_state(PromoCreateState.value)
@@ -141,11 +119,6 @@ async def promo_create_type(callback: CallbackQuery, state: FSMContext):
 @router.message(PromoCreateState.value)
 async def promo_create_value(message: Message, state: FSMContext):
     """Handle promo value input."""
-    if not await check_admin_access(message.from_user.id):
-        await message.answer("❌ Доступ запрещен.")
-        await state.clear()
-        return
-
     text = (message.text or "").strip()
     if not text.isdigit():
         await message.answer("❌ Введите целое число (дни).")
@@ -159,10 +132,6 @@ async def promo_create_value(message: Message, state: FSMContext):
 @router.callback_query(F.data.startswith("admin:promo_create:one_time:"))
 async def promo_create_one_time(callback: CallbackQuery, state: FSMContext):
     """Handle one_time selection."""
-    if not await check_admin_access(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещен.", show_alert=True)
-        return
-
     one_time = int(callback.data.split(":")[-1])
     data = await state.get_data()
     code = data.get("code")
@@ -194,10 +163,6 @@ async def promo_create_one_time(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "admin:promo_delete")
 async def promo_delete_start(callback: CallbackQuery, state: FSMContext):
     """Start promo deletion flow."""
-    if not await check_admin_access(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещен.", show_alert=True)
-        return
-
     await state.set_state(PromoDeleteState.code)
     await callback.message.answer("Введите код промокода для удаления:", reply_markup=_menu_keyboard())
     await callback.answer()
@@ -206,11 +171,6 @@ async def promo_delete_start(callback: CallbackQuery, state: FSMContext):
 @router.message(PromoDeleteState.code)
 async def promo_delete_code(message: Message, state: FSMContext):
     """Delete promo code."""
-    if not await check_admin_access(message.from_user.id):
-        await message.answer("❌ Доступ запрещен.")
-        await state.clear()
-        return
-
     code = (message.text or "").strip()
     if not code:
         await message.answer("❌ Код не может быть пустым.")

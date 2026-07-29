@@ -1,3 +1,11 @@
+"""
+Bootstrap for the tests that need a real Postgres.
+
+These live in their own directory so the autouse fixture below only applies to
+them -- the pure unit tests one level up (settings parsing, Remnawave client
+behaviour, squad placement) run anywhere, with no database.
+"""
+
 import os
 
 import pytest

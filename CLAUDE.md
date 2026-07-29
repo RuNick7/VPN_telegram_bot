@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Two independent Telegram bots for a VPN-subscription service (Remnawave panel + YooKassa payments), plus a shared Postgres data layer and a legacy web MVP that is being phased out:
+Two independent Telegram bots for a VPN-subscription service (Remnawave panel + YooKassa payments), plus a shared package holding everything both bots need, and a legacy web MVP that is being phased out:
 
 - `admin_bot/` — operator-facing aiogram bot: manage Remnawave users/hosts/nodes/squads, promo codes, broadcasts, node/squad monitoring, backups. Entrypoint `admin_bot/main.py`.
 - `user_bot/` — customer-facing aiogram bot: signup, subscription purchase via YooKassa, referrals, promo codes, device setup instructions. Two runtime entrypoints against the same codebase: `user_bot/bot.py` (long-polling) and `user_bot/run_webhook.py` (aiohttp server receiving YooKassa payment webhooks at `/webhook-yookassa`).
-- `shared/` — installable package (`tgvpn-shared`, imported as `tgvpn_shared`) holding the Postgres repository layer both bots use. See Architecture below.
-- `web/` — legacy FastAPI + static-JS MVP for a customer web cabinet. Not wired to the current database layer (its adapters shell out to Python subprocesses importing old `user_bot` modules) and is expected to be replaced rather than extended.
+- `shared/` — installable package (`tgvpn-shared`, imported as `tgvpn_shared`) holding the Postgres repository layer, the Remnawave client, the settings model, and squad-placement logic. See Architecture below.
+- `web/` — legacy FastAPI + static-JS MVP for a customer web cabinet. **Currently broken and unused**: its adapters shell out to Python subprocesses importing `user_bot` modules that no longer exist. It is slated for a full rewrite (in Go), so don't repair it — and don't treat its code as a reference for how anything currently works.
 
-The project was migrated off SQLite onto Postgres; some code (e.g. `shared/tgvpn_shared/sync_bridge.py`, comments in `vpn_service.py`) references this as an ongoing incremental migration rather than a single cutover — don't be surprised by "Phase 1/2" references in comments.
+The overhaul is running in strictly sequential phases, each tested and deployed before the next begins. Phase 0 (webhook security fix), Phase 1 (SQLite → Postgres, Docker), and Phase 2 (this refactor) are done. Comments referencing "Phase N" mean this sequence.
 
 ## Commands
 
@@ -28,6 +28,7 @@ python admin_bot/main.py
 python user_bot/bot.py            # polling
 python user_bot/run_webhook.py    # YooKassa webhook receiver
 ```
+Each entrypoint calls `settings.require(...)` first, so a missing variable fails immediately with a readable message instead of a traceback from deep inside aiogram.
 
 ### Full stack via Docker Compose
 ```bash
@@ -46,46 +47,59 @@ docker run --rm --network tg_vpn_default -v "$(pwd)/migrations:/migrations" migr
 (On Windows Git Bash, prefix with `MSYS_NO_PATHCONV=1` or the `-v` path gets mangled.)
 
 ### Tests
-```bash
-docker compose up -d postgres                       # tests need a real Postgres
-python -m pytest user_bot/tests/ shared/tests/ -v    # run together
-python -m pytest shared/tests/test_payments.py::test_claim_payment_processing_blocks_concurrent_double_claim -v  # single test
-```
-Tests connect to Postgres at `127.0.0.1:5433` (the compose service's published port, not the internal `postgres` hostname bots use inside the compose network).
 
-**Do not add `admin_bot` to the same pytest run as `user_bot`/`shared`.** Both bots use `app.*` as their internal top-level package name; each has a `conftest.py` that inserts its own directory onto `sys.path`, and collecting both in one process makes `import app...` resolve ambiguously. `admin_bot/conftest.py` exists only for standalone manual verification, e.g.:
+Most tests need no database. Only `shared/tests/db/` does:
 ```bash
-cd admin_bot && python -c "import conftest; import main; print('ok')"
+python -m pytest user_bot/tests/ shared/tests/ --ignore=shared/tests/db -v   # no Postgres needed
+docker compose up -d postgres                                                # required below
+python -m pytest shared/tests/db/ -v
 ```
-`shared/tests/conftest.py` truncates all tables before every test (autouse fixture) — tests assume an otherwise-empty local/CI database, not one with real data.
+The DB tests connect to `127.0.0.1:5433` (the compose service's published port, not the internal `postgres` hostname bots use inside the compose network), and `shared/tests/db/conftest.py` truncates every table before each test — they assume a local/CI database with no real data.
+
+**Do not add `admin_bot` to the same pytest run as `user_bot`/`shared`.** Both bots use `app.*` as their internal top-level package name; each has a `conftest.py` that inserts its own directory onto `sys.path`, and collecting both in one process makes `import app...` resolve ambiguously. Run admin_bot's own suite separately:
+```bash
+cd admin_bot && python -m pytest tests/ -v
+```
 
 ## Architecture
 
-### Database layer (`shared/`)
+### `shared/` — the code both bots use
 
-`shared/tgvpn_shared/db/` is the **only** sanctioned way either bot touches Postgres. Both bots used to have their own separate SQLite access code (`user_bot/data/db_utils.py`, `admin_bot/app/services/subscription_db.py`, `admin_bot/app/db/sqlite.py`) — all deleted, fully replaced by this package. New DB access should go through here, not ad hoc queries in handler code.
+Anything used by both bots belongs here, not duplicated on each side. Four modules:
+
+**`db/`** — the **only** sanctioned way either bot touches Postgres. New DB access goes through a repository, not ad hoc queries in handler code.
 
 - `pool.py` — one lazily-created asyncpg pool per process, from `DATABASE_URL`.
 - `UserRepository` — the `users` table: signup, subscription extension, referrals (`award_referral` is atomic: a referrer is only credited once), admin-side upsert helpers, plus the reminder/nurture-campaign queries.
 - `PaymentRepository` — YooKassa payment status. `claim_payment_processing` is an atomic `INSERT ... ON CONFLICT ... WHERE ...` claim that prevents a retried/duplicate webhook delivery from crediting a payment twice.
 - `PromoRepository` — promo codes. `try_claim_promo_usage`/`release_promo_usage` atomically claim a code before crediting, and roll back the claim if crediting fails, so a one-time code can't be redeemed by two users racing each other.
 - `EventRepository` — click telemetry (`bot_events`).
-- `AdminOperatorRepository` — admin-panel roles (table `admin_operators`; historically called `users` in admin_bot's own SQLite file — renamed to stop colliding with the customer-identity `users` table below).
+- `AdminOperatorRepository` — admin-panel roles (table `admin_operators`; historically called `users` in admin_bot's own SQLite file — renamed to stop colliding with the customer-identity `users` table).
 
 Repository methods take/return **Unix epoch seconds (`int`)** for timestamp fields even though the underlying columns are `TIMESTAMPTZ` — this matches the arithmetic used throughout both bots' handlers (`now_ts + N * 86400`, `sub_ends > now_ts`, ...). Conversion happens in the SQL itself (`to_timestamp($1)` / `EXTRACT(EPOCH FROM ...)::bigint`), not in Python.
 
-The `users` table's `id` (UUID primary key) and columns like `remnawave_uuid`/`merged_into` are schema-ready for a planned identity rework (letting a person exist without a `telegram_id`) that **hasn't landed in application code yet** — every current call site still looks users up by `telegram_id`. Don't assume `id`/`remnawave_uuid`/`merged_into` are populated or read anywhere yet.
+The `users` table's `id` (UUID primary key) and columns like `remnawave_uuid`/`merged_into` are schema-ready for a planned identity rework (letting a person exist without a `telegram_id`) that **hasn't landed in application code yet** — every current call site still looks users up by `telegram_id`, and `vpn_service._panel_username()` is still `str(telegram_id)`. Don't assume `id`/`remnawave_uuid`/`merged_into` are populated or read anywhere yet; completing that rework is Phase 4.
 
-`user_bot/app/services/remnawave/vpn_service.py` is a deliberate exception to "always use the repositories": its public functions are synchronous (they make blocking Remnawave HTTP calls via `requests` and are always invoked through `asyncio.to_thread` by callers), so its few DB touches go through `tgvpn_shared/sync_bridge.py`'s `run_sync()` instead — a standalone connection per call via `asyncio.run()`, since the shared asyncpg pool is bound to whichever event loop created it and can't be reused from a throwaway one.
+**`remnawave/`** — one async panel client (`RemnawaveClient`), used by both bots. It handles either auth mode: a static `REMNAWAVE_TOKEN`/`REMNAWAVE_API_KEY` (interchangeable aliases), or `REMNAWAVE_USERNAME`+`REMNAWAVE_PASSWORD` login with a cached token and one automatic re-login on a 401. A 401 against a *static* token is a config error and surfaces instead of retrying. HTTP failures are normalized onto an error hierarchy — catch `UserNotFoundError` rather than matching on message strings.
 
-### Remnawave integration
+Note `remnawave_api` (the SDK this project imports, for its request/response models) and `remnawave` (a separate, similarly-named package, **not** a dependency here) are different packages — don't confuse them when reading docs.
 
-Both bots talk to a Remnawave VPN panel over HTTP, currently through two independent, not-yet-unified clients: `admin_bot/app/api/client.py` (async, official `remnawave_api` SDK + httpx) and `user_bot/app/clients/remnawave/client.py` (sync, raw `requests`). Both accept `REMNAWAVE_TOKEN`/`REMNAWAVE_API_KEY` as interchangeable env var aliases. `remnawave_api` (imported by both bots) and `remnawave` (a separate, similarly-named package) are different packages — don't confuse them when reading Remnawave SDK code or docs.
+**`settings.py`** — one `pydantic-settings` model over the root `.env`, reached via `get_settings()`. Every field is optional; entrypoints assert what they need with `settings.require("user_bot_token", ...)`. `ADMIN_IDS` is deliberately stored as a raw string and split in the `admin_ids` property: typing it as `list[int]` makes pydantic-settings JSON-decode the env value before any validator runs, which crashed the bot on a plain `ADMIN_IDS=1,2`.
+
+**`squads.py`** — internal-squad placement. New users go into the first squad under `INTERNAL_SQUAD_MAX_USERS`; when all are full, the next `internal-N` is created (numbering continues from the highest existing name, not the count) copying inbounds from an existing squad.
+
+### admin_bot structure
+
+- **Authorization is a middleware, not a per-handler call.** `app/middlewares/admin_auth.py` is attached to the admin router in `app/handlers/admin/router.py`, on both the `message` and `callback_query` observers. Handlers below it can assume the caller is an admin. Don't add `check_admin_access` calls back into handlers, and if you add a new admin router, include it under that same parent router so it inherits the check.
+- **Paginated lists share one implementation.** `app/handlers/admin/pagination.py` owns the nav keyboard, item pickers, page parsing, and the "go to page N" prompt. A list view registers a `PagedView`, which is what lets one shared handler render any of them. Use it rather than hand-rolling prev/next arithmetic.
+- `app/handlers/admin/users/` is split by flow (`create`/`edit`/`delete`/`search`/`stats`) over a shared `common.py`.
+
+### user_bot structure
+
+`handlers/setup.py` drives all per-device setup instructions from one `PLATFORMS` table of `PlatformSpec`s plus two generic handlers (`os:*` and `manual_setup:*`). To add a device, add a table entry and a button in `os_keyboard()` — a test asserts those two stay in sync.
+
+`app/services/remnawave/vpn_service.py` is async throughout and awaits the repositories directly.
 
 ### Payments
 
-YooKassa. `user_bot/payments/yookassa_client.py` creates payments; `user_bot/payments/webhook.py` receives the success callback. **The webhook has no signature of its own from YooKassa** — the only trustworthy signal is a server-to-server re-fetch of the payment by ID (`fetch_payment`). The handler must never credit a subscription/gift code based on the raw request body (`event`/`status`/`metadata`) alone, only on a verified fetch's own result — this was a real, previously-shipped vulnerability (forgeable free subscriptions), not a hypothetical one, so don't reintroduce a code path that trusts the request body.
-
-### Configuration
-
-Single root-level `.env` (see `.env.example`), loaded via `python-dotenv`/`pydantic-settings`. `admin_bot/app/config/settings.py` uses a pydantic `Settings` model (instantiated at import time — importing it requires `Admin_bot_token` etc. to already be set in the environment). `user_bot` reads `os.getenv` directly in more places; settings are not yet unified between the two bots.
+YooKassa. `user_bot/payments/yookassa_client.py` creates payments; `user_bot/payments/webhook.py` receives the success callback. **The webhook has no signature of its own from YooKassa** — the only trustworthy signal is a server-to-server re-fetch of the payment by ID (`fetch_payment`). The handler must never credit a subscription/gift code based on the raw request body (`event`/`status`/`metadata`) alone, only on a verified fetch's own result — this was a real, previously-shipped vulnerability (forgeable free subscriptions), not a hypothetical one, so don't reintroduce a code path that trusts the request body. `user_bot/tests/test_webhook_security.py` guards both halves of it.

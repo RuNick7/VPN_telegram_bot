@@ -1,12 +1,12 @@
 import asyncio
 import logging
-import os
 import traceback
 
 from aiogram import Router, F, types
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
+from tgvpn_shared.settings import get_settings
 from tgvpn_shared.db import UserRepository
 from handlers.keyboards import (
     gift_payment_keyboard,
@@ -35,7 +35,7 @@ async def _create_payment_async(**kwargs):
 
 
 # Куда YooKassa возвращает пользователя после оплаты — обратно в наш бот.
-_BOT_USERNAME = (os.getenv("TELEGRAM_BOT_USERNAME") or "").strip().lstrip("@")
+_BOT_USERNAME = get_settings().telegram_bot_username.strip().lstrip("@")
 PAYMENT_RETURN_URL = f"https://t.me/{_BOT_USERNAME}" if _BOT_USERNAME else "https://t.me"
 
 

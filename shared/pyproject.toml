@@ -5,10 +5,13 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "tgvpn-shared"
 version = "0.1.0"
-description = "Shared Postgres repository layer for admin_bot and user_bot"
+description = "Shared Postgres repository layer, Remnawave client, and settings for admin_bot and user_bot"
 requires-python = ">=3.11"
 dependencies = [
     "asyncpg>=0.29.0",
+    "httpx>=0.25.0",
+    "pydantic>=2.0.0",
+    "pydantic-settings>=2.0.0",
 ]
 
 [tool.setuptools.packages.find]

@@ -16,19 +16,18 @@ router = Router()
 _users = UserRepository()
 _promo = PromoRepository()
 
-# Жёсткий потолок на синхронный Remnawave SDK (через requests).
+# Ceiling on a full extend round-trip (several panel calls), so a slow
+# Remnawave can't leave the user staring at a dead button.
 REMNAWAVE_EXTEND_TIMEOUT_SECONDS = 20.0
 
 
 async def _extend_subscription_async(telegram_id: int, added_days: int) -> str:
-    """Sync remnawave extend в thread-pool с таймаутом."""
+    """Extend with a hard timeout, reported to the user rather than raised."""
     from app.services.remnawave import vpn_service as vpn
 
     try:
         return await asyncio.wait_for(
-            asyncio.to_thread(
-                vpn.extend_subscription_by_telegram_id, telegram_id, added_days
-            ),
+            vpn.extend_subscription(telegram_id, added_days),
             timeout=REMNAWAVE_EXTEND_TIMEOUT_SECONDS,
         )
     except asyncio.TimeoutError:

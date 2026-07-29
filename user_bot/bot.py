@@ -1,25 +1,24 @@
 # main.py
 # ──────────────────────────────────────────────────────────────────────
-import os, asyncio, logging, pathlib
-from dotenv import load_dotenv
+import asyncio, logging
 
 from aiogram import Bot, Dispatcher
 from aiogram.types import ErrorEvent
 from aiogram.exceptions import TelegramForbiddenError
+from tgvpn_shared.settings import get_settings
+from app.services.remnawave.vpn_service import close_client as close_remnawave_client
 from data.event_logger import EventLogger           # ← NEW
 from precache_videos import precache_videos, _load_cache
 from utils.reminders import reminders_scheduler
 from handlers.user_handlers import router as user_router
 from middlewares.email_gate import EmailGateMiddleware
 
-# ── .env ──────────────────────────────────────────────────────────────
-ROOT_DIR = pathlib.Path(__file__).resolve().parent.parent
-load_dotenv(dotenv_path=ROOT_DIR / ".env")
-USER_BOT_TOKEN = os.getenv("USER_BOT_TOKEN")
-admin_ids_raw = os.getenv("ADMIN_IDS") or ""
-ADMIN_ID = int(admin_ids_raw.split(",")[0].strip() or "0")
+# ── config ────────────────────────────────────────────────────────────
+settings = get_settings()
+settings.require("user_bot_token", "database_url", "remnawave_base_url")
+ADMIN_ID = settings.primary_admin_id
 
-bot = Bot(token=USER_BOT_TOKEN)
+bot = Bot(token=settings.user_bot_token)
 dp  = Dispatcher()
 VIDEO_ID_CACHE: dict = {}
 reminders_task: asyncio.Task | None = None
@@ -69,6 +68,7 @@ async def on_shutdown(dispatcher: Dispatcher) -> None:
         except asyncio.CancelledError:
             pass
     await evlog.shutdown()
+    await close_remnawave_client()
 
 
 @dp.error()
@@ -83,7 +83,7 @@ def main() -> None:
     # DEBUG нельзя в проде: aiogram на этом уровне пишет полные апдейты
     # (сообщения и данные пользователей) в лог.
     logging.basicConfig(
-        level=(os.getenv("LOG_LEVEL") or "INFO").upper(),
+        level=settings.log_level.upper(),
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )

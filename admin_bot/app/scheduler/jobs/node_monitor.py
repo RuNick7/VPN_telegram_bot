@@ -5,8 +5,9 @@ import time
 import asyncio
 from typing import Any, Dict, Optional
 
+from tgvpn_shared.remnawave import APIError
+
 from app.api.client import RemnawaveClient
-from app.api.errors import APIError
 from app.config.settings import settings
 from app.notify.admin import send_admin_message
 
@@ -58,11 +59,12 @@ async def run_node_monitor() -> None:
     client = RemnawaveClient()
     alerts: list[str] = []
     try:
-        async def _request_with_retry(endpoint: str) -> Dict[str, Any]:
+        async def _with_retry(label: str, call):
+            """Retry `call()` on connectivity-shaped failures only."""
             last_exc: Exception | None = None
             for attempt in range(1, REQUEST_RETRIES + 1):
                 try:
-                    return await client.request("GET", endpoint)
+                    return await call()
                 except APIError as exc:
                     last_exc = exc
                     # Retry only network timeout/connectivity-like failures.
@@ -73,10 +75,9 @@ async def run_node_monitor() -> None:
                     await asyncio.sleep(REQUEST_RETRY_DELAY_SECONDS * attempt)
             if last_exc:
                 raise last_exc
-            raise RuntimeError(f"Unexpected empty response for endpoint {endpoint}")
+            raise RuntimeError(f"Unexpected empty response for {label}")
 
-        system_stats = await _request_with_retry("/system/stats")
-        stats = system_stats.get("response", {})
+        stats = await _with_retry("system stats", client.get_system_stats)
         nodes_stats = stats.get("nodes", {})
         total_online_nodes = nodes_stats.get("totalOnline")
 
@@ -90,8 +91,7 @@ async def run_node_monitor() -> None:
                     f"RAM {ram_percent:.1f}% > {settings.node_ram_max_percent}% (system)"
                 )
 
-        nodes_resp = await _request_with_retry("/nodes")
-        nodes = nodes_resp.get("response", [])
+        nodes = await _with_retry("nodes", client.list_nodes)
         for node in nodes:
             name = node.get("name") or node.get("uuid", "unknown")
 
@@ -105,8 +105,7 @@ async def run_node_monitor() -> None:
             if node.get("isConnected") is False:
                 alerts.append(f"Node offline: {name}")
 
-        squads_resp = await _request_with_retry("/internal-squads")
-        squads = squads_resp.get("response", {}).get("internalSquads", [])
+        squads = await _with_retry("internal squads", client.list_internal_squads)
         last_squad = _last_internal_squad(squads)
         for squad in squads:
             name = squad.get("name") or squad.get("uuid", "unknown")
@@ -150,7 +149,7 @@ async def run_node_monitor() -> None:
             await send_admin_message(
                 "❌ Ошибка мониторинга нод.\n"
                 f"Причина: {e}\n"
-                f"REMNAWAVE_BASE_URL: {settings.remnawave_api_url}"
+                f"REMNAWAVE_BASE_URL: {settings.remnawave_base_url}"
             )
             _last_error_ts = now
     finally:
