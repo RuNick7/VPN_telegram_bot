@@ -21,8 +21,12 @@ pip install -r requirements-dev.txt   # runtime deps + editable shared/ + pytest
 cp .env.example .env                  # then fill in real values
 ```
 
-### Running a bot locally (no Docker)
+### Running locally (no Docker)
 Requires `.env` at repo root and a reachable Postgres (`DATABASE_URL`):
+```bash
+python run_all.py                 # all three processes, supervised
+```
+Or one at a time, which is what `run_all.py` shells out to:
 ```bash
 python admin_bot/main.py
 python user_bot/bot.py            # polling
@@ -30,13 +34,19 @@ python user_bot/run_webhook.py    # YooKassa webhook receiver
 ```
 Each entrypoint calls `settings.require(...)` first, so a missing variable fails immediately with a readable message instead of a traceback from deep inside aiogram.
 
+`run_all.py` uses **child processes, not threads** — both bots name their internal package `app`, so one interpreter can't host both (see the pytest note below). If any child exits, the launcher stops the rest rather than leaving a half-running deployment.
+
 ### Full stack via Docker Compose
 ```bash
-docker compose up -d postgres           # isolated Postgres, host port 5433 by default
-docker compose up migrate               # applies migrations/*.up.sql (one-off job)
-docker compose up -d admin_bot user_bot user_bot_webhook
+docker compose up -d              # postgres + migrate + `bots` (all three in one container)
 ```
-Each bot's `Dockerfile` is built with the **repo root** as build context (`docker-compose.yml` sets `context: .`), because both images need to `COPY shared/` alongside their own bot directory.
+To run the three bots as separate services instead — for restarting or tailing one without touching the others:
+```bash
+docker compose --profile separate up -d admin_bot user_bot user_bot_webhook
+```
+**Never run both at once**: two pollers on one Telegram token fight over updates, and both bind the webhook port.
+
+Every image is built with the **repo root** as build context (`docker-compose.yml` sets `context: .`), because each needs to `COPY shared/` alongside the bot directories.
 
 ### Database migrations
 Plain SQL files in `migrations/`, golang-migrate format (`NNNN_name.up.sql` / `.down.sql`). Applied via the `migrate/migrate` Docker image — either `docker compose up migrate`, or directly:
@@ -50,8 +60,8 @@ docker run --rm --network tg_vpn_default -v "$(pwd)/migrations:/migrations" migr
 
 Most tests need no database. Only `shared/tests/db/` does:
 ```bash
-python -m pytest user_bot/tests/ shared/tests/ --ignore=shared/tests/db -v   # no Postgres needed
-docker compose up -d postgres                                                # required below
+python -m pytest tests/ user_bot/tests/ shared/tests/ --ignore=shared/tests/db -v   # no Postgres needed
+docker compose up -d postgres                                                       # required below
 python -m pytest shared/tests/db/ -v
 ```
 The DB tests connect to `127.0.0.1:5433` (the compose service's published port, not the internal `postgres` hostname bots use inside the compose network), and `shared/tests/db/conftest.py` truncates every table before each test — they assume a local/CI database with no real data.
@@ -60,6 +70,7 @@ The DB tests connect to `127.0.0.1:5433` (the compose service's published port, 
 ```bash
 cd admin_bot && python -m pytest tests/ -v
 ```
+The root `tests/` directory holds tests for code that belongs to neither bot (currently `run_all.py`), and must stay free of `admin_bot`/`user_bot` imports for the same reason.
 
 ## Architecture
 

@@ -29,7 +29,32 @@ services:
         "up",
       ]
 
+  # Default: all three bot processes in one container, supervised by
+  # run_all.py. `docker compose up -d` brings up postgres + migrate + this.
+  bots:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tgvpn}:${POSTGRES_PASSWORD:-tgvpn}@postgres:5432/${POSTGRES_DB:-tgvpn}
+      WEBHOOK_HOST: 0.0.0.0
+    ports:
+      - "${WEBHOOK_HOST_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # The same three processes as separate services, for restarting or reading
+  # the logs of one bot without touching the others:
+  #     docker compose --profile separate up -d
+  # Never run these alongside `bots` -- two pollers on one Telegram token fight
+  # each other for updates, and both would bind the webhook port.
   admin_bot:
+    profiles: ["separate"]
     build:
       context: .
       dockerfile: admin_bot/Dockerfile
@@ -44,6 +69,7 @@ services:
     restart: unless-stopped
 
   user_bot:
+    profiles: ["separate"]
     build:
       context: .
       dockerfile: user_bot/Dockerfile
@@ -58,6 +84,7 @@ services:
     restart: unless-stopped
 
   user_bot_webhook:
+    profiles: ["separate"]
     build:
       context: .
       dockerfile: user_bot/Dockerfile

@@ -209,6 +209,11 @@ async def choose_field(callback: CallbackQuery, state: FSMContext):
     prompts = {
         "traffic_limit_bytes": "Введите лимит трафика в ГБ (например 1 или 1.5):",
         "hwid_device_limit": "Введите лимит устройств HWID:",
+        "referrer_tag": (
+            "Введите @ник пригласившего (или <code>-</code>, чтобы очистить).\n\n"
+            "Бонус пригласившему начислится при следующей оплате этого пользователя."
+        ),
+        "referred_people": "Введите новое количество приглашённых (число):",
     }
     if field == "expire_at":
         await callback.message.answer(
@@ -286,4 +291,60 @@ async def receive_value(message: Message, state: FSMContext):
         await apply_update(message, state, {"tag": text})
         return
 
+    if field in DB_ONLY_FIELDS:
+        await _apply_db_only_update(message, state, field, text)
+        return
+
     await message.answer("❌ Неизвестное поле.")
+
+
+# Fields that live only in our database -- the panel has no concept of them, so
+# these skip `apply_update` (which would send them to Remnawave) entirely.
+DB_ONLY_FIELDS = {"referrer_tag", "referred_people"}
+
+# Typed instead of a nickname to clear the referrer.
+CLEAR_TOKENS = {"-", "—", "none", "нет", "очистить"}
+
+
+async def _apply_db_only_update(
+    message: Message, state: FSMContext, field: str, text: str
+) -> None:
+    """
+    Write a database-only field, addressed by telegram_id rather than uuid.
+
+    A panel account with no Telegram ID has no row of ours to edit, which is
+    why this reports that case instead of silently doing nothing.
+    """
+    data = await state.get_data()
+    telegram_id = data.get("telegram_id")
+    if not telegram_id:
+        await message.answer(
+            "❌ У этого пользователя нет telegram_id — реферальные поля хранятся "
+            "только в нашей базе и привязаны к нему."
+        )
+        return
+
+    try:
+        if field == "referrer_tag":
+            tag = None if text.lower() in CLEAR_TOKENS else text.lstrip("@").strip()
+            if tag == "":
+                await message.answer("❌ Введите @ник или <code>-</code> для очистки.")
+                return
+            updated = await users_repo.admin_set_referrer(int(telegram_id), tag)
+            result = f"пригласивший: @{tag}" if tag else "пригласивший очищен"
+        else:
+            if not text.isdigit():
+                await message.answer("❌ Введите количество числом.")
+                return
+            updated = await users_repo.set_referred_people(int(telegram_id), int(text))
+            result = f"приглашено: {text}"
+
+        if not updated:
+            await message.answer(f"❌ Пользователь {telegram_id} не найден в базе.")
+            return
+
+        await message.answer(f"✅ Обновлено — {result}.", reply_markup=edit_again_keyboard())
+        await state.set_state(UserEditState.field)
+    except Exception as exc:
+        await message.answer(f"❌ Ошибка при обновлении: {exc}")
+        await state.clear()

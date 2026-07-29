@@ -163,6 +163,12 @@ def delete_start_keyboard() -> InlineKeyboardMarkup:
 
 
 def edit_field_keyboard() -> InlineKeyboardMarkup:
+    """
+    Editable fields, panel-side first and database-side below.
+
+    The split matters: the top group is pushed to Remnawave, the bottom group
+    only exists in our own database (see `DB_ONLY_FIELDS` in `edit.py`).
+    """
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Срок (expire)", callback_data="admin:edit_user:field:expire_at")],
@@ -176,6 +182,14 @@ def edit_field_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(
                     text="HWID лимит", callback_data="admin:edit_user:field:hwid_device_limit"
                 )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="👥 Пригласивший", callback_data="admin:edit_user:field:referrer_tag"
+                ),
+                InlineKeyboardButton(
+                    text="🔢 Приглашено", callback_data="admin:edit_user:field:referred_people"
+                ),
             ],
         ]
     )

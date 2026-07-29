@@ -125,6 +125,42 @@ class UserRepository:
             tag, telegram_id,
         )
 
+    async def admin_set_referrer(
+        self, telegram_id: int, tag: str | None, *, reset_awarded: bool = True
+    ) -> bool:
+        """
+        Overwrite a user's referrer from the admin panel. Returns False if no
+        such user.
+
+        Unlike `set_referrer_tag` (the customer-facing path, which can only
+        ever set a referrer once) this can also clear it -- pass None. By
+        default it also clears `is_referred`, so a corrected referrer can still
+        earn their bonus on the user's next payment; the old one keeps whatever
+        was already credited, since un-crediting them could take a bonus away
+        for an unrelated referral.
+        """
+        pool = await get_pool()
+        if reset_awarded:
+            result = await pool.execute(
+                "UPDATE users SET referrer_tag = $1, is_referred = FALSE WHERE telegram_id = $2",
+                tag, telegram_id,
+            )
+        else:
+            result = await pool.execute(
+                "UPDATE users SET referrer_tag = $1 WHERE telegram_id = $2",
+                tag, telegram_id,
+            )
+        return result != "UPDATE 0"
+
+    async def set_referred_people(self, telegram_id: int, count: int) -> bool:
+        """Set the "people this user invited" counter. Returns False if no such user."""
+        pool = await get_pool()
+        result = await pool.execute(
+            "UPDATE users SET referred_people = $1 WHERE telegram_id = $2",
+            max(0, int(count)), telegram_id,
+        )
+        return result != "UPDATE 0"
+
     async def award_referral(self, referrer_tag: str, telegram_id: int) -> bool:
         """Atomically marks user as referred and increments referrer count.
         Returns True if referral was applied, False if already referred."""
@@ -253,6 +289,61 @@ class UserRepository:
             username, telegram_id_val,
         )
         return result != "DELETE 0"
+
+    async def get_stats(self, expiring_within_days: int = 3) -> dict:
+        """
+        One-pass aggregate counts for the admin statistics screen.
+
+        Everything is computed in a single query rather than one round trip
+        per number, so the screen stays cheap as the user base grows.
+        """
+        pool = await get_pool()
+        row = await pool.fetchrow(
+            """
+            SELECT
+                COUNT(*)                                              AS total,
+                COUNT(*) FILTER (WHERE subscription_ends > now())     AS active,
+                COUNT(*) FILTER (WHERE subscription_ends <= now())    AS expired,
+                COUNT(*) FILTER (
+                    WHERE subscription_ends > now()
+                      AND subscription_ends <= now() + ($1 * INTERVAL '1 day')
+                )                                                     AS expiring_soon,
+                COUNT(*) FILTER (WHERE created_at >= now() - INTERVAL '1 day')   AS new_today,
+                COUNT(*) FILTER (WHERE created_at >= now() - INTERVAL '7 days')  AS new_week,
+                COUNT(*) FILTER (WHERE created_at >= now() - INTERVAL '30 days') AS new_month,
+                COUNT(*) FILTER (WHERE email IS NOT NULL AND email <> '')        AS with_email,
+                COUNT(*) FILTER (
+                    WHERE referrer_tag IS NOT NULL AND referrer_tag <> ''
+                )                                                     AS with_referrer,
+                COUNT(*) FILTER (WHERE is_referred)                   AS referrals_awarded,
+                COALESCE(SUM(referred_people), 0)                     AS referred_people,
+                COALESCE(SUM(gifted_subscriptions), 0)                AS gifted_subscriptions
+            FROM users
+            """,
+            expiring_within_days,
+        )
+        return dict(row) if row else {}
+
+    async def get_payment_stats(self) -> dict:
+        """Payment counts by state, for the same statistics screen."""
+        pool = await get_pool()
+        row = await pool.fetchrow(
+            """
+            SELECT
+                COUNT(*)                                          AS total,
+                COUNT(*) FILTER (WHERE status = 'succeeded')      AS succeeded,
+                COUNT(*) FILTER (WHERE status = 'processing')     AS processing,
+                COUNT(*) FILTER (
+                    WHERE status NOT IN ('succeeded', 'processing')
+                )                                                 AS failed,
+                COUNT(*) FILTER (
+                    WHERE status = 'succeeded'
+                      AND updated_at >= now() - INTERVAL '30 days'
+                )                                                 AS succeeded_month
+            FROM payments
+            """
+        )
+        return dict(row) if row else {}
 
     async def get_all_telegram_ids(self) -> list[int]:
         pool = await get_pool()
