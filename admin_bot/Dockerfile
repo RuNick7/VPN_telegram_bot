@@ -3,7 +3,9 @@
 FROM python:3.11-slim
 
 # postgresql-client supplies pg_dump, used by the daily database-backup job.
-RUN apt-get update \n    && apt-get install -y --no-install-recommends postgresql-client \n    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
