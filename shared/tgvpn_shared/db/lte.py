@@ -51,7 +51,7 @@ class LteRepository:
         pool = await get_pool()
         await pool.execute(
             """
-            UPDATE users SET lte_cycle_start = to_timestamp($1)
+            UPDATE users SET lte_cycle_start = to_timestamp($1::bigint)
             WHERE telegram_id = $2 AND lte_cycle_start IS NULL
             """,
             cycle_start, telegram_id,
@@ -69,7 +69,7 @@ class LteRepository:
         return await pool.fetchval(
             """
             UPDATE users
-            SET lte_cycle_start = to_timestamp($1), lte_cycle_spent_bytes = 0
+            SET lte_cycle_start = to_timestamp($1::bigint), lte_cycle_spent_bytes = 0
             WHERE telegram_id = $2
             RETURNING EXTRACT(EPOCH FROM lte_cycle_start)::bigint
             """,
@@ -87,7 +87,7 @@ class LteRepository:
         return await pool.fetchval(
             """
             UPDATE users
-            SET lte_paid_balance_bytes = lte_paid_balance_bytes + $1
+            SET lte_paid_balance_bytes = lte_paid_balance_bytes + $1::bigint
             WHERE telegram_id = $2
             RETURNING lte_paid_balance_bytes
             """,
@@ -111,13 +111,17 @@ class LteRepository:
         whole point: a top-up between the monitor's read and this write stays.
         """
         pool = await get_pool()
+        # Every byte parameter is cast explicitly. Without it asyncpg infers a
+        # type from context -- and `GREATEST(0, $2)` looks like int4 because of
+        # the literal zero, so anything past 2 GB raised "value out of int32
+        # range" instead of being stored.
         row = await pool.fetchrow(
             """
             UPDATE users
-            SET lte_paid_balance_bytes = GREATEST(0, lte_paid_balance_bytes - $1),
-                lte_cycle_spent_bytes  = GREATEST(0, $2),
+            SET lte_paid_balance_bytes = GREATEST(0::bigint, lte_paid_balance_bytes - $1::bigint),
+                lte_cycle_spent_bytes  = GREATEST(0::bigint, $2::bigint),
                 lte_blocked            = $3,
-                lte_last_usage_bytes   = GREATEST(0, $4)
+                lte_last_usage_bytes   = GREATEST(0::bigint, $4::bigint)
             WHERE telegram_id = $5
             RETURNING
                 lte_paid_balance_bytes,
