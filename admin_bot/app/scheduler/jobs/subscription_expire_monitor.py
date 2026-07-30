@@ -30,6 +30,7 @@ import time
 from typing import Any
 
 from tgvpn_shared.db import JobRunRepository, LteRepository, UserRepository
+from tgvpn_shared.free_tier import plan_panel_update
 from tgvpn_shared.squads import (
     SquadResolutionError,
     SquadRoles,
@@ -139,12 +140,23 @@ async def _reconcile_user(
     elif active:
         paid_uuid = next(iter(set(current) & roles.paid_uuids), None)
 
+    tier = "paid" if active else "free"
+
+    # Squad membership alone is not enough: an account whose expireAt has
+    # already passed is expired to Remnawave whatever squad it holds, so a
+    # user who lapsed *before* the FREE tier was switched on would land in the
+    # FREE squad and still have nothing working. Push the date forward and tag
+    # the tier so it is visible in the panel.
+    panel_update = plan_panel_update(user=user, tier=tier, now=now)
+    if panel_update:
+        await client.update_user({"uuid": str(user_uuid), **panel_update})
+
     desired = plan_membership(
         roles, current, subscription_active=active, paid_squad_uuid=paid_uuid
     )
     if desired is None:
         # Already correct -- still record the tier so reporting is accurate.
-        await _lte.set_squad_tier(telegram_id, "paid" if active else "free")
+        await _lte.set_squad_tier(telegram_id, tier)
         return None
 
     await client.set_user_squads([str(user_uuid)], desired)

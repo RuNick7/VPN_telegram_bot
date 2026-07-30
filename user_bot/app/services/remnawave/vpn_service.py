@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 
 from remnawave_api.models.users import CreateUserRequestDto
 from tgvpn_shared.db import UserRepository
+from tgvpn_shared.free_tier import panel_expire_timestamp
 from tgvpn_shared.remnawave import RemnawaveClient, UserNotFoundError
 from tgvpn_shared.settings import get_settings
 from tgvpn_shared.squads import get_or_create_internal_squad, normalize_new_squad_members
@@ -74,24 +75,6 @@ def _panel_username(telegram_id: int) -> str:
     return str(telegram_id)
 
 
-def panel_expire_timestamp(subscription_ends: int) -> int:
-    """
-    What to write into the panel's `expireAt`.
-
-    Normally the real expiry date, letting the panel cut access off itself.
-
-    With the FREE tier on this becomes a far-future date instead, because a
-    panel-expired account loses *all* access -- including the limited free
-    servers a lapsed user is supposed to fall back to. Expiry is then enforced
-    by `subscription_expire_monitor` moving the user between squads, which is
-    why that job is watched by the health monitor: while this is in effect, a
-    dead job means nobody is ever cut off.
-    """
-    settings = get_settings()
-    if not settings.free_tier_enabled:
-        return subscription_ends
-    years = max(1, settings.free_tier_panel_expire_years)
-    return int(time.time()) + years * 365 * SECONDS_IN_DAY
 
 
 # -- reads -----------------------------------------------------------------

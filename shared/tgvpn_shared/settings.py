@@ -120,12 +120,12 @@ class Settings(BaseSettings):
     status_channel_url: str = Field("https://t.me/nitratex1", validation_alias="STATUS_CHANNEL_URL")
 
     # -- Backups (admin_bot) ----------------------------------------------
-    backup_dir: str = Field("./backups", validation_alias="BACKUP_DIR")
-    backup_retention_days: int = Field(30, validation_alias="BACKUP_RETENTION_DAYS")
+    # BACKUP_DIR / BACKUP_RETENTION_DAYS / REMNAWAVE_BACKUP_ENABLED are gone:
+    # they configured a panel-side backup job that called an endpoint
+    # Remnawave does not have, so it never produced anything.
     subscription_db_backup_dir: str = Field(
         "./backups/subscription_db", validation_alias="SUBSCRIPTION_DB_BACKUP_DIR"
     )
-    remnawave_backup_enabled: bool = Field(True, validation_alias="REMNAWAVE_BACKUP_ENABLED")
 
     # -- Monitoring (admin_bot) -------------------------------------------
     monitor_interval_minutes: int = Field(5, validation_alias="MONITOR_INTERVAL_MINUTES")

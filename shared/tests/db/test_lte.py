@@ -129,6 +129,64 @@ async def test_writes_to_a_missing_user_report_failure():
     )
 
 
+async def test_free_gb_override_defaults_to_none():
+    """NULL means "use the global setting" -- distinct from a 0 override."""
+    tg = await make_user()
+    assert (await lte.get_state(tg))["lte_free_gb_override"] is None
+
+
+async def test_free_gb_override_round_trips():
+    tg = await make_user()
+    assert await lte.set_free_gb_override(tg, 25) is True
+    assert (await lte.get_state(tg))["lte_free_gb_override"] == 25
+
+
+async def test_a_zero_override_is_stored_not_treated_as_unset():
+    """0 is a real override: this user gets no free traffic at all."""
+    tg = await make_user()
+    await lte.set_free_gb_override(tg, 0)
+    assert (await lte.get_state(tg))["lte_free_gb_override"] == 0
+
+
+async def test_override_can_be_cleared_back_to_the_global_setting():
+    tg = await make_user()
+    await lte.set_free_gb_override(tg, 25)
+    await lte.set_free_gb_override(tg, None)
+    assert (await lte.get_state(tg))["lte_free_gb_override"] is None
+
+
+async def test_a_negative_override_is_clamped():
+    tg = await make_user()
+    await lte.set_free_gb_override(tg, -5)
+    assert (await lte.get_state(tg))["lte_free_gb_override"] == 0
+
+
+async def test_override_on_a_missing_user_reports_failure():
+    assert await lte.set_free_gb_override(999_999, 5) is False
+
+
+async def test_set_balance_is_absolute_unlike_credit():
+    """The admin correcting a balance to a known figure, not applying a purchase."""
+    tg = await make_user()
+    await lte.credit_balance(tg, 10 * GB)
+    assert await lte.set_balance(tg, 3 * GB) == 3 * GB
+
+
+async def test_set_balance_can_zero_it_out():
+    tg = await make_user()
+    await lte.credit_balance(tg, 10 * GB)
+    assert await lte.set_balance(tg, 0) == 0
+
+
+async def test_set_balance_never_goes_negative():
+    tg = await make_user()
+    assert await lte.set_balance(tg, -5 * GB) == 0
+
+
+async def test_set_balance_on_a_missing_user_reports_failure():
+    assert await lte.set_balance(999_999, GB) is None
+
+
 async def test_squad_tier_round_trips():
     tg = await make_user()
     await lte.set_squad_tier(tg, "free")

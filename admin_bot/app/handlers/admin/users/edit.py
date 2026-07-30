@@ -7,6 +7,8 @@ from datetime import datetime, timedelta, timezone
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
+from tgvpn_shared.db import LteRepository
+from tgvpn_shared.settings import get_settings
 
 from app.handlers.admin.pagination import (
     PagedView,
@@ -32,6 +34,8 @@ from app.services.users import user_service
 from app.states.admin import UserEditState
 
 router = Router(name="admin_users_edit")
+
+lte_repo = LteRepository()
 
 PREFIX = "admin:edit_user:list"
 GOTO = "admin:edit_user:list:goto"
@@ -222,6 +226,10 @@ async def choose_field(callback: CallbackQuery, state: FSMContext):
         await callback.message.answer(
             await _referred_people_prompt(await state.get_data()), parse_mode="HTML"
         )
+    elif field in ("lte_free_gb", "lte_balance_gb"):
+        await callback.message.answer(
+            await _lte_prompt(await state.get_data(), field), parse_mode="HTML"
+        )
     else:
         await callback.message.answer(prompts.get(field, "Введите новое значение:"))
     await callback.answer()
@@ -248,6 +256,35 @@ async def _referred_people_prompt(data: dict) -> str:
         "• <code>5</code> — установить ровно 5\n"
         "• <code>+3</code> — добавить 3\n"
         "• <code>-2</code> — убавить 2"
+    )
+
+
+async def _lte_prompt(data: dict, field: str) -> str:
+    """Ask for an LTE value, showing what it is now and what it controls."""
+    telegram_id = data.get("telegram_id")
+    state = await lte_repo.get_state(int(telegram_id)) if telegram_id else None
+
+    if field == "lte_free_gb":
+        override = state.get("lte_free_gb_override") if state else None
+        current = (
+            f"{override} ГБ (персонально)"
+            if override is not None
+            else f"{get_settings().lte_free_gb_per_cycle} ГБ (общая настройка)"
+        )
+        return (
+            f"Бесплатных ГБ в месяц сейчас: <b>{current}</b>\n\n"
+            "Введите число ГБ для этого пользователя,\n"
+            "или <code>-</code> чтобы вернуть общую настройку.\n\n"
+            "<i>0 — это тоже значение: значит без бесплатного трафика.</i>"
+        )
+
+    balance = int(state["lte_paid_balance_bytes"] or 0) if state else 0
+    return (
+        f"Купленный баланс LTE сейчас: <b>{balance / 1024**3:.2f} ГБ</b>\n\n"
+        "Введите, сколько ГБ начислить:\n"
+        "• <code>+10</code> — добавить 10 ГБ\n"
+        "• <code>0</code> — обнулить баланс\n\n"
+        "<i>Купленный трафик переходит на следующий месяц.</i>"
     )
 
 
@@ -327,7 +364,7 @@ async def receive_value(message: Message, state: FSMContext):
 
 # Fields that live only in our database -- the panel has no concept of them, so
 # these skip `apply_update` (which would send them to Remnawave) entirely.
-DB_ONLY_FIELDS = {"referrer_tag", "referred_people"}
+DB_ONLY_FIELDS = {"referrer_tag", "referred_people", "lte_free_gb", "lte_balance_gb"}
 
 # Typed instead of a nickname to clear the referrer.
 CLEAR_TOKENS = {"-", "—", "none", "нет", "очистить"}
@@ -385,6 +422,40 @@ async def _apply_db_only_update(
                 await message.answer(f"❌ Пользователь {telegram_id} не найден в базе.")
                 return
             result = f"пригласивший: @{tag}" if tag else "пригласивший очищен"
+        elif field == "lte_free_gb":
+            # `-` clears the override; 0 is a real value meaning no free traffic.
+            gigabytes = None if text.lower() in CLEAR_TOKENS else text
+            if gigabytes is not None and not gigabytes.isdigit():
+                await message.answer("❌ Введите число ГБ или <code>-</code> для общей настройки.")
+                return
+            if not await lte_repo.set_free_gb_override(
+                int(telegram_id), None if gigabytes is None else int(gigabytes)
+            ):
+                await message.answer(f"❌ Пользователь {telegram_id} не найден в базе.")
+                return
+            result = (
+                f"бесплатно {gigabytes} ГБ/мес"
+                if gigabytes is not None
+                else f"бесплатные ГБ по общей настройке ({get_settings().lte_free_gb_per_cycle})"
+            )
+
+        elif field == "lte_balance_gb":
+            parsed = parse_count_input(text)
+            if parsed is None:
+                await message.answer(
+                    "❌ Введите число ГБ: <code>+10</code> чтобы начислить, <code>0</code> чтобы обнулить."
+                )
+                return
+            value, relative = parsed
+            if relative:
+                new_bytes = await lte_repo.credit_balance(int(telegram_id), value * 1024**3)
+            else:
+                new_bytes = await lte_repo.set_balance(int(telegram_id), value * 1024**3)
+            if new_bytes is None:
+                await message.answer(f"❌ Пользователь {telegram_id} не найден в базе.")
+                return
+            result = f"баланс LTE: {new_bytes / 1024**3:.2f} ГБ"
+
         else:
             parsed = parse_count_input(text)
             if parsed is None:

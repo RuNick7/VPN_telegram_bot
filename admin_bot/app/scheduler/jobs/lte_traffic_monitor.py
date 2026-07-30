@@ -169,6 +169,20 @@ def settle_cycle(
     return cycle_start + elapsed_cycles * cycle_seconds, 0
 
 
+def free_bytes_for(state: dict) -> int:
+    """
+    This user's free allowance per cycle, in bytes.
+
+    A per-user override wins over the global setting. `None` means no override;
+    `0` is a real one meaning no free traffic, which is why this checks for
+    None rather than falsiness.
+    """
+    override = state.get("lte_free_gb_override")
+    if override is None:
+        return settings.lte_free_bytes_per_cycle
+    return max(0, int(override)) * 1024**3
+
+
 def plan_quota(
     *,
     usage_bytes: int,
@@ -251,7 +265,7 @@ async def _reconcile_user(
     usage = await fetch_usage_bytes(client, user_uuid, cycle_start, now, nodes)
     spend_delta, cycle_spent, blocked = plan_quota(
         usage_bytes=usage,
-        free_bytes=settings.lte_free_bytes_per_cycle,
+        free_bytes=free_bytes_for(state),
         cycle_spent=cycle_spent,
         paid_balance=paid_balance,
         subscription_active=subscription_ends > now,

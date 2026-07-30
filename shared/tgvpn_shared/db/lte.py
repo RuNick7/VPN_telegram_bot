@@ -29,6 +29,7 @@ _STATE_SELECT = """
         lte_cycle_spent_bytes,
         lte_blocked,
         lte_last_usage_bytes,
+        lte_free_gb_override,
         squad_tier
     FROM users
 """
@@ -136,6 +137,42 @@ class LteRepository:
             telegram_id,
         )
         return dict(row) if row else None
+
+    async def set_balance(self, telegram_id: int, total_bytes: int) -> Optional[int]:
+        """
+        Set the purchased balance outright. Returns the new value, or None if
+        no such user.
+
+        Absolute, unlike `credit_balance` -- this is the admin correcting a
+        balance to a known figure, not a purchase being applied. It is
+        therefore never used by the traffic monitor, whose read-modify-write
+        cycle is exactly what the additive form protects.
+        """
+        pool = await get_pool()
+        return await pool.fetchval(
+            """
+            UPDATE users SET lte_paid_balance_bytes = GREATEST(0::bigint, $1::bigint)
+            WHERE telegram_id = $2
+            RETURNING lte_paid_balance_bytes
+            """,
+            int(total_bytes), telegram_id,
+        )
+
+    async def set_free_gb_override(self, telegram_id: int, gigabytes: int | None) -> bool:
+        """
+        Give one user a different monthly free allowance, or clear the override.
+
+        `None` clears it, falling back to the global `LTE_FREE_GB_PER_CYCLE`.
+        That is deliberately distinct from `0`, which is a real override
+        meaning this user gets no free traffic at all.
+        """
+        pool = await get_pool()
+        result = await pool.execute(
+            "UPDATE users SET lte_free_gb_override = $1 WHERE telegram_id = $2",
+            None if gigabytes is None else max(0, int(gigabytes)),
+            telegram_id,
+        )
+        return result != "UPDATE 0"
 
     async def set_blocked(self, telegram_id: int, blocked: bool) -> None:
         pool = await get_pool()

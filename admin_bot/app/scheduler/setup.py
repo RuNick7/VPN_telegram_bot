@@ -7,7 +7,6 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app.config.settings import settings
 from app.scheduler.jobs import (
-    daily_backup,
     inactive_user_cleanup,
     lte_traffic_monitor,
     node_monitor,
@@ -23,17 +22,11 @@ def create_scheduler() -> AsyncIOScheduler:
     """Create and configure scheduler with jobs."""
     scheduler = AsyncIOScheduler()
 
-    # Add daily backup job (runs at 3:00 AM every day), if enabled.
-    if settings.remnawave_backup_enabled:
-        scheduler.add_job(
-            daily_backup.run_backup,
-            trigger=CronTrigger(hour=3, minute=0),
-            id="daily_backup",
-            name="Daily Remnawave DB Backup",
-            replace_existing=True
-        )
-    else:
-        logger.info("Remnawave backup job is disabled by REMNAWAVE_BACKUP_ENABLED=false")
+    # There is no "Daily Remnawave DB Backup" job any more: it called
+    # /v1/database/export, which this panel does not expose (every candidate
+    # backup endpoint returns 404), so it failed every night and never once
+    # produced a backup. Remnawave's own backup facility is the place for
+    # panel-side dumps; `subscription_db_backup` below covers *our* database.
 
     scheduler.add_job(
         subscription_db_backup.run_subscription_db_backup,
