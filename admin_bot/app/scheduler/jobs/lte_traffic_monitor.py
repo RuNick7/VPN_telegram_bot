@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from tgvpn_shared.db import JobRunRepository, LteRepository, UserRepository
+from tgvpn_shared.lte_quota import free_bytes_for, plan_quota, settle_cycle
 from tgvpn_shared.squads import SquadResolutionError, SquadRoles, resolve_squad_roles
 
 from app.api.client import RemnawaveClient
@@ -145,68 +146,6 @@ async def fetch_usage_bytes(client, user_uuid: str, since: int, until: int, node
     return 0
 
 
-def settle_cycle(
-    *,
-    now: int,
-    cycle_start: int,
-    cycle_seconds: int,
-    cycle_spent: int,
-) -> tuple[int, int]:
-    """
-    Advance the quota window past every elapsed cycle.
-
-    Returns `(cycle_start, cycle_spent)`. Whole cycles are skipped in one step
-    rather than one per pass, so a user the monitor hasn't seen in months
-    lands on the correct current window immediately. Spend resets; the
-    purchased balance deliberately does not, because bought traffic belongs to
-    the user rather than to a cycle.
-    """
-    if cycle_seconds <= 0:
-        return cycle_start, cycle_spent
-    elapsed_cycles = (now - cycle_start) // cycle_seconds
-    if elapsed_cycles <= 0:
-        return cycle_start, cycle_spent
-    return cycle_start + elapsed_cycles * cycle_seconds, 0
-
-
-def free_bytes_for(state: dict) -> int:
-    """
-    This user's free allowance per cycle, in bytes.
-
-    A per-user override wins over the global setting. `None` means no override;
-    `0` is a real one meaning no free traffic, which is why this checks for
-    None rather than falsiness.
-    """
-    override = state.get("lte_free_gb_override")
-    if override is None:
-        return settings.lte_free_bytes_per_cycle
-    return max(0, int(override)) * 1024**3
-
-
-def plan_quota(
-    *,
-    usage_bytes: int,
-    free_bytes: int,
-    cycle_spent: int,
-    paid_balance: int,
-    subscription_active: bool,
-) -> tuple[int, int, bool]:
-    """
-    Work out what this pass costs. Returns `(spend_delta, cycle_spent, blocked)`.
-
-    Usage above the free allowance is charged to purchased traffic. Only the
-    amount *newly* charged is returned as `spend_delta` -- the caller subtracts
-    exactly that from the live balance, never a recomputed total.
-
-    A lapsed subscription blocks regardless of remaining balance: free mode
-    means free servers, and metered ones are not among them.
-    """
-    over_free = max(0, usage_bytes - free_bytes)
-    newly_charged = max(0, min(over_free - cycle_spent, paid_balance))
-    cycle_spent_after = cycle_spent + newly_charged
-    unpaid = max(0, over_free - cycle_spent_after)
-    return newly_charged, cycle_spent_after, bool(unpaid > 0 or not subscription_active)
-
 
 async def _apply_squad(
     client, roles: SquadRoles, user_uuid: str, current: list[str], *, blocked: bool
@@ -265,7 +204,7 @@ async def _reconcile_user(
     usage = await fetch_usage_bytes(client, user_uuid, cycle_start, now, nodes)
     spend_delta, cycle_spent, blocked = plan_quota(
         usage_bytes=usage,
-        free_bytes=free_bytes_for(state),
+        free_bytes=free_bytes_for(state, settings.lte_free_gb_per_cycle),
         cycle_spent=cycle_spent,
         paid_balance=paid_balance,
         subscription_active=subscription_ends > now,

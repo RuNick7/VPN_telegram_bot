@@ -129,6 +129,79 @@ async def test_writes_to_a_missing_user_report_failure():
     )
 
 
+async def test_bought_traffic_survives_a_cycle_rollover_end_to_end():
+    """
+    Purchased gigabytes carry over; only the free allowance resets.
+
+    Walks two full cycles the way the monitor does -- settle the window, spend
+    against it, write back -- rather than testing `roll_cycle` alone, since the
+    guarantee only holds if no step in that sequence clears the balance.
+    """
+    from tgvpn_shared.lte_quota import plan_quota, settle_cycle
+
+    tg = await make_user()
+    cycle_seconds = 30 * 86400
+    free_bytes = 10 * GB
+    start = 1_000_000
+
+    await lte.start_cycle_if_unset(tg, start)
+    await lte.credit_balance(tg, 20 * GB)
+
+    # --- cycle 1: burn the free allowance plus 5 GB of purchased traffic ---
+    now = start + 10 * 86400
+    state = await lte.get_state(tg)
+    cycle_start, cycle_spent = settle_cycle(
+        now=now,
+        cycle_start=int(state["lte_cycle_start"]),
+        cycle_seconds=cycle_seconds,
+        cycle_spent=int(state["lte_cycle_spent_bytes"]),
+    )
+    assert cycle_start == start  # not rolled yet
+
+    delta, cycle_spent, blocked = plan_quota(
+        usage_bytes=15 * GB,
+        free_bytes=free_bytes,
+        cycle_spent=cycle_spent,
+        paid_balance=int(state["lte_paid_balance_bytes"]),
+        subscription_active=True,
+    )
+    await lte.consume_balance(
+        tg, spent_delta_bytes=delta, cycle_spent_bytes=cycle_spent, blocked=blocked,
+        last_usage_bytes=15 * GB,
+    )
+    assert (await lte.get_state(tg))["lte_paid_balance_bytes"] == 15 * GB
+
+    # --- cycle 2: a month later, the window rolls ---
+    now = start + cycle_seconds + 86400
+    state = await lte.get_state(tg)
+    cycle_start, cycle_spent = settle_cycle(
+        now=now,
+        cycle_start=int(state["lte_cycle_start"]),
+        cycle_seconds=cycle_seconds,
+        cycle_spent=int(state["lte_cycle_spent_bytes"]),
+    )
+    assert cycle_start == start + cycle_seconds
+    assert cycle_spent == 0  # the free allowance is fresh again
+    await lte.roll_cycle(tg, cycle_start)
+
+    rolled = await lte.get_state(tg)
+    # The whole point: the 15 GB bought last month is still there.
+    assert rolled["lte_paid_balance_bytes"] == 15 * GB
+    assert rolled["lte_cycle_spent_bytes"] == 0
+
+
+async def test_bought_traffic_survives_many_idle_months():
+    """A user who buys traffic and disappears still has it when they return."""
+    tg = await make_user()
+    await lte.start_cycle_if_unset(tg, 1_000_000)
+    await lte.credit_balance(tg, 7 * GB)
+
+    for month in range(1, 13):
+        await lte.roll_cycle(tg, 1_000_000 + month * 30 * 86400)
+
+    assert (await lte.get_state(tg))["lte_paid_balance_bytes"] == 7 * GB
+
+
 async def test_free_gb_override_defaults_to_none():
     """NULL means "use the global setting" -- distinct from a 0 override."""
     tg = await make_user()

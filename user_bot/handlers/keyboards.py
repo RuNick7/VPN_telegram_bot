@@ -169,9 +169,21 @@ def payment_keyboard(url: str) -> InlineKeyboardMarkup:
 
 
 def lte_packs_keyboard(packs: dict[int, int]) -> InlineKeyboardMarkup:
-    """Traffic packs, cheapest first. Prices are flat -- no referral tiers."""
+    """
+    Traffic packs, smallest first, each labelled with what bulk saves.
+
+    Prices are flat -- no referral tiers -- so the only thing that varies is
+    pack size, and showing the per-gigabyte saving is what makes the larger
+    ones legible at a glance.
+    """
+    from handlers.utils import traffic_pack_label
+
     rows = [
-        [InlineKeyboardButton(text=f"{gb} ГБ — {price}₽", callback_data=f"buy_lte:{gb}")]
+        [
+            InlineKeyboardButton(
+                text=traffic_pack_label(gb, price, packs), callback_data=f"buy_lte:{gb}"
+            )
+        ]
         for gb, price in sorted(packs.items())
     ]
     rows.append([InlineKeyboardButton(text="🔙 В меню", callback_data="main_menu")])

@@ -10,6 +10,7 @@ import pytest
 
 from handlers.constants import LTE_TRAFFIC_PACKS, PRICES
 from handlers.keyboards import lte_packs_keyboard, os_keyboard, tariff_menu_keyboard
+from handlers.utils import traffic_pack_discount, traffic_pack_label
 
 
 def test_the_advertised_packs_and_prices():
@@ -47,10 +48,59 @@ def test_pack_keyboard_lists_every_pack_cheapest_first():
     assert sizes == sorted(LTE_TRAFFIC_PACKS)
 
 
-def test_pack_buttons_show_size_and_price():
+def test_pack_buttons_show_size_price_and_saving():
     labels = [row[0].text for row in lte_packs_keyboard(LTE_TRAFFIC_PACKS).inline_keyboard[:-1]]
-    assert "5 ГБ — 89₽" in labels
-    assert "30 ГБ — 239₽" in labels
+    assert labels == [
+        "5 ГБ — 89₽",
+        "10 ГБ — 119₽ (-33%)",
+        "15 ГБ — 149₽ (-44%)",
+        "30 ГБ — 239₽ (-55%)",
+    ]
+
+
+# -- discount arithmetic ---------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "gigabytes, expected",
+    [(5, 0), (10, 33), (15, 44), (30, 55)],
+)
+def test_discount_against_the_smallest_pack(gigabytes, expected):
+    """
+    The saving is measured against the smallest pack's per-gigabyte rate:
+
+        (1 - price / (gb / 5 * 89)) * 100
+
+    e.g. 10 GB at the 5 GB rate would be 178₽; it costs 119₽, so -33%.
+    """
+    price = LTE_TRAFFIC_PACKS[gigabytes]
+    assert traffic_pack_discount(gigabytes, price, LTE_TRAFFIC_PACKS) == expected
+
+
+def test_the_reference_pack_shows_no_discount():
+    """It defines the rate, so it cannot be a saving against itself."""
+    assert traffic_pack_discount(5, 89, LTE_TRAFFIC_PACKS) == 0
+    assert traffic_pack_label(5, 89, LTE_TRAFFIC_PACKS) == "5 ГБ — 89₽"
+
+
+def test_a_pack_priced_worse_than_the_baseline_shows_no_saving():
+    """Never advertise a markup as a discount."""
+    packs = {5: 89, 10: 200}
+    assert traffic_pack_discount(10, 200, packs) == 0
+    assert "(-" not in traffic_pack_label(10, 200, packs)
+
+
+def test_the_discount_is_rounded_down():
+    """The advertised saving must never overstate the real one."""
+    # 10 GB at the 5 GB rate = 178; 178 * 0.665 = 118.37 -> 33.5% real.
+    packs = {5: 89, 10: 118}
+    assert traffic_pack_discount(10, 118, packs) == 33
+
+
+def test_discount_helpers_survive_degenerate_input():
+    assert traffic_pack_discount(10, 119, {}) == 0
+    assert traffic_pack_discount(0, 119, LTE_TRAFFIC_PACKS) == 0
+    assert traffic_pack_discount(10, 119, {0: 0}) == 0
 
 
 def test_pack_callbacks_are_distinct():

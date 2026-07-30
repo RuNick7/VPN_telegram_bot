@@ -9,7 +9,8 @@ in that window would be erased by an absolute write.
 
 import pytest
 
-from app.scheduler.jobs.lte_traffic_monitor import plan_quota, resolve_lte_nodes, settle_cycle
+from app.scheduler.jobs.lte_traffic_monitor import resolve_lte_nodes
+from tgvpn_shared.lte_quota import plan_quota, settle_cycle
 
 GB = 1024**3
 
