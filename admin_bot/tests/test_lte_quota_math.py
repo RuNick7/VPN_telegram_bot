@@ -10,9 +10,10 @@ in that window would be erased by an absolute write.
 import pytest
 
 from app.scheduler.jobs.lte_traffic_monitor import resolve_lte_nodes
-from tgvpn_shared.lte_quota import plan_quota, settle_cycle
+from tgvpn_shared.lte_quota import format_traffic, plan_quota, remaining_now, settle_cycle
 
 GB = 1024**3
+MB = 1024**2
 
 
 def plan(**kwargs):
@@ -147,6 +148,121 @@ def test_rollover_is_a_no_op_for_a_nonsensical_cycle_length():
         start,
         7,
     )
+
+
+# -- balance shown in menus ------------------------------------------------
+#
+# `remaining_now` reads stored state only -- no panel call -- because it backs
+# a menu, not enforcement. `plan_quota` above remains the only thing that
+# decides access.
+
+NOW = 2_000_000
+
+
+def state(**kwargs) -> dict:
+    defaults = dict(
+        lte_last_usage_bytes=0,
+        lte_cycle_start=NOW - DAY,
+        lte_paid_balance_bytes=0,
+        lte_free_gb_override=None,
+    )
+    return {**defaults, **kwargs}
+
+
+def remaining(**kwargs) -> int:
+    return remaining_now(
+        state=state(**kwargs), global_free_gb=10, cycle_seconds=CYCLE, now=NOW
+    )
+
+
+def test_an_untouched_allowance_is_fully_available():
+    assert remaining() == 10 * GB
+
+
+def test_usage_is_deducted_from_the_allowance():
+    assert remaining(lte_last_usage_bytes=4 * GB) == 6 * GB
+
+
+def test_purchased_traffic_adds_to_what_is_left():
+    assert remaining(lte_last_usage_bytes=4 * GB, lte_paid_balance_bytes=3 * GB) == 9 * GB
+
+
+def test_usage_past_the_allowance_leaves_only_purchased_traffic():
+    assert remaining(lte_last_usage_bytes=14 * GB, lte_paid_balance_bytes=3 * GB) == 3 * GB
+
+
+def test_a_personal_allowance_overrides_the_global_one():
+    assert remaining(lte_free_gb_override=2) == 2 * GB
+
+
+def test_a_zero_override_is_a_real_value_not_a_missing_one():
+    """`0` means no free traffic; only `None` falls back to the global setting."""
+    assert remaining(lte_free_gb_override=0) == 0
+
+
+def test_a_rolled_cycle_shows_a_fresh_allowance_not_last_cycles_usage():
+    """
+    The correction this function exists for.
+
+    A usage reading only means anything inside the window it was taken in.
+    Between a rollover and the monitor's next pass the stored reading belongs
+    to the previous cycle -- quoting it would tell a user with a full new
+    allowance that they have nothing left.
+    """
+    assert (
+        remaining_now(
+            state=state(lte_last_usage_bytes=10 * GB, lte_cycle_start=NOW - 2 * CYCLE),
+            global_free_gb=10,
+            cycle_seconds=CYCLE,
+            now=NOW,
+        )
+        == 10 * GB
+    )
+
+
+def test_usage_within_the_current_cycle_is_still_counted():
+    """The rollover correction must not swallow legitimate in-window usage."""
+    assert (
+        remaining_now(
+            state=state(lte_last_usage_bytes=10 * GB, lte_cycle_start=NOW - CYCLE + DAY),
+            global_free_gb=10,
+            cycle_seconds=CYCLE,
+            now=NOW,
+        )
+        == 0
+    )
+
+
+def test_a_user_whose_cycle_never_started_gets_the_full_allowance():
+    """`lte_cycle_start` is NULL until the monitor first sees them."""
+    assert remaining(lte_cycle_start=None) == 10 * GB
+
+
+def test_missing_fields_read_as_zero_rather_than_raising():
+    """A menu must render off a partially-populated row, not crash."""
+    assert remaining_now(state={}, global_free_gb=1, cycle_seconds=CYCLE, now=NOW) == 1 * GB
+
+
+# -- display formatting ----------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "byte_count, expected",
+    [
+        (0, "0 МБ"),
+        (150 * MB, "150 МБ"),
+        (1023 * MB, "1023 МБ"),
+        (1 * GB, "1.0 ГБ"),
+        (4 * GB + 700 * MB, "4.7 ГБ"),
+        (30 * GB, "30.0 ГБ"),
+    ],
+)
+def test_traffic_is_formatted_for_a_customer(byte_count, expected):
+    assert format_traffic(byte_count) == expected
+
+
+def test_a_negative_amount_never_reaches_a_user():
+    assert format_traffic(-5) == "0 МБ"
 
 
 # -- node selection --------------------------------------------------------

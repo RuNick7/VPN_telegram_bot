@@ -99,6 +99,14 @@ because a configuration slip would otherwise block everyone at once.
 
 Purchased traffic carries across cycles; the free allowance does not.
 
+**Naming**: customers never see "LTE". Everywhere a user can read it — the
+devices menu, the renewal buttons, the purchase screens, the low-traffic
+warnings — this is **«Трафик белых списков»**, defined once as
+`TRAFFIC_LABEL` in `shared/tgvpn_shared/lte_quota.py`. Env vars, columns,
+callback data and job names stay `lte_*`: renaming them would mean a
+migration plus an `.env` edit on every deployment and change nothing a user
+sees. So `LTE_ENABLED=true` above is what switches «белые списки» on.
+
 ## Turning it back off
 
 Set `FREE_TIER_ENABLED=false` and restart. The job stops, and panel `expireAt`

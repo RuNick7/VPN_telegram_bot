@@ -11,7 +11,8 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from app.services.remnawave.vpn_service import create_vpn_user, ensure_vpn_profile_exists
 from tgvpn_shared.settings import get_settings
-from tgvpn_shared.db import UserRepository
+from tgvpn_shared.db import LteRepository, UserRepository
+from tgvpn_shared.lte_quota import TRAFFIC_LABEL, format_traffic, remaining_now
 from handlers.email_state import EmailCaptureState
 from handlers.constants import SECONDS_IN_DAY, TRIAL_DAYS
 from handlers.keyboards import help_menu_keyboard, os_keyboard, pay_keyboard
@@ -19,6 +20,7 @@ from handlers.keyboards import help_menu_keyboard, os_keyboard, pay_keyboard
 
 router = Router()
 _users = UserRepository()
+_lte = LteRepository()
 STATUS_CHANNEL_URL = get_settings().status_channel_url
 CHANNEL_INFO_TEXT_MD = (
     "📢 *У нас есть Telegram\\-канал бота*\n\n"
@@ -45,6 +47,44 @@ def _is_valid_email(value: str) -> bool:
         return False
     pattern = r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$"
     return re.fullmatch(pattern, value) is not None
+
+
+async def _traffic_line(telegram_id: int, *, subscription_active: bool) -> str:
+    """
+    One line on whitelist traffic for the devices menu, or nothing at all.
+
+    Omitted entirely when quotas are switched off: a figure nothing meters
+    would be fiction. When the subscription has lapsed it says so instead of
+    quoting gigabytes -- the quota monitor only grants these servers to paying
+    users, so a number there would advertise access the user does not have.
+
+    Never raises. This is the one screen that must always open, and a balance
+    is not worth failing /start over.
+    """
+    settings = get_settings()
+    if not settings.lte_enabled:
+        return ""
+
+    try:
+        state = await _lte.get_state(telegram_id)
+    except Exception as exc:
+        logging.warning("[TRAFFIC] Не удалось прочитать остаток для %s: %s", telegram_id, exc)
+        return ""
+    if state is None:
+        return ""
+
+    if not subscription_active:
+        return f"📶 <b>{TRAFFIC_LABEL}:</b> вернётся после продления\n\n"
+
+    left = remaining_now(
+        state=state,
+        global_free_gb=settings.lte_free_gb_per_cycle,
+        cycle_seconds=settings.lte_cycle_seconds,
+        now=int(time.time()),
+    )
+    if left <= 0:
+        return f"📶 <b>{TRAFFIC_LABEL}:</b> закончился — докупить /traffic\n\n"
+    return f"📶 <b>{TRAFFIC_LABEL}:</b> {format_traffic(left)}\n\n"
 
 
 async def _render_main_menu(
@@ -85,7 +125,8 @@ async def _render_main_menu(
             (
                 "<b>👋 Привет!</b>\n\n"
                 f"🎉 Вам открыт <b>бесплатный доступ</b> на {TRIAL_DAYS} дней.\n\n"
-                "Выберите своё устройство:"
+                + await _traffic_line(user_id, subscription_active=True)
+                + "Выберите своё устройство:"
             ),
             parse_mode="HTML",
             reply_markup=os_keyboard(),
@@ -127,9 +168,11 @@ async def _render_main_menu(
             "Продлите подписку, чтобы вернуть все серверы:\n\n"
         )
 
+    traffic = await _traffic_line(user_id, subscription_active=sub_ends > now_ts)
+
     await bot.send_message(
         chat_id,
-        header + body + "Выберите своё устройство:",
+        header + body + traffic + "Выберите своё устройство:",
         parse_mode="HTML",
         reply_markup=os_keyboard(),
     )

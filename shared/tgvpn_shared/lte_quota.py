@@ -18,6 +18,27 @@ BYTES_PER_MB = 1024**2
 # metered access stops.
 LOW_TRAFFIC_THRESHOLDS_MB = (500, 150)
 
+# What the metered squad is called anywhere a customer can see it.
+#
+# "LTE" is an internal name. It tells a user nothing about what they are
+# buying and reads as the mobile standard of the same name, which this is not.
+# Identifiers keep the old spelling on purpose -- columns, env vars, callback
+# data and module names are all `lte_*`, and renaming them costs a migration
+# plus an .env edit on every deployment while changing nothing a user sees.
+#
+# Only this exact phrase is shared. Russian declension does not compose from
+# constants, so genitive forms ("на серверах белых списков") stay written out
+# at the few places that need them.
+TRAFFIC_LABEL = "Трафик белых списков"
+
+
+def format_traffic(byte_count: int) -> str:
+    """Bytes as an amount a customer reads at a glance: '4.7 ГБ', '350 МБ'."""
+    byte_count = max(0, int(byte_count))
+    if byte_count >= BYTES_PER_GB:
+        return f"{byte_count / BYTES_PER_GB:.1f} ГБ"
+    return f"{byte_count / BYTES_PER_MB:.0f} МБ"
+
 
 def remaining_bytes(*, usage_bytes: int, free_bytes: int, paid_balance: int) -> int:
     """What the user still has to spend: unused allowance plus bought traffic."""
@@ -76,6 +97,46 @@ def settle_cycle(
     if elapsed_cycles <= 0:
         return cycle_start, cycle_spent
     return cycle_start + elapsed_cycles * cycle_seconds, 0
+
+
+def remaining_now(
+    *,
+    state: dict,
+    global_free_gb: int,
+    cycle_seconds: int,
+    now: int,
+) -> int:
+    """
+    What a user has left right now, from stored state alone -- no panel call.
+
+    This is what a menu can afford to show: the monitor's last reading, not a
+    fresh one. It is therefore a few minutes stale by construction, which is
+    fine for a balance and not fine for enforcement -- `plan_quota` stays the
+    only thing that decides access.
+
+    The one correction made here is for a rolled window. A usage reading only
+    means anything inside the cycle it was taken in; once the window rolls the
+    allowance is fresh and nothing has been measured against it yet. Without
+    that, a menu opened after a rollover but before the monitor's next pass
+    would show last cycle's exhausted balance against this cycle's allowance.
+    """
+    usage = max(0, int(state.get("lte_last_usage_bytes") or 0))
+    cycle_start = int(state.get("lte_cycle_start") or 0)
+    if cycle_start:
+        rolled_start, _ = settle_cycle(
+            now=now,
+            cycle_start=cycle_start,
+            cycle_seconds=cycle_seconds,
+            cycle_spent=0,
+        )
+        if rolled_start != cycle_start:
+            usage = 0
+
+    return remaining_bytes(
+        usage_bytes=usage,
+        free_bytes=free_bytes_for(state, global_free_gb),
+        paid_balance=max(0, int(state.get("lte_paid_balance_bytes") or 0)),
+    )
 
 
 def plan_quota(

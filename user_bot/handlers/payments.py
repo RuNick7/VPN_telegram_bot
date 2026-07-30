@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 import traceback
 
 from aiogram import Router, F, types
@@ -8,6 +9,7 @@ from aiogram.types import CallbackQuery, Message
 
 from tgvpn_shared.settings import get_settings
 from tgvpn_shared.db import LteRepository, UserRepository
+from tgvpn_shared.lte_quota import TRAFFIC_LABEL, format_traffic, remaining_now
 from handlers.constants import LTE_TRAFFIC_PACKS
 from handlers.keyboards import (
     gift_payment_keyboard,
@@ -105,7 +107,8 @@ async def _send_renew_menu(target: types.Message | CallbackQuery) -> None:
     if settings.lte_enabled:
         text += (
             "\n\n<b>Подписка</b> — доступ ко всем серверам.\n"
-            "<b>Трафик</b> — дополнительные ГБ на лимитных серверах."
+            f"<b>{TRAFFIC_LABEL}</b> — дополнительные ГБ на серверах "
+            "с ограниченным трафиком."
         )
     keyboard = renew_menu_keyboard(with_traffic=settings.lte_enabled)
 
@@ -219,10 +222,24 @@ async def _send_lte_packs(target: types.Message | CallbackQuery) -> None:
     override = state.get("lte_free_gb_override") if state else None
     free_gb = override if override is not None else settings.lte_free_gb_per_cycle
 
+    # Same figure the devices menu shows, from the same helper -- two screens
+    # quoting different balances would just look broken.
+    left = (
+        remaining_now(
+            state=state,
+            global_free_gb=settings.lte_free_gb_per_cycle,
+            cycle_seconds=settings.lte_cycle_seconds,
+            now=int(time.time()),
+        )
+        if state
+        else 0
+    )
+
     text = (
-        "📶 <b>Дополнительный трафик</b>\n\n"
+        f"📶 <b>{TRAFFIC_LABEL}</b>\n\n"
+        f"Осталось сейчас: <b>{format_traffic(left)}</b>\n"
         f"Бесплатно каждый месяц: <b>{free_gb} ГБ</b>\n"
-        f"Куплено сейчас: <b>{balance_gb:.2f} ГБ</b>\n\n"
+        f"Куплено сверх лимита: <b>{balance_gb:.2f} ГБ</b>\n\n"
         "Купленный трафик не сгорает и переходит на следующий месяц.\n"
         "Цена за ГБ фиксированная и не зависит от количества приглашённых.\n\n"
         "Выберите пакет:"
@@ -268,7 +285,7 @@ async def buy_lte_callback(callback: CallbackQuery) -> None:
     try:
         payment = await _create_payment_async(
             amount=price,
-            description=f"Дополнительный трафик {gigabytes} ГБ",
+            description=f"{TRAFFIC_LABEL}: {gigabytes} ГБ",
             return_url=PAYMENT_RETURN_URL,
             telegram_id=telegram_id,
             # Traffic purchases must not touch the subscription date; the
@@ -277,7 +294,7 @@ async def buy_lte_callback(callback: CallbackQuery) -> None:
             lte_gb=gigabytes,
         )
         await callback.message.edit_text(
-            f"📶 Пакет {gigabytes} ГБ за {price}₽.\n\n"
+            f"📶 {TRAFFIC_LABEL}: пакет {gigabytes} ГБ за {price}₽.\n\n"
             "Нажмите кнопку ниже для оплаты — трафик начислится автоматически.",
             reply_markup=lte_payment_keyboard(payment.confirmation.confirmation_url),
         )

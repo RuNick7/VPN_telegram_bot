@@ -189,11 +189,11 @@ async def yookassa_webhook_handler(request: web.Request):
                     )
                     user_message = (
                         f"✅ Платёж успешно завершён\\!\n"
-                        f"Начислено *{lte_gb} ГБ* дополнительного трафика\\.\n\n"
-                        f"Всего доступно: *{new_balance / 1024**3:.2f} ГБ*"
+                        f"Начислено *{lte_gb} ГБ* трафика белых списков\\.\n\n"
+                        f"Всего куплено: *{new_balance / 1024**3:.2f} ГБ*"
                     )
                     group_message = (
-                        f"📶 Куплен трафик\n"
+                        f"📶 Куплен трафик белых списков\n"
                         f"Пользователь: {telegram_id}\n"
                         f"Пакет: {lte_gb} ГБ"
                     )

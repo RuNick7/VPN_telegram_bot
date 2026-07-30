@@ -196,7 +196,7 @@ def edit_field_keyboard() -> InlineKeyboardMarkup:
                     text="📶 Бесплатно ГБ/мес", callback_data="admin:edit_user:field:lte_free_gb"
                 ),
                 InlineKeyboardButton(
-                    text="💾 Баланс LTE", callback_data="admin:edit_user:field:lte_balance_gb"
+                    text="💾 Баланс трафика", callback_data="admin:edit_user:field:lte_balance_gb"
                 ),
             ],
         ]

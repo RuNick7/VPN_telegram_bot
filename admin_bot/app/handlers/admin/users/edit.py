@@ -280,7 +280,7 @@ async def _lte_prompt(data: dict, field: str) -> str:
 
     balance = int(state["lte_paid_balance_bytes"] or 0) if state else 0
     return (
-        f"Купленный баланс LTE сейчас: <b>{balance / 1024**3:.2f} ГБ</b>\n\n"
+        f"Купленный трафик белых списков сейчас: <b>{balance / 1024**3:.2f} ГБ</b>\n\n"
         "Введите, сколько ГБ начислить:\n"
         "• <code>+10</code> — добавить 10 ГБ\n"
         "• <code>0</code> — обнулить баланс\n\n"
@@ -454,7 +454,7 @@ async def _apply_db_only_update(
             if new_bytes is None:
                 await message.answer(f"❌ Пользователь {telegram_id} не найден в базе.")
                 return
-            result = f"баланс LTE: {new_bytes / 1024**3:.2f} ГБ"
+            result = f"трафик белых списков: {new_bytes / 1024**3:.2f} ГБ"
 
         else:
             parsed = parse_count_input(text)

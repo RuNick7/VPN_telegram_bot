@@ -23,6 +23,8 @@ from typing import Any
 from aiogram import Bot
 from tgvpn_shared.db import JobRunRepository, LteRepository, UserRepository
 from tgvpn_shared.lte_quota import (
+    TRAFFIC_LABEL,
+    format_traffic,
     free_bytes_for,
     low_traffic_threshold,
     plan_quota,
@@ -158,14 +160,13 @@ def format_low_traffic_warning(threshold_mb: int, remaining: int) -> str:
     """The message a user gets as their metered traffic runs low."""
     if remaining <= 0:
         return (
-            "🚫 <b>Трафик на лимитных серверах закончился</b>\n\n"
+            f"🚫 <b>{TRAFFIC_LABEL} закончился</b>\n\n"
             "Остальные серверы работают как обычно.\n"
             "Докупить трафик: /traffic"
         )
-    remaining_mb = remaining / 1024**2
     return (
-        f"⚠️ <b>Заканчивается трафик</b>\n\n"
-        f"Осталось примерно <b>{remaining_mb:.0f} МБ</b> на лимитных серверах "
+        f"⚠️ <b>Заканчивается {TRAFFIC_LABEL.lower()}</b>\n\n"
+        f"Осталось примерно <b>{format_traffic(remaining)}</b> "
         f"(порог {threshold_mb} МБ).\n\n"
         "Докупить трафик: /traffic"
     )
@@ -376,7 +377,9 @@ async def run_lte_traffic_monitor() -> None:
     await _jobs.record_success(JOB_NAME, int((time.monotonic() - started) * 1000))
     if blocked or unblocked or failed:
         lines = [
-            "📶 LTE лимит-монитор:",
+            # The failure alerts below stay on the technical name on purpose --
+            # they are read next to `lte_traffic_monitor` in the logs.
+            "📶 Монитор трафика белых списков:",
             f"• заблокировано: {blocked}",
             f"• разблокировано: {unblocked}",
             f"• окно: {settings.lte_cycle_days} дн., бесплатно {settings.lte_free_gb_per_cycle} ГБ",
