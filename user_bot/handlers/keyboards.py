@@ -34,7 +34,7 @@ def os_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="🍏 Apple TV", callback_data="os:appletv"),
             ],
             [
-                InlineKeyboardButton(text="💳 Продлить", callback_data="subscription_tariffs"),
+                InlineKeyboardButton(text="💳 Продлить", callback_data="renew_menu"),
             ],
         ]
     )
@@ -46,6 +46,24 @@ def pay_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="💳 Продлить подписку", callback_data="subscription_tariffs")],
         ]
     )
+
+
+def renew_menu_keyboard(*, with_traffic: bool) -> InlineKeyboardMarkup:
+    """
+    The "Продлить" landing: subscription or extra traffic.
+
+    Traffic is only offered when LTE quotas are switched on -- selling traffic
+    that nothing meters would take money for nothing.
+    """
+    rows = [
+        [InlineKeyboardButton(text="💳 Подписка", callback_data="subscription_tariffs")],
+    ]
+    if with_traffic:
+        rows.append(
+            [InlineKeyboardButton(text="📶 Дополнительный трафик", callback_data="lte_packs")]
+        )
+    rows.append([InlineKeyboardButton(text="🔙 В меню", callback_data="main_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def back_to_menu_keyboard() -> InlineKeyboardMarkup:

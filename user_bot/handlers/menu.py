@@ -105,32 +105,34 @@ async def _render_main_menu(
     if username:
         await _users.update_telegram_tag(user_id, username)
 
+    header = (
+        f"<b>👋 С возвращением, @{username}!</b>\n\n"
+        if username else "<b>👋 С возвращением!</b>\n\n"
+    )
+
     if sub_ends > now_ts:
-        header = (
-            f"<b>👋 С возвращением, @{username}!</b>\n\n"
-            if username else "<b>👋 С возвращением!</b>\n\n"
-        )
         body = (
             "🛡 <b>Ваша подписка активна!</b>\n\n"
             f"📅 <b>Действует до:</b> {expire_date}\n"
             f"⏳ <b>Осталось:</b> {days_left} дн.\n\n"
         )
-        await bot.send_message(
-            chat_id,
-            header + body,
-            parse_mode="HTML",
-            reply_markup=os_keyboard(),
-        )
     else:
-        await bot.send_message(
-            chat_id,
-            (
-                "🚫 Ваша подписка закончилась.\n\n"
-                "Чтобы продолжить пользоваться VPN-сервисом, продлите подписку:"
-            ),
-            parse_mode="HTML",
-            reply_markup=pay_keyboard(),
+        # An expired subscription is a downgrade, not a lockout: the device
+        # menu still opens and the connection link still works, just on the
+        # free servers. Showing only a "renew" button here used to leave a
+        # lapsed user with no way to reach their link at all.
+        body = (
+            "🔓 <b>Подписка закончилась</b>\n\n"
+            "Доступ сохранён на <b>бесплатных серверах</b> — ссылка подключения работает.\n"
+            "Продлите подписку, чтобы вернуть все серверы:\n\n"
         )
+
+    await bot.send_message(
+        chat_id,
+        header + body + "Выберите своё устройство:",
+        parse_mode="HTML",
+        reply_markup=os_keyboard(),
+    )
 
 
 async def _send_help_menu(

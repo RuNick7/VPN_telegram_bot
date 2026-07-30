@@ -15,9 +15,10 @@ from handlers.keyboards import (
     lte_packs_keyboard,
     lte_payment_keyboard,
     payment_keyboard,
+    renew_menu_keyboard,
     tariff_menu_keyboard,
 )
-from handlers.utils import get_subscription_price
+from handlers.utils import get_subscription_price, subscription_label
 from payments.yookassa_client import create_payment
 
 
@@ -68,7 +69,12 @@ async def _send_tariff_menu(
             logging.error("[ERROR] Цена для %s мес., ref=%s: %s", months, ref_count, exc)
             price = "?"
 
-        buttons.append((f"{info['duration']} — {price}₽", f"buy_tariff:{months}"))
+        label = (
+            subscription_label(info["duration"], months, price, ref_count)
+            if isinstance(price, int)
+            else f"{info['duration']} — {price}₽"
+        )
+        buttons.append((label, f"buy_tariff:{months}"))
 
     kb = tariff_menu_keyboard(buttons, with_traffic=get_settings().lte_enabled)
     text_md = "📦 *Выберите тариф*:\n"
@@ -86,9 +92,38 @@ async def _send_tariff_menu(
     logging.info("[INFO] Тарифы показаны %s, рефералов: %s", tg_id, ref_count)
 
 
+async def _send_renew_menu(target: types.Message | CallbackQuery) -> None:
+    """
+    Offer both things a user can buy, instead of assuming they want a plan.
+
+    Someone whose subscription lapsed may want servers back; someone who ran
+    out of metered traffic wants gigabytes. Jumping straight to plans made the
+    second case a dead end.
+    """
+    settings = get_settings()
+    text = "💳 <b>Что продлить?</b>"
+    if settings.lte_enabled:
+        text += (
+            "\n\n<b>Подписка</b> — доступ ко всем серверам.\n"
+            "<b>Трафик</b> — дополнительные ГБ на лимитных серверах."
+        )
+    keyboard = renew_menu_keyboard(with_traffic=settings.lte_enabled)
+
+    if isinstance(target, CallbackQuery):
+        await target.answer()
+        await target.message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+    else:
+        await target.answer(text, reply_markup=keyboard, parse_mode="HTML")
+
+
 @router.message(Command("pay"))
-async def subscription_tariffs_cmd(message: types.Message) -> None:
-    await _send_tariff_menu(message, as_edit=False)
+async def pay_cmd(message: types.Message) -> None:
+    await _send_renew_menu(message)
+
+
+@router.callback_query(F.data == "renew_menu")
+async def renew_menu_cb(cb: CallbackQuery) -> None:
+    await _send_renew_menu(cb)
 
 
 @router.callback_query(F.data == "subscription")

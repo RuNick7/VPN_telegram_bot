@@ -20,8 +20,15 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
+from aiogram import Bot
 from tgvpn_shared.db import JobRunRepository, LteRepository, UserRepository
-from tgvpn_shared.lte_quota import free_bytes_for, plan_quota, settle_cycle
+from tgvpn_shared.lte_quota import (
+    free_bytes_for,
+    low_traffic_threshold,
+    plan_quota,
+    remaining_bytes,
+    settle_cycle,
+)
 from tgvpn_shared.squads import SquadResolutionError, SquadRoles, resolve_squad_roles
 
 from app.api.client import RemnawaveClient
@@ -147,6 +154,68 @@ async def fetch_usage_bytes(client, user_uuid: str, since: int, until: int, node
 
 
 
+def format_low_traffic_warning(threshold_mb: int, remaining: int) -> str:
+    """The message a user gets as their metered traffic runs low."""
+    if remaining <= 0:
+        return (
+            "🚫 <b>Трафик на лимитных серверах закончился</b>\n\n"
+            "Остальные серверы работают как обычно.\n"
+            "Докупить трафик: /traffic"
+        )
+    remaining_mb = remaining / 1024**2
+    return (
+        f"⚠️ <b>Заканчивается трафик</b>\n\n"
+        f"Осталось примерно <b>{remaining_mb:.0f} МБ</b> на лимитных серверах "
+        f"(порог {threshold_mb} МБ).\n\n"
+        "Докупить трафик: /traffic"
+    )
+
+
+async def _maybe_warn_low_traffic(
+    telegram_id: int, *, remaining: int, already_notified_mb: int
+) -> None:
+    """
+    Warn once per threshold crossed, and re-arm when the balance recovers.
+
+    The monitor runs every few minutes, so sending on every pass below the
+    threshold would be a message every five minutes until the user topped up.
+    """
+    threshold = low_traffic_threshold(remaining)
+    if threshold == already_notified_mb:
+        return
+
+    # Recovered above every threshold -- clear the flag so the next slide
+    # downward warns again instead of staying silent.
+    if threshold == 0:
+        await _lte.set_low_traffic_notified(telegram_id, 0)
+        return
+
+    try:
+        await _notify_user(telegram_id, format_low_traffic_warning(threshold, remaining))
+    except Exception as exc:
+        # A user who blocked the bot must not stop the monitor, but the flag
+        # is still moved so we don't retry them every pass.
+        logger.info("Не удалось отправить предупреждение о трафике %s: %s", telegram_id, exc)
+    await _lte.set_low_traffic_notified(telegram_id, threshold)
+
+
+async def _notify_user(telegram_id: int, text: str) -> None:
+    """
+    Message a customer from user_bot, which is the bot they actually talk to.
+
+    A fresh Bot per send: this fires rarely, and a long-lived session owned by
+    the scheduler would outlive the job and leak on shutdown.
+    """
+    if not settings.user_bot_token:
+        logger.warning("USER_BOT_TOKEN не задан; предупреждение о трафике не отправлено")
+        return
+    bot = Bot(token=settings.user_bot_token.strip())
+    try:
+        await bot.send_message(telegram_id, text, parse_mode="HTML")
+    finally:
+        await bot.session.close()
+
+
 async def _apply_squad(
     client, roles: SquadRoles, user_uuid: str, current: list[str], *, blocked: bool
 ) -> str | None:
@@ -214,12 +283,22 @@ async def _reconcile_user(
         client, roles, user_uuid, extract_squad_uuids(user), blocked=blocked
     )
 
-    await _lte.consume_balance(
+    written = await _lte.consume_balance(
         telegram_id,
         spent_delta_bytes=spend_delta,
         cycle_spent_bytes=cycle_spent,
         blocked=blocked,
         last_usage_bytes=usage,
+    )
+
+    await _maybe_warn_low_traffic(
+        telegram_id,
+        remaining=remaining_bytes(
+            usage_bytes=usage,
+            free_bytes=free_bytes_for(state, settings.lte_free_gb_per_cycle),
+            paid_balance=int((written or {}).get("lte_paid_balance_bytes") or 0),
+        ),
+        already_notified_mb=int(state.get("lte_low_traffic_notified_mb") or 0),
     )
     return outcome
 

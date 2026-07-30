@@ -315,8 +315,12 @@ async def _resolve_subscription_url(cb: CallbackQuery) -> str | None:
     """
     Fetch the caller's subscription URL, or explain why we can't.
 
-    Returns None after having already replied to the user -- an expired
-    subscription gets a payment prompt, a slow panel gets a retry hint.
+    The link is handed out regardless of subscription state -- an expired
+    subscription means fewer servers behind the same link, not no link. Only a
+    panel account that no longer exists (deleted by the inactive-user cleanup)
+    leaves nothing to give, and that is the one case that prompts for payment.
+
+    Returns None after having already replied to the user.
     """
     try:
         return await asyncio.wait_for(
@@ -329,8 +333,8 @@ async def _resolve_subscription_url(cb: CallbackQuery) -> str | None:
     except UserNotFoundError:
         await cb.answer()
         await cb.message.answer(
-            "🚫 Ваша подписка закончилась.\n\n"
-            "Чтобы продолжить пользоваться VPN-сервисом, продлите подписку:",
+            "🚫 Профиль не найден на сервере.\n\n"
+            "Оформите подписку, чтобы получить доступ:",
             parse_mode="HTML",
             reply_markup=pay_keyboard(),
         )

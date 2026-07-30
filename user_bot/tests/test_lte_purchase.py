@@ -127,7 +127,9 @@ def test_devices_menu_offers_renewal_at_the_bottom():
     rows = os_keyboard().inline_keyboard
     last_row = rows[-1]
     assert len(last_row) == 1
-    assert last_row[0].callback_data == "subscription_tariffs"
+    # Opens the choice between subscription and traffic, not plans directly --
+    # see test_renew_menu.py.
+    assert last_row[0].callback_data == "renew_menu"
     assert "Продлить" in last_row[0].text
 
 

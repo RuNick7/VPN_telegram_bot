@@ -11,6 +11,31 @@ bots cannot be collected in one pytest process).
 from __future__ import annotations
 
 BYTES_PER_GB = 1024**3
+BYTES_PER_MB = 1024**2
+
+# Warn at these remaining amounts, in megabytes, tightest last. Two levels so
+# a user gets a heads-up with room to act and a final warning right before
+# metered access stops.
+LOW_TRAFFIC_THRESHOLDS_MB = (500, 150)
+
+
+def remaining_bytes(*, usage_bytes: int, free_bytes: int, paid_balance: int) -> int:
+    """What the user still has to spend: unused allowance plus bought traffic."""
+    return max(0, free_bytes - usage_bytes) + max(0, paid_balance)
+
+
+def low_traffic_threshold(
+    remaining: int, thresholds_mb: tuple[int, ...] = LOW_TRAFFIC_THRESHOLDS_MB
+) -> int:
+    """
+    The tightest warning level this much remaining has crossed, or 0.
+
+    Returning the level rather than a boolean is what lets the caller tell
+    "already warned at 500" from "now down to 150" and send the second warning
+    without repeating the first.
+    """
+    crossed = [mb for mb in thresholds_mb if remaining <= mb * BYTES_PER_MB]
+    return min(crossed) if crossed else 0
 
 
 def free_bytes_for(state: dict, global_free_gb: int) -> int:

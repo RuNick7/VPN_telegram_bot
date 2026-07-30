@@ -30,6 +30,7 @@ _STATE_SELECT = """
         lte_blocked,
         lte_last_usage_bytes,
         lte_free_gb_override,
+        lte_low_traffic_notified_mb,
         squad_tier
     FROM users
 """
@@ -70,7 +71,11 @@ class LteRepository:
         return await pool.fetchval(
             """
             UPDATE users
-            SET lte_cycle_start = to_timestamp($1::bigint), lte_cycle_spent_bytes = 0
+            SET lte_cycle_start = to_timestamp($1::bigint),
+                lte_cycle_spent_bytes = 0,
+                -- A fresh allowance means the previous cycle's low-traffic
+                -- warnings no longer apply and should be able to fire again.
+                lte_low_traffic_notified_mb = 0
             WHERE telegram_id = $2
             RETURNING EXTRACT(EPOCH FROM lte_cycle_start)::bigint
             """,
@@ -173,6 +178,19 @@ class LteRepository:
             telegram_id,
         )
         return result != "UPDATE 0"
+
+    async def set_low_traffic_notified(self, telegram_id: int, threshold_mb: int) -> None:
+        """
+        Remember which low-traffic warning this user has been sent.
+
+        Set back to 0 when their balance recovers, so a user who tops up and
+        later runs low again is warned a second time rather than silently.
+        """
+        pool = await get_pool()
+        await pool.execute(
+            "UPDATE users SET lte_low_traffic_notified_mb = $1 WHERE telegram_id = $2",
+            max(0, int(threshold_mb)), telegram_id,
+        )
 
     async def set_blocked(self, telegram_id: int, blocked: bool) -> None:
         pool = await get_pool()
