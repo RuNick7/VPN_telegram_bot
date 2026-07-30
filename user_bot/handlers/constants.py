@@ -16,3 +16,17 @@ PRICES = {
 
 TRIAL_DAYS = 30
 SECONDS_IN_DAY = 86_400
+
+# Paid LTE traffic packs, in gigabytes -> rubles.
+#
+# Flat pricing on purpose: unlike subscriptions (see PRICES above, where the
+# referral count picks a discount tier), traffic costs the same for everyone.
+# It is a consumable resold at cost, not a plan someone can earn their way
+# down -- and stacking the referral ladder on top of it would let a
+# five-referral user buy traffic for a fraction of what it costs to serve.
+LTE_TRAFFIC_PACKS = {
+    5: 89,
+    10: 119,
+    15: 149,
+    30: 239,
+}

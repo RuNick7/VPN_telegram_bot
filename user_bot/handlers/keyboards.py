@@ -8,6 +8,14 @@ STATUS_CHANNEL_URL = _settings.status_channel_url
 
 
 def os_keyboard() -> InlineKeyboardMarkup:
+    """
+    Device picker, with renewal offered underneath.
+
+    The renewal row sits apart from the devices deliberately: this keyboard is
+    what a user sees right after /start, so it is where they are when they
+    realise their subscription is running out -- and making them navigate back
+    to a menu to act on that is friction for no reason.
+    """
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -24,6 +32,9 @@ def os_keyboard() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(text="🍏 Apple TV", callback_data="os:appletv"),
+            ],
+            [
+                InlineKeyboardButton(text="💳 Продлить", callback_data="subscription_tariffs"),
             ],
         ]
     )
@@ -112,8 +123,20 @@ def support_faq_back_to_devices_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def tariff_menu_keyboard(buttons: list[tuple[str, str]]) -> InlineKeyboardMarkup:
+def tariff_menu_keyboard(
+    buttons: list[tuple[str, str]], *, with_traffic: bool = False
+) -> InlineKeyboardMarkup:
+    """
+    Subscription tariffs, optionally with a link to the traffic packs.
+
+    `with_traffic` is off unless LTE quotas are enabled -- offering to sell
+    traffic that isn't metered would take money for nothing.
+    """
     rows = [[InlineKeyboardButton(text=text, callback_data=cb)] for text, cb in buttons]
+    if with_traffic:
+        rows.append(
+            [InlineKeyboardButton(text="📶 Докупить трафик", callback_data="lte_packs")]
+        )
     rows.append([InlineKeyboardButton(text="🔙 В меню", callback_data="main_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -141,5 +164,24 @@ def payment_keyboard(url: str) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [InlineKeyboardButton(text="💳 Перейти к оплате", url=url)],
             [InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_tariffs")],
+        ]
+    )
+
+
+def lte_packs_keyboard(packs: dict[int, int]) -> InlineKeyboardMarkup:
+    """Traffic packs, cheapest first. Prices are flat -- no referral tiers."""
+    rows = [
+        [InlineKeyboardButton(text=f"{gb} ГБ — {price}₽", callback_data=f"buy_lte:{gb}")]
+        for gb, price in sorted(packs.items())
+    ]
+    rows.append([InlineKeyboardButton(text="🔙 В меню", callback_data="main_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def lte_payment_keyboard(url: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="💳 Перейти к оплате", url=url)],
+            [InlineKeyboardButton(text="🔙 Назад", callback_data="lte_packs")],
         ]
     )

@@ -16,9 +16,26 @@ Configuration.account_id = _settings.yookassa_shop_id
 Configuration.secret_key = _settings.yookassa_secret_key
 
 
-def create_payment(amount, description, return_url, telegram_id, days_to_extend, is_gift=False):
+def create_payment(
+    amount,
+    description,
+    return_url,
+    telegram_id,
+    days_to_extend,
+    is_gift=False,
+    lte_gb=0,
+):
+    """
+    Create a YooKassa payment.
+
+    `lte_gb` marks this as a traffic purchase rather than a subscription: the
+    webhook credits that many gigabytes instead of extending the subscription.
+    It is carried in metadata, which the webhook only ever reads back from a
+    verified server-to-server fetch -- never from the callback body.
+    """
     logger.info(f"[PAYMENT] Создание платежа: amount={amount} description='{description}' "
-                f"telegram_id={telegram_id} is_gift={is_gift} days_to_extend={days_to_extend}")
+                f"telegram_id={telegram_id} is_gift={is_gift} days_to_extend={days_to_extend} "
+                f"lte_gb={lte_gb}")
 
     try:
         payment = Payment.create({
@@ -35,7 +52,8 @@ def create_payment(amount, description, return_url, telegram_id, days_to_extend,
             "metadata": {
                 "telegram_id": telegram_id,
                 "days_to_extend": days_to_extend,
-                "is_gift": "true" if is_gift else "false"
+                "is_gift": "true" if is_gift else "false",
+                "lte_gb": str(int(lte_gb or 0)),
             },
             "receipt": {
                 "customer": {

@@ -7,10 +7,13 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 
 from tgvpn_shared.settings import get_settings
-from tgvpn_shared.db import UserRepository
+from tgvpn_shared.db import LteRepository, UserRepository
+from handlers.constants import LTE_TRAFFIC_PACKS
 from handlers.keyboards import (
     gift_payment_keyboard,
     gift_tariffs_keyboard,
+    lte_packs_keyboard,
+    lte_payment_keyboard,
     payment_keyboard,
     tariff_menu_keyboard,
 )
@@ -20,6 +23,7 @@ from payments.yookassa_client import create_payment
 
 router = Router()
 _users = UserRepository()
+_lte = LteRepository()
 
 # Жёсткий потолок на синхронный YooKassa SDK (Payment.create использует requests).
 # Без этого один залипший запрос блокирует весь polling-бот.
@@ -66,7 +70,7 @@ async def _send_tariff_menu(
 
         buttons.append((f"{info['duration']} — {price}₽", f"buy_tariff:{months}"))
 
-    kb = tariff_menu_keyboard(buttons)
+    kb = tariff_menu_keyboard(buttons, with_traffic=get_settings().lte_enabled)
     text_md = "📦 *Выберите тариф*:\n"
 
     if as_edit:
@@ -160,6 +164,98 @@ async def buy_tariff_callback(callback_query: types.CallbackQuery) -> None:
         traceback.print_exc()
         logging.error("[ERROR] Ошибка создания платежа для telegram_id %s: %s", telegram_id, exc)
         await callback_query.message.edit_text(f"❌ Ошибка при создании платежа: {exc}")
+
+
+# -- LTE traffic packs ------------------------------------------------------
+
+
+async def _send_lte_packs(target: types.Message | CallbackQuery) -> None:
+    """
+    Show traffic packs, with the user's current balance for context.
+
+    Prices are flat -- deliberately outside the referral discount ladder that
+    applies to subscriptions, since traffic is a consumable resold at cost.
+    """
+    telegram_id = target.from_user.id
+    state = await _lte.get_state(telegram_id)
+    balance_gb = (int(state["lte_paid_balance_bytes"] or 0) / 1024**3) if state else 0.0
+
+    settings = get_settings()
+    override = state.get("lte_free_gb_override") if state else None
+    free_gb = override if override is not None else settings.lte_free_gb_per_cycle
+
+    text = (
+        "📶 <b>Дополнительный трафик</b>\n\n"
+        f"Бесплатно каждый месяц: <b>{free_gb} ГБ</b>\n"
+        f"Куплено сейчас: <b>{balance_gb:.2f} ГБ</b>\n\n"
+        "Купленный трафик не сгорает и переходит на следующий месяц.\n"
+        "Цена за ГБ фиксированная и не зависит от количества приглашённых.\n\n"
+        "Выберите пакет:"
+    )
+    keyboard = lte_packs_keyboard(LTE_TRAFFIC_PACKS)
+
+    if isinstance(target, CallbackQuery):
+        await target.answer()
+        await target.message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+    else:
+        await target.answer(text, reply_markup=keyboard, parse_mode="HTML")
+
+
+@router.message(Command("traffic"))
+async def lte_packs_cmd(message: types.Message) -> None:
+    await _send_lte_packs(message)
+
+
+@router.callback_query(F.data == "lte_packs")
+async def lte_packs_cb(cb: CallbackQuery) -> None:
+    await _send_lte_packs(cb)
+
+
+@router.callback_query(F.data.startswith("buy_lte:"))
+async def buy_lte_callback(callback: CallbackQuery) -> None:
+    await callback.answer()
+
+    try:
+        gigabytes = int(callback.data.split(":")[1])
+    except (IndexError, ValueError):
+        logging.error("[LTE] Некорректный формат buy_lte: %s", callback.data)
+        await callback.message.edit_text("❌ Ошибка: некорректный пакет.")
+        return
+
+    # Price comes from the table, never from the callback -- the callback is
+    # user-controlled and a spoofed one must not be able to name its own price.
+    price = LTE_TRAFFIC_PACKS.get(gigabytes)
+    if price is None:
+        await callback.message.edit_text("❌ Такой пакет не найден.")
+        return
+
+    telegram_id = callback.from_user.id
+    try:
+        payment = await _create_payment_async(
+            amount=price,
+            description=f"Дополнительный трафик {gigabytes} ГБ",
+            return_url=PAYMENT_RETURN_URL,
+            telegram_id=telegram_id,
+            # Traffic purchases must not touch the subscription date; the
+            # webhook branches on lte_gb and leaves days_to_extend unused.
+            days_to_extend=0,
+            lte_gb=gigabytes,
+        )
+        await callback.message.edit_text(
+            f"📶 Пакет {gigabytes} ГБ за {price}₽.\n\n"
+            "Нажмите кнопку ниже для оплаты — трафик начислится автоматически.",
+            reply_markup=lte_payment_keyboard(payment.confirmation.confirmation_url),
+        )
+        logging.info("[LTE] Платёж создан: telegram_id=%s gb=%s price=%s₽",
+                     telegram_id, gigabytes, price)
+    except asyncio.TimeoutError:
+        logging.error("[LTE] Таймаут создания платежа: telegram_id=%s gb=%s", telegram_id, gigabytes)
+        await callback.message.edit_text(
+            "❌ YooKassa слишком долго не отвечает. Попробуйте через минуту."
+        )
+    except Exception as exc:
+        logging.exception("[LTE] Ошибка создания платежа: %s", exc)
+        await callback.message.edit_text("❌ Не удалось создать платёж. Попробуйте позже.")
 
 
 @router.message(Command("gift"))

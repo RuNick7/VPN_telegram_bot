@@ -6,7 +6,13 @@ from yookassa.domain.notification import WebhookNotification
 
 from app.services.remnawave.vpn_service import extend_subscription
 from bot import bot
-from tgvpn_shared.db import PaymentRepository, PromoRepository, UserRepository, generate_gift_code
+from tgvpn_shared.db import (
+    LteRepository,
+    PaymentRepository,
+    PromoRepository,
+    UserRepository,
+    generate_gift_code,
+)
 from tgvpn_shared.settings import get_settings
 from handlers.utils import escape_markdown_v2
 from payments.yookassa_client import fetch_payment
@@ -17,6 +23,7 @@ logger = logging.getLogger(__name__)
 _users = UserRepository()
 _payments = PaymentRepository()
 _promo = PromoRepository()
+_lte = LteRepository()
 
 # Жёсткие потолки на блокирующие сетевые вызовы, чтобы зависший
 # upstream (YooKassa/Remnawave) никогда не клал event loop надолго.
@@ -133,13 +140,25 @@ async def yookassa_webhook_handler(request: web.Request):
         days_to_extend = metadata.get("days_to_extend", 30)
         is_gift_raw = metadata.get("is_gift", False)
 
+        # A traffic purchase credits gigabytes and must not touch the
+        # subscription date. Read from the *verified* metadata, same as
+        # everything else here.
+        try:
+            lte_gb = int(metadata.get("lte_gb") or 0)
+        except (TypeError, ValueError):
+            logger.warning("Некорректный lte_gb=%s, считаем 0", metadata.get("lte_gb"))
+            lte_gb = 0
+        is_lte_purchase = lte_gb > 0
+
         try:
             days_to_extend = int(days_to_extend)
         except (TypeError, ValueError):
             logger.warning("Некорректный days_to_extend=%s, используем 30", days_to_extend)
             days_to_extend = 30
 
-        if days_to_extend <= 0:
+        # A traffic purchase legitimately sends 0 days; only fall back to 30
+        # for subscription payments, where 0 means the value was lost.
+        if days_to_extend <= 0 and not is_lte_purchase:
             logger.warning("days_to_extend=%s <= 0, используем 30", days_to_extend)
             days_to_extend = 30
 
@@ -156,7 +175,47 @@ async def yookassa_webhook_handler(request: web.Request):
             group_message = ""
             processed_ok = True
 
-            if is_gift:
+            if is_lte_purchase:
+                # 📶 Начисляем купленный трафик. Additive by construction, so a
+                # concurrent monitor pass spending the balance can't erase it.
+                try:
+                    new_balance = await _lte.credit_balance(telegram_id, lte_gb * 1024**3)
+                    if new_balance is None:
+                        raise RuntimeError(f"пользователь {telegram_id} не найден в БД")
+                    result = f"📶 Начислено {lte_gb} ГБ"
+                    logger.info(
+                        "[LTE] Начислено %s ГБ пользователю %s, баланс: %.2f ГБ",
+                        lte_gb, telegram_id, new_balance / 1024**3,
+                    )
+                    user_message = (
+                        f"✅ Платёж успешно завершён\\!\n"
+                        f"Начислено *{lte_gb} ГБ* дополнительного трафика\\.\n\n"
+                        f"Всего доступно: *{new_balance / 1024**3:.2f} ГБ*"
+                    )
+                    group_message = (
+                        f"📶 Куплен трафик\n"
+                        f"Пользователь: {telegram_id}\n"
+                        f"Пакет: {lte_gb} ГБ"
+                    )
+                except Exception as exc:
+                    # Mirrors the subscription-failure path: mark the payment
+                    # as processing_error so a YooKassa retry can credit it.
+                    processed_ok = False
+                    logger.error("[LTE] Не удалось начислить %s ГБ для %s: %s",
+                                 lte_gb, telegram_id, exc)
+                    result = f"❌ Ошибка начисления трафика: {exc}"
+                    user_message = (
+                        "⚠️ Платёж прошёл, но при начислении трафика возникла ошибка.\n"
+                        "Мы уже занимаемся этим вопросом."
+                    )
+                    group_message = (
+                        f"⚠️ Ошибка начисления трафика\n"
+                        f"Пользователь: {telegram_id}\n"
+                        f"Пакет: {lte_gb} ГБ\n"
+                        f"Текст: {exc}"
+                    )
+
+            elif is_gift:
                 # 🎁 Генерация подарочного кода
                 gift_code = generate_gift_code()
                 escape_gift_code = escape_markdown_v2(gift_code)
