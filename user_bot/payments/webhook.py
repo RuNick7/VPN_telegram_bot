@@ -32,6 +32,41 @@ REMNAWAVE_EXTEND_TIMEOUT_SECONDS = 20.0
 REQUEST_BODY_TIMEOUT_SECONDS = 10.0
 
 
+async def _resolve_payer(metadata: dict) -> dict | None:
+    """
+    Which of our users this payment belongs to.
+
+    Prefers our own `user_id`. That is the only identifier a website account
+    with no Telegram has, and it is the one that survives an account merge --
+    `get_user_by_uuid` follows `merged_into`, so a payment started before a
+    merge still credits the surviving account rather than a dead row.
+
+    Falls back to `telegram_id` for payments created before the rework and
+    still in flight at YooKassa, and for anything the bot creates today.
+
+    Metadata is read only from a *verified* fetch; see the caller.
+    """
+    user_id = (metadata.get("user_id") or "").strip() if metadata.get("user_id") else None
+    if user_id:
+        row = await _users.get_user_by_uuid(user_id)
+        if row is not None:
+            return dict(row)
+        logger.warning("В metadata указан неизвестный user_id=%s", user_id)
+
+    raw = metadata.get("telegram_id")
+    try:
+        telegram_id = int(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        return None
+    if telegram_id is None:
+        return None
+
+    row = await _users.get_user_by_id(telegram_id)
+    # A payer with no row at all is still creditable: the subscription path
+    # creates the row it needs. Report the ID rather than nothing.
+    return dict(row) if row is not None else {"id": None, "telegram_id": telegram_id}
+
+
 async def _send_markdown_or_plain(chat_id: int, text: str) -> None:
     """Try MarkdownV2 first; fallback to plain text."""
     try:
@@ -132,11 +167,17 @@ async def yookassa_webhook_handler(request: web.Request):
 
         # Считываем данные из metadata
         metadata = (getattr(effective_payment, "metadata", None) or {}) if effective_payment else {}
-        telegram_id_raw = metadata.get("telegram_id")
-        try:
-            telegram_id = int(telegram_id_raw) if telegram_id_raw is not None else None
-        except (TypeError, ValueError):
-            telegram_id = None
+
+        # Who to credit. `user_id` is our own identifier and is preferred:
+        # it is the only one a website account without Telegram has, and it
+        # survives an account merge because the lookup follows `merged_into`.
+        # `telegram_id` is the fallback for payments created before the
+        # identity rework and still in flight at YooKassa.
+        payer = await _resolve_payer(metadata)
+        telegram_id = payer["telegram_id"] if payer else None
+        if payer is None:
+            logger.error("Платёж %s: не удалось определить пользователя, metadata=%s",
+                         payment_id, metadata)
         days_to_extend = metadata.get("days_to_extend", 30)
         is_gift_raw = metadata.get("is_gift", False)
 

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -49,28 +50,40 @@ func TestPastedBearerPrefixIsStripped(t *testing.T) {
 	}
 }
 
-func TestPanelUsernameKeepsTelegramAccountsOnTheirExistingName(t *testing.T) {
-	// Accounts that came from the bot already have a panel profile named
-	// str(telegram_id). Inventing a second name for them would strand the
-	// profile they actually use.
-	id := int64(123456789)
-	if got := Username(&id, "ignored"); got != "123456789" {
-		t.Errorf("got %q, want 123456789", got)
+func TestNewAccountsAreNamedFromOurOwnID(t *testing.T) {
+	// Must stay identical to `panel_username_for` in
+	// shared/tgvpn_shared/identity.py -- the bot and the site create accounts
+	// for the same people and must not produce two different names.
+	if got := UsernameFor("3f2504e0-4f89-11d3-9a0c-0305e82c3301"); got != "u-3f2504e04f8911d3" {
+		t.Errorf("got %q, want u-3f2504e04f8911d3", got)
 	}
 }
 
-func TestWebOnlyAccountsGetADerivedName(t *testing.T) {
-	got := Username(nil, "3f2504e0-4f89-11d3-9a0c-0305e82c3301")
-	if got != "web-3f2504e04f8911d3" {
+func TestNamesDifferPerUser(t *testing.T) {
+	a := UsernameFor("3f2504e0-4f89-11d3-9a0c-0305e82c3301")
+	b := UsernameFor("aaaaaaaa-4f89-11d3-9a0c-0305e82c3301")
+	if a == b {
+		t.Errorf("two users share the panel name %q", a)
+	}
+}
+
+func TestANewNameNeverDependsOnTelegram(t *testing.T) {
+	// The point of the rework: an account can exist, and be paid for, with no
+	// Telegram at all.
+	if got := UsernameFor("3f2504e0-4f89-11d3-9a0c-0305e82c3301"); strings.Contains(got, "555") {
 		t.Errorf("got %q", got)
 	}
 }
 
-func TestDerivedNamesDifferPerUser(t *testing.T) {
-	a := Username(nil, "3f2504e0-4f89-11d3-9a0c-0305e82c3301")
-	b := Username(nil, "aaaaaaaa-4f89-11d3-9a0c-0305e82c3301")
-	if a == b {
-		t.Errorf("two users share the panel name %q", a)
+func TestLegacyAccountsKeepTheirTelegramName(t *testing.T) {
+	// Accounts created before the rework are named str(telegram_id) in the
+	// panel and are deliberately never renamed; resolution falls back to this.
+	id := int64(123456789)
+	if got := LegacyUsername(&id); got != "123456789" {
+		t.Errorf("got %q, want 123456789", got)
+	}
+	if got := LegacyUsername(nil); got != "" {
+		t.Errorf("got %q, want empty", got)
 	}
 }
 

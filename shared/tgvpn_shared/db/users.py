@@ -24,6 +24,7 @@ _EPOCH_SELECT = """
     telegram_tag,
     email,
     remnawave_uuid,
+    remnawave_username,
     merged_into,
     EXTRACT(EPOCH FROM subscription_ends)::bigint AS subscription_ends,
     referrer_tag,
@@ -32,6 +33,7 @@ _EPOCH_SELECT = """
     gifted_subscriptions,
     reminded,
     nurture_stage,
+    lte_paid_balance_bytes,
     EXTRACT(EPOCH FROM created_at)::bigint AS created_at
 """
 
@@ -84,6 +86,131 @@ class UserRepository:
             f"SELECT {_EPOCH_SELECT} FROM users WHERE telegram_tag = $1",
             tag,
         )
+
+    # -- internal identity -------------------------------------------------
+    #
+    # Everything above addresses a user by telegram_id, which is what the bot
+    # has in hand. The methods below address them by our own `id`, which is
+    # what the website has -- and what a person who has never touched Telegram
+    # has instead.
+
+    async def get_user_by_uuid(self, user_id: str) -> Optional[asyncpg.Record]:
+        """
+        Look a user up by internal id, following any merge.
+
+        A merged account's id stays valid on purpose: a website session, a
+        payment already in flight at YooKassa, or a link handed out yesterday
+        all carry the old id, and every one of them must land on the surviving
+        account rather than on a dead row. The recursion is bounded because a
+        merge only ever points at a row that is not itself merged.
+        """
+        pool = await get_pool()
+        return await pool.fetchrow(
+            f"""
+            WITH RECURSIVE chain AS (
+                SELECT id, merged_into, 0 AS depth FROM users WHERE id = $1
+                UNION ALL
+                SELECT u.id, u.merged_into, chain.depth + 1
+                FROM users u JOIN chain ON u.id = chain.merged_into
+                WHERE chain.depth < 8
+            )
+            SELECT {_EPOCH_SELECT} FROM users
+            WHERE id = (SELECT id FROM chain WHERE merged_into IS NULL LIMIT 1)
+            """,
+            user_id,
+        )
+
+    async def set_panel_identity(
+        self, user_id: str, *, remnawave_uuid: str | None, remnawave_username: str | None
+    ) -> None:
+        """
+        Record which panel account belongs to this user.
+
+        Called both when we create one and when a legacy lookup by
+        `str(telegram_id)` succeeds -- backfilling on read is what retires the
+        legacy path one user at a time, without a bulk rename against a live
+        panel.
+        """
+        pool = await get_pool()
+        await pool.execute(
+            """
+            UPDATE users
+            SET remnawave_uuid = $1::uuid, remnawave_username = $2
+            WHERE id = $3::uuid
+            """,
+            remnawave_uuid, remnawave_username, user_id,
+        )
+
+    async def attach_telegram(
+        self, user_id: str, telegram_id: int, telegram_tag: str
+    ) -> bool:
+        """
+        Give a website account a Telegram identity.
+
+        Only fills an empty slot: `telegram_id IS NULL` in the WHERE clause
+        means a second link attempt cannot move an account off the Telegram
+        user it already belongs to. Returns False when the account already had
+        one, which the caller treats as "merge instead".
+        """
+        pool = await get_pool()
+        result = await pool.execute(
+            """
+            UPDATE users SET telegram_id = $1, telegram_tag = $2
+            WHERE id = $3::uuid AND telegram_id IS NULL
+            """,
+            telegram_id, telegram_tag or "", user_id,
+        )
+        return result != "UPDATE 0"
+
+    async def apply_merge(self, plan) -> None:
+        """
+        Fold one account into another, in one transaction.
+
+        `identity.plan_merge` decided the numbers; this only writes them. Both
+        statements have to land together -- a survivor credited with the
+        absorbed account's days while the absorbed row stays independently
+        usable would double the time the user actually paid for.
+        """
+        pool = await get_pool()
+        async with pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.execute(
+                    """
+                    UPDATE users SET
+                        subscription_ends      = to_timestamp($1::bigint),
+                        lte_paid_balance_bytes = $2::bigint,
+                        gifted_subscriptions   = $3,
+                        referred_people        = $4,
+                        email                  = COALESCE(email, $5),
+                        referrer_tag           = COALESCE(NULLIF(referrer_tag, ''), $6),
+                        remnawave_uuid         = COALESCE(remnawave_uuid, $7::uuid),
+                        remnawave_username     = COALESCE(remnawave_username, $8)
+                    WHERE id = $9::uuid
+                    """,
+                    plan.subscription_ends,
+                    plan.lte_paid_balance_bytes,
+                    plan.gifted_subscriptions,
+                    plan.referred_people,
+                    plan.email,
+                    plan.referrer_tag,
+                    plan.adopt_panel_uuid,
+                    plan.adopt_panel_username,
+                    plan.survivor_id,
+                )
+                # The absorbed row keeps its own panel columns so an operator
+                # can still find the leftover account; `merged_into` is what
+                # takes it out of circulation.
+                await connection.execute(
+                    """
+                    UPDATE users SET
+                        merged_into            = $1::uuid,
+                        telegram_id            = NULL,
+                        subscription_ends      = to_timestamp(0),
+                        lte_paid_balance_bytes = 0
+                    WHERE id = $2::uuid
+                    """,
+                    plan.survivor_id, plan.absorbed_id,
+                )
 
     async def get_subscription_info(self, telegram_id: int) -> Optional[dict]:
         pool = await get_pool()

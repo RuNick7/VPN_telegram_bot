@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Two independent Telegram bots for a VPN-subscription service (Remnawave panel + YooKassa payments), plus a shared package holding everything both bots need, and a legacy web MVP that is being phased out:
+Two independent Telegram bots for a VPN-subscription service (Remnawave panel + YooKassa payments), a shared package holding everything both bots need, and a Go backend for the customer website:
 
 - `admin_bot/` — operator-facing aiogram bot: manage Remnawave users/hosts/nodes/squads, promo codes, broadcasts, node/squad monitoring, backups. Entrypoint `admin_bot/main.py`.
 - `user_bot/` — customer-facing aiogram bot: signup, subscription purchase via YooKassa, referrals, promo codes, device setup instructions. Two runtime entrypoints against the same codebase: `user_bot/bot.py` (long-polling) and `user_bot/run_webhook.py` (aiohttp server receiving YooKassa payment webhooks at `/webhook-yookassa`).
@@ -96,7 +96,13 @@ Anything used by both bots belongs here, not duplicated on each side. Four modul
 
 Repository methods take/return **Unix epoch seconds (`int`)** for timestamp fields even though the underlying columns are `TIMESTAMPTZ` — this matches the arithmetic used throughout both bots' handlers (`now_ts + N * 86400`, `sub_ends > now_ts`, ...). Conversion happens in the SQL itself (`to_timestamp($1)` / `EXTRACT(EPOCH FROM ...)::bigint`), not in Python.
 
-The `users` table's `id` (UUID primary key) and columns like `remnawave_uuid`/`merged_into` are schema-ready for a planned identity rework (letting a person exist without a `telegram_id`) that **hasn't landed in application code yet** — every current call site still looks users up by `telegram_id`, and `vpn_service._panel_username()` is still `str(telegram_id)`. Don't assume `id`/`remnawave_uuid`/`merged_into` are populated or read anywhere yet; completing that rework is Phase 4.
+**Identity is `users.id` (UUID), not `telegram_id`.** A person can exist, hold a subscription and pay with no Telegram account at all — that is what the website needs. `shared/tgvpn_shared/identity.py` owns the two decisions this rests on: what a user is called in the panel, and what merging two accounts produces.
+
+- **Panel naming.** New accounts are named `u-<uuid16>` (`panel_username_for`). Accounts created before the rework are named `str(telegram_id)` and are **never renamed** — a bulk rename against a live panel is not worth the risk. `vpn_service.resolve_panel_user` tries the stored `remnawave_uuid`, then `remnawave_username`, then the legacy name, and backfills the first two on a legacy hit, so that path retires one user at a time.
+- **Payments** carry both `user_id` (ours) and `telegram_id` in YooKassa metadata. The webhook prefers `user_id`: it is the only handle a website account has, and `get_user_by_uuid` follows `merged_into`, so a payment started before a merge still credits the surviving row.
+- **Merging.** `t.me/<bot>?start=link_<token>` is the handshake; `user_bot/handlers/account_link.py` is the bot end. The Telegram-side row survives (because `promo_usage.telegram_id` still references `users(telegram_id)`), and **days add up** — remaining time from both sides, summed onto now. The absorbed row keeps `merged_into` set; its leftover panel profile is expired, or adopted when the survivor had none.
+
+Still keyed to `telegram_id` and unchanged: `promo_usage` (so a web-only account cannot redeem promo codes yet) and admin_bot's operator table.
 
 **`remnawave/`** — one async panel client (`RemnawaveClient`), used by both bots. It handles either auth mode: a static `REMNAWAVE_TOKEN`/`REMNAWAVE_API_KEY` (interchangeable aliases), or `REMNAWAVE_USERNAME`+`REMNAWAVE_PASSWORD` login with a cached token and one automatic re-login on a 401. A 401 against a *static* token is a config error and surfaces instead of retrying. HTTP failures are normalized onto an error hierarchy — catch `UserNotFoundError` rather than matching on message strings.
 

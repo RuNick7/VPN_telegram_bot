@@ -6,10 +6,12 @@ from .events import EventRepository
 from .admin_operators import AdminOperatorRepository
 from .lte import LteRepository
 from .jobs import JobRunRepository
+from .account_links import AccountLinkRepository
 
 __all__ = [
     "close_pool",
     "get_pool",
+    "AccountLinkRepository",
     "UserRepository",
     "PaymentRepository",
     "PromoRepository",

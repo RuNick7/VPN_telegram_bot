@@ -57,6 +57,10 @@ type Request struct {
 	AmountRubles int
 	Description  string
 	ReturnURL    string
+	// UserID is our own identifier for the payer and is what the webhook
+	// prefers when crediting: it is the only handle a website account without
+	// Telegram has, and it still resolves after an account merge.
+	UserID       string
 	TelegramID   int64
 	DaysToExtend int
 	IsGift       bool
@@ -89,6 +93,7 @@ func (c *Client) CreatePayment(ctx context.Context, req Request) (*Payment, erro
 		"capture":      true,
 		"description":  req.Description,
 		"metadata": map[string]string{
+			"user_id":        req.UserID,
 			"telegram_id":    strconv.FormatInt(req.TelegramID, 10),
 			"days_to_extend": strconv.Itoa(req.DaysToExtend),
 			"is_gift":        boolString(req.IsGift),

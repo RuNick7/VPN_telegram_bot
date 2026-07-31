@@ -24,6 +24,7 @@ def create_payment(
     days_to_extend,
     is_gift=False,
     lte_gb=0,
+    user_id=None,
 ):
     """
     Create a YooKassa payment.
@@ -32,6 +33,12 @@ def create_payment(
     webhook credits that many gigabytes instead of extending the subscription.
     It is carried in metadata, which the webhook only ever reads back from a
     verified server-to-server fetch -- never from the callback body.
+
+    `user_id` is our own identifier for the payer, and is what the webhook
+    prefers when crediting. Sending both is deliberate: `telegram_id` keeps
+    payments legible to an operator looking at YooKassa, while `user_id` is
+    the one that still resolves after an account merge -- or when the payer
+    has no Telegram account at all.
     """
     logger.info(f"[PAYMENT] Создание платежа: amount={amount} description='{description}' "
                 f"telegram_id={telegram_id} is_gift={is_gift} days_to_extend={days_to_extend} "
@@ -54,6 +61,7 @@ def create_payment(
                 "days_to_extend": days_to_extend,
                 "is_gift": "true" if is_gift else "false",
                 "lte_gb": str(int(lte_gb or 0)),
+                "user_id": str(user_id) if user_id else "",
             },
             "receipt": {
                 "customer": {

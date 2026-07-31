@@ -11,6 +11,7 @@ package account
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/panel"
@@ -47,26 +48,79 @@ func (s *Service) panelExpiry(subscriptionEnds time.Time) time.Time {
 
 // EnsureProfile returns the user's panel account, creating it if missing.
 //
+// Resolution is ordered by how much each handle can be trusted, and matches
+// `resolve_panel_user` in user_bot's vpn_service exactly -- the two must find
+// the same account for the same person:
+//
+//  1. the stored UUID, which survives an operator renaming the account;
+//  2. the stored username;
+//  3. `str(telegram_id)`, the legacy name, for accounts created before the
+//     identity rework. Those are deliberately never renamed, so this path
+//     stays forever -- but a hit on it backfills the first two, so it is
+//     taken at most once per user.
+//
 // A new profile is created *already expired*. The bot grants its trial on
 // /start, tied to a Telegram account; granting one here would grant it per
 // email address instead, which is per mailbox. Purchases extend from now, so
 // an expired-on-creation profile costs a paying user nothing.
 func (s *Service) EnsureProfile(ctx context.Context, user *store.User) (*panel.User, error) {
-	username := panel.Username(user.TelegramID, user.ID)
-
-	profile, err := s.panel.UserByUsername(ctx, username)
-	if err == nil {
-		return profile, nil
+	if user.RemnawaveUUID != nil && *user.RemnawaveUUID != "" {
+		profile, err := s.panel.UserByUUID(ctx, *user.RemnawaveUUID)
+		if err == nil {
+			return profile, nil
+		}
+		if !errors.Is(err, panel.ErrUserNotFound) {
+			return nil, err
+		}
+		// Deleted in the panel, or the UUID went stale. Fall through to the
+		// name lookups rather than reporting the user as having no account.
 	}
-	if !errors.Is(err, panel.ErrUserNotFound) {
-		return nil, err
+
+	for _, name := range []string{user.RemnawaveUsername, panel.LegacyUsername(user.TelegramID)} {
+		if name == "" {
+			continue
+		}
+		profile, err := s.panel.UserByUsername(ctx, name)
+		if errors.Is(err, panel.ErrUserNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		s.rememberPanelIdentity(ctx, user, profile)
+		return profile, nil
 	}
 
 	expiry := user.SubscriptionEnds
 	if expiry.IsZero() || expiry.Before(time.Now()) {
 		expiry = time.Now()
 	}
-	return s.panel.CreateUser(ctx, username, user.TelegramID, s.panelExpiry(expiry))
+	username := panel.UsernameFor(user.ID)
+	profile, err := s.panel.CreateUser(ctx, username, user.TelegramID, s.panelExpiry(expiry))
+	if err != nil {
+		return nil, err
+	}
+	s.rememberPanelIdentity(ctx, user, profile)
+	return profile, nil
+}
+
+// rememberPanelIdentity backfills the handle we just resolved the slow way.
+//
+// Failing to store it costs one extra lookup next time and nothing else, so
+// it is logged rather than returned.
+func (s *Service) rememberPanelIdentity(ctx context.Context, user *store.User, profile *panel.User) {
+	if profile == nil || profile.UUID == "" {
+		return
+	}
+	if user.RemnawaveUUID != nil && *user.RemnawaveUUID == profile.UUID {
+		return
+	}
+	if err := s.store.SetPanelIdentity(ctx, user.ID, profile.UUID, profile.Username); err != nil {
+		slog.Warn("could not store panel identity", "user", user.ID, "err", err)
+		return
+	}
+	uuid := profile.UUID
+	user.RemnawaveUUID, user.RemnawaveUsername = &uuid, profile.Username
 }
 
 // SubscriptionURL is the user's connection link.
@@ -177,11 +231,14 @@ func (s *Service) ExtendSubscription(ctx context.Context, user *store.User, days
 	if err != nil {
 		return time.Time{}, err
 	}
-	if _, err := s.EnsureProfile(ctx, user); err != nil {
+	profile, err := s.EnsureProfile(ctx, user)
+	if err != nil {
 		return newEnds, err
 	}
-	username := panel.Username(user.TelegramID, user.ID)
-	if err := s.panel.SetExpiry(ctx, username, s.panelExpiry(newEnds)); err != nil {
+	// By UUID, not by name: legacy accounts and new ones are named
+	// differently, and patching a name that does not exist would silently
+	// update nothing while reporting success.
+	if err := s.panel.SetExpiryByUUID(ctx, profile.UUID, s.panelExpiry(newEnds)); err != nil {
 		return newEnds, err
 	}
 	return newEnds, nil

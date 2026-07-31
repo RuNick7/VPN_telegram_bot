@@ -85,6 +85,9 @@ func (s *Server) Routes() http.Handler {
 
 	mux.Handle("POST /api/promo/redeem", s.authenticated(s.handleRedeemPromo))
 
+	mux.Handle("GET /api/link/telegram", s.authenticated(s.handleLinkStatus))
+	mux.Handle("POST /api/link/telegram", s.authenticated(s.handleCreateTelegramLink))
+
 	return s.withRecovery(s.withSecurityHeaders(mux))
 }
 

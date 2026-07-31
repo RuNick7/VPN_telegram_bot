@@ -96,22 +96,27 @@ func normalizeToken(raw string) string {
 	return raw
 }
 
-// Username is the panel handle for a site user.
+// UsernameFor is the panel name for an account we are creating now.
 //
-// Accounts that came from the bot keep `str(telegram_id)`, which is what
-// user_bot's `_panel_username` produces and what their existing panel profile
-// is already named -- the site must not invent a second name for them.
-// Accounts created by email on the site have no Telegram ID, so they get a
-// name derived from their internal UUID instead.
-func Username(telegramID *int64, userID string) string {
-	if telegramID != nil {
-		return strconv.FormatInt(*telegramID, 10)
-	}
+// Derived from our own UUID, never from a Telegram ID, so an account can exist
+// -- and be paid for -- with no Telegram at all. Must stay identical to
+// `panel_username_for` in shared/tgvpn_shared/identity.py: the bot and the
+// site create accounts for the same people and must not produce two names.
+func UsernameFor(userID string) string {
 	compact := strings.ReplaceAll(userID, "-", "")
 	if len(compact) > 16 {
 		compact = compact[:16]
 	}
-	return "web-" + compact
+	return "u-" + compact
+}
+
+// LegacyUsername is what an account created before the identity rework is
+// called in the panel. Those are deliberately never renamed.
+func LegacyUsername(telegramID *int64) string {
+	if telegramID == nil {
+		return ""
+	}
+	return strconv.FormatInt(*telegramID, 10)
 }
 
 // -- transport --------------------------------------------------------------
@@ -257,6 +262,24 @@ type User struct {
 	HWIDDeviceLimit *int   `json:"hwidDeviceLimit"`
 }
 
+func (c *Client) UserByUUID(ctx context.Context, userUUID string) (*User, error) {
+	raw, err := c.do(ctx, http.MethodGet, "/users/"+url.PathEscape(userUUID), nil)
+	if errors.Is(err, ErrNotFound) {
+		return nil, ErrUserNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	var user User
+	if err := json.Unmarshal(raw, &user); err != nil {
+		return nil, fmt.Errorf("panel: decode user: %w", err)
+	}
+	if user.UUID == "" {
+		return nil, ErrUserNotFound
+	}
+	return &user, nil
+}
+
 func (c *Client) UserByUsername(ctx context.Context, username string) (*User, error) {
 	raw, err := c.do(ctx, http.MethodGet, "/users/by-username/"+url.PathEscape(username), nil)
 	if errors.Is(err, ErrNotFound) {
@@ -308,10 +331,14 @@ func (c *Client) CreateUser(ctx context.Context, username string, telegramID *in
 	return &user, nil
 }
 
-// SetExpiry updates a panel profile's expiry date.
-func (c *Client) SetExpiry(ctx context.Context, username string, expireAt time.Time) error {
+// SetExpiryByUUID updates a panel profile's expiry date.
+//
+// Addressed by UUID rather than by name because the two kinds of account are
+// named differently -- legacy ones str(telegram_id), new ones u-<uuid> -- and
+// patching a name that does not exist updates nothing while returning success.
+func (c *Client) SetExpiryByUUID(ctx context.Context, userUUID string, expireAt time.Time) error {
 	_, err := c.do(ctx, http.MethodPatch, "/users", map[string]any{
-		"username": username,
+		"uuid":     userUUID,
 		"expireAt": expireAt.UTC().Format(time.RFC3339),
 	})
 	return err

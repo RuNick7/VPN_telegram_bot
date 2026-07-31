@@ -29,19 +29,18 @@ type paymentResponse struct {
 	Description     string `json:"description"`
 }
 
-// requireTelegramForPayments reports whether this account can be credited.
+// payerTelegramID is the Telegram ID to stamp on a payment, or zero.
 //
-// The webhook credits by `telegram_id` from the payment metadata, so an
-// account without one would be charged and never credited. Refusing up front
-// is the only honest option until the identity rework lets the webhook credit
-// by internal ID.
-func (s *Server) requireTelegramForPayments(w http.ResponseWriter, user *store.User) (int64, bool) {
+// Zero is fine now. The webhook credits by our own `user_id` and only falls
+// back to `telegram_id` for payments created before the identity rework, so an
+// account that has never touched Telegram can pay and be credited. The ID is
+// still sent when we have one, because it is what makes a charge legible to an
+// operator looking at it in YooKassa.
+func payerTelegramID(user *store.User) int64 {
 	if user.TelegramID == nil {
-		writeError(w, http.StatusConflict, "telegram_required",
-			"Для оплаты привяжите Telegram: откройте бота и нажмите /start тем же аккаунтом.")
-		return 0, false
+		return 0
 	}
-	return *user.TelegramID, true
+	return *user.TelegramID
 }
 
 func (s *Server) createPayment(w http.ResponseWriter, r *http.Request, req yookassa.Request) {
@@ -96,16 +95,12 @@ func (s *Server) handleBuySubscription(w http.ResponseWriter, r *http.Request, u
 		writeError(w, http.StatusBadRequest, "unknown_plan", "Такого тарифа нет.")
 		return
 	}
-	telegramID, ok := s.requireTelegramForPayments(w, user)
-	if !ok {
-		return
-	}
-
 	s.createPayment(w, r, yookassa.Request{
 		AmountRubles: price,
 		Description:  fmt.Sprintf("Подписка на %d мес.", body.Months),
 		ReturnURL:    s.returnURL(body.ReturnURL),
-		TelegramID:   telegramID,
+		TelegramID:   payerTelegramID(user),
+		UserID:       user.ID,
 		DaysToExtend: pricing.DaysForMonths(body.Months),
 		Email:        user.Email,
 	})
@@ -132,16 +127,12 @@ func (s *Server) handleBuyTraffic(w http.ResponseWriter, r *http.Request, user *
 		writeError(w, http.StatusBadRequest, "unknown_pack", "Такого пакета нет.")
 		return
 	}
-	telegramID, ok := s.requireTelegramForPayments(w, user)
-	if !ok {
-		return
-	}
-
 	s.createPayment(w, r, yookassa.Request{
 		AmountRubles: price,
 		Description:  fmt.Sprintf("%s: %d ГБ", quota.TrafficLabel, body.Gigabytes),
 		ReturnURL:    s.returnURL(body.ReturnURL),
-		TelegramID:   telegramID,
+		TelegramID:   payerTelegramID(user),
+		UserID:       user.ID,
 		// Zero days on purpose: the webhook branches on lte_gb and must not
 		// touch the subscription date for a traffic purchase.
 		DaysToExtend: 0,
@@ -168,16 +159,12 @@ func (s *Server) handleBuyGift(w http.ResponseWriter, r *http.Request, user *sto
 		writeError(w, http.StatusBadRequest, "unknown_plan", "Такого тарифа нет.")
 		return
 	}
-	telegramID, ok := s.requireTelegramForPayments(w, user)
-	if !ok {
-		return
-	}
-
 	s.createPayment(w, r, yookassa.Request{
 		AmountRubles: price,
 		Description:  fmt.Sprintf("Подарочная подписка на %d мес.", body.Months),
 		ReturnURL:    s.returnURL(body.ReturnURL),
-		TelegramID:   telegramID,
+		TelegramID:   payerTelegramID(user),
+		UserID:       user.ID,
 		DaysToExtend: pricing.DaysForMonths(body.Months),
 		IsGift:       true,
 		Email:        user.Email,

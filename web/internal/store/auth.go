@@ -50,7 +50,11 @@ func (s *Store) SessionUser(ctx context.Context, token string) (*User, error) {
 	if err != nil {
 		return nil, err
 	}
-	return s.UserByID(ctx, userID)
+	// Follows a merge: someone signed in on the website before linking their
+	// Telegram account holds a session pointing at the row that was absorbed,
+	// and it has to keep working -- landing on the surviving account, not on
+	// a dead row that now shows an empty subscription.
+	return s.UserByIDFollowingMerge(ctx, userID)
 }
 
 func (s *Store) DeleteSession(ctx context.Context, token string) error {

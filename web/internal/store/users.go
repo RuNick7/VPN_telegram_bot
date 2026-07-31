@@ -32,6 +32,12 @@ type User struct {
 	LTELastUsageBytes   int64
 	LTEFreeGBOverride   *int
 	SquadTier           string
+
+	// Which panel account is this user's. Recorded so the panel is addressed
+	// by a stable UUID rather than by a name derived from a Telegram ID --
+	// which a website-only account does not have.
+	RemnawaveUUID     *string
+	RemnawaveUsername string
 }
 
 // SubscriptionActive reports whether the paid period is still running.
@@ -41,7 +47,7 @@ const userColumns = `
 	id, telegram_id, telegram_tag, COALESCE(email, ''), subscription_ends,
 	COALESCE(referrer_tag, ''), referred_people, gifted_subscriptions, created_at,
 	lte_paid_balance_bytes, lte_cycle_start, lte_last_usage_bytes,
-	lte_free_gb_override, squad_tier
+	lte_free_gb_override, squad_tier, remnawave_uuid, COALESCE(remnawave_username, '')
 `
 
 func scanUser(row pgx.Row) (*User, error) {
@@ -50,7 +56,7 @@ func scanUser(row pgx.Row) (*User, error) {
 		&u.ID, &u.TelegramID, &u.TelegramTag, &u.Email, &u.SubscriptionEnds,
 		&u.ReferrerTag, &u.ReferredPeople, &u.GiftedSubs, &u.CreatedAt,
 		&u.LTEPaidBalanceBytes, &u.LTECycleStart, &u.LTELastUsageBytes,
-		&u.LTEFreeGBOverride, &u.SquadTier,
+		&u.LTEFreeGBOverride, &u.SquadTier, &u.RemnawaveUUID, &u.RemnawaveUsername,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
