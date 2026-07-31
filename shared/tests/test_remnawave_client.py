@@ -1,5 +1,7 @@
 """Remnawave client behaviour that doesn't need a live panel."""
 
+import json
+
 import httpx
 import pytest
 
@@ -190,4 +192,84 @@ async def test_connectivity_failures_surface_as_api_error():
     with pytest.raises(APIError) as excinfo:
         await client.list_users()
     assert "Request failed" in str(excinfo.value)
+    await client.close()
+
+
+# -- subscription reset and devices ----------------------------------------
+
+
+async def test_revoke_posts_without_a_body_and_returns_the_new_link():
+    """
+    No body on purpose: the panel then generates the new short UUID itself,
+    which its own documentation recommends over supplying one.
+    """
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["method"] = request.method
+        seen["content"] = request.content
+        return httpx.Response(200, json={"response": {"subscriptionUrl": "https://sub/new"}})
+
+    client = _client_with_transport(handler, token="tok")
+    result = await client.revoke_subscription("uuid-1")
+
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/api/users/uuid-1/actions/revoke"
+    assert seen["content"] == b""
+    assert result["subscriptionUrl"] == "https://sub/new"
+    await client.close()
+
+
+async def test_devices_are_unwrapped_from_the_envelope():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json={"response": {"devices": [{"hwid": "a"}, {"hwid": "b"}], "total": 2}}
+        )
+
+    client = _client_with_transport(handler, token="tok")
+    assert [d["hwid"] for d in await client.list_hwid_devices("uuid-1")] == ["a", "b"]
+    await client.close()
+
+
+async def test_a_panel_without_device_tracking_reports_no_devices():
+    """
+    A 404 here reads as "none". Panels with HWID tracking switched off answer
+    that way, and an empty list is the honest thing to show for them.
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"message": "not found"})
+
+    client = _client_with_transport(handler, token="tok")
+    assert await client.list_hwid_devices("uuid-1") == []
+    await client.close()
+
+
+async def test_deleting_a_device_names_both_the_user_and_the_device():
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path
+        seen["json"] = json.loads(request.content)
+        return httpx.Response(200, json={"response": {"devices": [], "total": 0}})
+
+    client = _client_with_transport(handler, token="tok")
+    await client.delete_hwid_device("uuid-1", "HW-123")
+
+    assert seen["path"] == "/api/hwid/devices/delete"
+    assert seen["json"] == {"userUuid": "uuid-1", "hwid": "HW-123"}
+    await client.close()
+
+
+async def test_a_refused_device_deletion_raises_rather_than_passing_silently():
+    """
+    The opposite of the listing case above: a silent no-op here would tell the
+    user their device was removed when it was not.
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"message": "not found"})
+
+    client = _client_with_transport(handler, token="tok")
+    with pytest.raises(APINotFoundError):
+        await client.delete_hwid_device("uuid-1", "HW-123")
     await client.close()

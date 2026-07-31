@@ -311,6 +311,45 @@ class RemnawaveClient:
         except APINotFoundError as exc:
             raise UserNotFoundError(f"User not found: {username}") from exc
 
+    async def revoke_subscription(self, user_uuid: str) -> dict[str, Any]:
+        """
+        Issue the user a new subscription link and kill the old one.
+
+        Sent without a body on purpose: the panel then generates the new short
+        UUID itself, which its own docs recommend over supplying one.
+
+        This rotates the link only. Expiry, traffic counters and squad
+        membership are untouched, and registered devices survive -- they simply
+        stop working until the new link is imported.
+        """
+        return unwrap(await self.request("POST", f"/users/{user_uuid}/actions/revoke"))
+
+    # -- devices (HWID) ----------------------------------------------------
+
+    async def list_hwid_devices(self, user_uuid: str) -> list[dict[str, Any]]:
+        """
+        Devices registered against a user, newest field set as the panel gives it.
+
+        A 404 reads as "none": panels with HWID tracking switched off answer
+        that way, and an empty device list is the honest thing to show for
+        them. Deletion below is strict for the same reason in reverse -- there
+        a silent no-op would tell the user something happened that didn't.
+        """
+        try:
+            payload = unwrap(await self.request("GET", f"/hwid/devices/{user_uuid}"))
+        except APINotFoundError:
+            logger.info("No HWID devices endpoint/response for user %s", user_uuid)
+            return []
+        if isinstance(payload, dict):
+            return payload.get("devices") or []
+        return payload or []
+
+    async def delete_hwid_device(self, user_uuid: str, hwid: str) -> None:
+        """Unregister one device. Raises if the panel did not accept it."""
+        await self.request(
+            "POST", "/hwid/devices/delete", json={"userUuid": user_uuid, "hwid": hwid}
+        )
+
     # -- internal squads ---------------------------------------------------
 
     async def list_internal_squads(self) -> list[dict[str, Any]]:

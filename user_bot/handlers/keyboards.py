@@ -132,11 +132,22 @@ def manual_setup_keyboard(platform: str) -> InlineKeyboardMarkup:
 
 
 def support_faq_back_to_devices_keyboard() -> InlineKeyboardMarkup:
+    """
+    The "не смогли подключиться" menu.
+
+    The two self-service actions sit here rather than in the main menu because
+    this is where someone who cannot connect already is -- and a device over
+    the limit or a link that leaked are two of the reasons they got here.
+    """
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🛠 Тех. поддержка", url=SUPPORT_URL)],
             [InlineKeyboardButton(text="📖 Частые вопросы", url=FAQ_URL)],
             [InlineKeyboardButton(text="📢 Канал бота", url=STATUS_CHANNEL_URL)],
+            [
+                InlineKeyboardButton(text="📱 Мои устройства", callback_data="my_devices"),
+                InlineKeyboardButton(text="🔄 Сбросить ссылку", callback_data="sub_reset"),
+            ],
             [InlineKeyboardButton(text="🔙 К выбору устройства", callback_data="main_menu")],
         ]
     )

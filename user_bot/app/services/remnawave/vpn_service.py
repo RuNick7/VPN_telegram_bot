@@ -92,7 +92,53 @@ async def get_subscription_url(telegram_id: int) -> str:
     return user.get("subscriptionUrl", "")
 
 
+async def get_devices(telegram_id: int) -> tuple[list[dict], int | None]:
+    """
+    Registered devices and the account's device limit.
+
+    Returns them together because both come out of the same lookup, and a
+    count means little to a user without the cap it is measured against. The
+    limit is None when the panel doesn't set one.
+    """
+    client = get_client()
+    user = await client.get_user_by_username(_panel_username(telegram_id))
+    devices = await client.list_hwid_devices(str(user["uuid"]))
+    limit = user.get("hwidDeviceLimit")
+    return devices, int(limit) if isinstance(limit, int) and limit > 0 else None
+
+
 # -- writes ----------------------------------------------------------------
+
+
+async def reset_subscription_url(telegram_id: int) -> str:
+    """
+    Issue a fresh connection link, invalidating the old one. Returns the new URL.
+
+    Every device keeps working off the old link until it next refreshes, at
+    which point it stops -- so this is only worth offering to someone who
+    intends to re-import everywhere, and the caller confirms first.
+
+    Registered devices are not cleared: rotating the link and freeing a device
+    slot are separate problems, and doing both here would surprise a user who
+    only wanted a new link.
+    """
+    client = get_client()
+    user = await client.get_user_by_username(_panel_username(telegram_id))
+    revoked = await client.revoke_subscription(str(user["uuid"]))
+    url = revoked.get("subscriptionUrl", "")
+    if not url:
+        # Older panels answer the revoke with a thinner body; the link is
+        # already rotated at this point, so re-read rather than report failure.
+        url = await get_subscription_url(telegram_id)
+    logger.info("[Remnawave] Subscription link rotated for %s", telegram_id)
+    return url
+
+
+async def delete_device(telegram_id: int, hwid: str) -> None:
+    """Unregister one device, freeing its slot against the device limit."""
+    user = await get_client().get_user_by_username(_panel_username(telegram_id))
+    await get_client().delete_hwid_device(str(user["uuid"]), hwid)
+    logger.info("[Remnawave] Device removed for %s", telegram_id)
 
 
 async def _assign_internal_squad(user_uuid: str) -> None:
