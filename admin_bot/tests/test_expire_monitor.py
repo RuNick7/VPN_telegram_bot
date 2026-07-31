@@ -13,6 +13,7 @@ from tgvpn_shared.squads import SquadRoles
 from app.scheduler.jobs.subscription_expire_monitor import (
     extract_squad_uuids,
     extract_telegram_id,
+    resolve_subject,
     plan_membership,
 )
 
@@ -133,3 +134,51 @@ def test_extract_squad_uuids_skips_entries_without_one():
 def test_extract_squad_uuids_on_a_user_with_none():
     assert extract_squad_uuids({}) == []
     assert extract_squad_uuids({"activeInternalSquads": None}) == []
+
+
+# -- matching a panel account to one of our users --------------------------
+#
+# Two kinds of account exist now. One created by the bot carries a Telegram ID;
+# one created on the website does not, and is matched by panel UUID instead.
+# Before `resolve_subject` the second kind fell out of the loop entirely --
+# never demoted when it lapsed, never tagged, and so never picked up by the
+# free-squad cleanup either.
+
+
+def test_a_telegram_account_is_matched_by_its_id():
+    subject = resolve_subject({"uuid": "p1", "telegramId": 555}, {555: 900}, {})
+    assert subject.telegram_id == 555
+    assert subject.subscription_ends == 900
+
+
+def test_a_website_account_is_matched_by_panel_uuid():
+    """The regression this guards: no telegramId anywhere on the account."""
+    rows = {"p1": {"id": "user-1", "telegram_id": None, "subscription_ends": 900}}
+    subject = resolve_subject({"uuid": "p1", "username": "u-abc"}, {}, rows)
+
+    assert subject is not None
+    assert subject.user_id == "user-1"
+    assert subject.subscription_ends == 900
+
+
+def test_an_account_that_is_not_ours_is_skipped():
+    """An operator made it by hand; moving it between squads is not ours to do."""
+    assert resolve_subject({"uuid": "p9", "username": "manual"}, {}, {}) is None
+
+
+def test_a_telegram_account_with_no_row_is_treated_as_expired():
+    """
+    The bot created it, so it is ours -- our row is just missing. Leaving it
+    in a paid squad would be worse than demoting it.
+    """
+    subject = resolve_subject({"uuid": "p1", "telegramId": 555}, {}, {})
+    assert subject is not None
+    assert subject.subscription_ends == 0
+
+
+def test_the_telegram_index_wins_over_the_uuid_index():
+    """Cheaper, and it is the identity the bot will look them up by anyway."""
+    rows = {"p1": {"id": "user-1", "telegram_id": 555, "subscription_ends": 1}}
+    subject = resolve_subject({"uuid": "p1", "telegramId": 555}, {555: 900}, rows)
+    assert subject.subscription_ends == 900
+    assert subject.user_id is None

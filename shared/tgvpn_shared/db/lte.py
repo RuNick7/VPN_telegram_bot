@@ -207,6 +207,21 @@ class LteRepository:
             "UPDATE users SET squad_tier = $1 WHERE telegram_id = $2", tier, telegram_id
         )
 
+    async def set_squad_tier_by_user_id(self, user_id: str, tier: str) -> None:
+        """
+        Same, addressed by internal id.
+
+        Needed for accounts with no telegram_id -- a website signup. Without
+        it their tier stays 'unknown' forever, which the free-squad cleanup
+        reads as "not in FREE" and so never removes them.
+        """
+        if tier not in ("unknown", "paid", "free"):
+            raise ValueError(f"Unknown squad tier: {tier!r}")
+        pool = await get_pool()
+        await pool.execute(
+            "UPDATE users SET squad_tier = $1 WHERE id = $2::uuid", tier, user_id
+        )
+
     async def set_squad_tiers(self, telegram_ids: list[int], tier: str) -> None:
         """Bulk form of `set_squad_tier`, for a reconciliation sweep."""
         if not telegram_ids:

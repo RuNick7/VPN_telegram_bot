@@ -73,6 +73,63 @@ def extract_telegram_id(user: dict[str, Any]) -> int | None:
     return int(username) if username.isdigit() else None
 
 
+class Subject:
+    """
+    Which of our users a panel account belongs to, and what we know about them.
+
+    Two ways in, because there are two kinds of account. One created by the bot
+    carries a Telegram ID; one created on the website does not, and is found by
+    matching the panel UUID against `users.remnawave_uuid` instead. Before this
+    existed, a website account fell out of the loop entirely -- never demoted
+    when it lapsed, never tagged, and so never cleaned up.
+    """
+
+    __slots__ = ("telegram_id", "user_id", "subscription_ends")
+
+    def __init__(self, telegram_id: int | None, user_id: str | None, subscription_ends: int):
+        self.telegram_id = telegram_id
+        self.user_id = user_id
+        self.subscription_ends = subscription_ends
+
+
+def resolve_subject(
+    user: dict[str, Any],
+    ends_by_telegram_id: dict[int, int],
+    rows_by_panel_uuid: dict[str, dict],
+) -> Subject | None:
+    """
+    Match a panel account to our database, by Telegram ID or by panel UUID.
+
+    Returns None when neither matches, which means the account is not one of
+    ours -- an operator created it by hand, say -- and must be left alone.
+    """
+    telegram_id = extract_telegram_id(user)
+    if telegram_id is not None and telegram_id in ends_by_telegram_id:
+        return Subject(telegram_id, None, ends_by_telegram_id[telegram_id])
+
+    row = rows_by_panel_uuid.get(str(user.get("uuid") or ""))
+    if row is not None:
+        return Subject(
+            row.get("telegram_id"),
+            str(row["id"]),
+            int(row.get("subscription_ends") or 0),
+        )
+
+    # A Telegram-named account with no row is still ours to manage: the bot
+    # created it, and our row may simply be missing. Treat it as expired.
+    if telegram_id is not None:
+        return Subject(telegram_id, None, 0)
+    return None
+
+
+async def record_tier(subject: Subject, tier: str) -> None:
+    """Store the tier by whichever handle this user has."""
+    if subject.telegram_id is not None:
+        await _lte.set_squad_tier(subject.telegram_id, tier)
+    elif subject.user_id:
+        await _lte.set_squad_tier_by_user_id(subject.user_id, tier)
+
+
 def extract_squad_uuids(user: dict[str, Any]) -> list[str]:
     return [str(s["uuid"]) for s in (user.get("activeInternalSquads") or []) if s.get("uuid")]
 
@@ -115,17 +172,17 @@ async def _reconcile_user(
     client,
     roles: SquadRoles,
     user: dict[str, Any],
-    subscription_ends: int,
+    subject: Subject,
     now: int,
 ) -> str | None:
     """Apply the plan for one user. Returns 'demoted', 'promoted', or None."""
     user_uuid = user.get("uuid")
-    telegram_id = extract_telegram_id(user)
-    if not user_uuid or telegram_id is None:
+    if not user_uuid:
         return None
 
+    telegram_id = subject.telegram_id
     current = extract_squad_uuids(user)
-    active = subscription_ends > now
+    active = subject.subscription_ends > now
 
     paid_uuid = None
     if active and roles.tier_of(current) != "paid":
@@ -155,8 +212,9 @@ async def _reconcile_user(
         roles, current, subscription_active=active, paid_squad_uuid=paid_uuid
     )
     if desired is None:
-        # Already correct -- still record the tier so reporting is accurate.
-        await _lte.set_squad_tier(telegram_id, tier)
+        # Already correct -- still record the tier so reporting is accurate,
+        # and so the free-squad cleanup can see how long they have been there.
+        await record_tier(subject, tier)
         return None
 
     await client.set_user_squads([str(user_uuid)], desired)
@@ -165,11 +223,11 @@ async def _reconcile_user(
         # Membership changes don't drop existing connections, so without this
         # a demoted user keeps paid servers until their client reconnects.
         await client.disconnect_user(str(user_uuid))
-        await _lte.set_squad_tier(telegram_id, "free")
-        logger.info("Demoted tg_id=%s to FREE (was %s)", telegram_id, current)
+        await record_tier(subject, "free")
+        logger.info("Demoted %s to FREE (was %s)", telegram_id or subject.user_id, current)
         return "demoted"
 
-    await _lte.set_squad_tier(telegram_id, "paid")
+    await record_tier(subject, "paid")
     logger.info("Promoted tg_id=%s to paid squad %s", telegram_id, paid_uuid)
     return "promoted"
 
@@ -188,16 +246,19 @@ async def _run(reason: str) -> tuple[int, int, list[str]]:
         )
 
         ends_by_telegram_id = await _users.get_subscription_ends_map()
+        # Second index, by panel UUID, so accounts with no Telegram ID -- a
+        # website signup -- are reconciled too rather than silently skipped.
+        rows_by_panel_uuid = await _users.get_subscription_map_by_panel_uuid()
         now = int(time.time())
 
         async for user in client.iter_all_users():
-            telegram_id = extract_telegram_id(user)
-            if telegram_id is None:
+            subject = resolve_subject(user, ends_by_telegram_id, rows_by_panel_uuid)
+            if subject is None:
+                # Not one of ours -- an account an operator made by hand.
                 continue
+            label = subject.telegram_id or subject.user_id
             try:
-                outcome = await _reconcile_user(
-                    client, roles, user, ends_by_telegram_id.get(telegram_id, 0), now
-                )
+                outcome = await _reconcile_user(client, roles, user, subject, now)
                 if outcome == "demoted":
                     demoted += 1
                 elif outcome == "promoted":
@@ -205,8 +266,8 @@ async def _run(reason: str) -> tuple[int, int, list[str]]:
             except Exception as exc:
                 # One unreconcilable user must not abort the sweep -- the rest
                 # still need enforcing.
-                failures.append(f"{telegram_id}: {exc}")
-                logger.warning("Failed to reconcile tg_id=%s: %s", telegram_id, exc)
+                failures.append(f"{label}: {exc}")
+                logger.warning("Failed to reconcile %s: %s", label, exc)
 
         logger.info(
             "Expire monitor (%s): demoted=%d promoted=%d failures=%d",

@@ -1,4 +1,22 @@
-"""Cleanup Remnawave users inactive for a month."""
+"""
+Delete panel accounts nobody is paying for.
+
+With the FREE tier on, a lapsed subscription no longer costs the user their
+account -- they fall back to the free servers and stay there. That is the
+point of the feature, and it is also why this job still exists: without it the
+free squad accumulates every account that has ever lapsed, and the servers
+behind it fill up with people who stopped paying a year ago.
+
+The rule is one month on the free servers. Concretely: `subscription_ends`
+more than INACTIVE_DAYS in the past, and the demotion job has actually tagged
+the user as sitting in FREE. Requiring the tag as well as the date is what
+keeps this from racing the job that owns the squad -- someone it has not
+reached yet is left for the next pass.
+
+Our own `users` row is kept. It is what stops a returning user being handed a
+second trial: eligibility is "has never had a subscription", judged on
+`subscription_ends`, not on whether a panel account exists.
+"""
 
 import logging
 import time
@@ -16,61 +34,74 @@ ERROR_THROTTLE_SECONDS = 3600
 _last_error_ts: float | None = None
 
 
+async def resolve_panel_uuid(row: dict) -> str | None:
+    """
+    Find this user's panel account.
+
+    By stored UUID first. Looking up `str(telegram_id)` alone -- which is all
+    this did before the identity rework -- would miss every account created
+    since, because those are named `u-<uuid>` and would quietly never be
+    cleaned up at all.
+    """
+    if row.get("remnawave_uuid"):
+        return str(row["remnawave_uuid"])
+
+    telegram_id = row.get("telegram_id")
+    candidates = [
+        row.get("remnawave_username"),
+        str(telegram_id) if telegram_id is not None else None,
+    ]
+    for name in candidates:
+        if not name:
+            continue
+        found = await user_service.get_user_by_username(name)
+        if found and found.get("uuid"):
+            return str(found["uuid"])
+    return None
+
+
 async def run_inactive_user_cleanup() -> None:
-    """
-    Delete Remnawave users inactive for INACTIVE_DAYS.
-
-    Our own `users` rows are kept, which is what stops a returning user being
-    handed a second trial: eligibility is judged on `subscription_ends` having
-    never been set, not on whether a panel account exists.
-
-    Skipped entirely when the FREE tier is on. The two features want opposite
-    things -- FREE tier keeps a lapsed account alive so it falls back to the
-    free servers, and deleting it is precisely what that is meant to prevent.
-    """
-    if get_settings().free_tier_enabled:
-        logger.info("Inactive cleanup skipped: the FREE tier keeps lapsed accounts alive.")
-        return
-
+    """Delete the panel accounts of users who stopped paying a month ago."""
+    settings = get_settings()
     deleted = 0
     skipped = 0
     failures: list[str] = []
+
     try:
-        inactive = await _users_repo.get_inactive_users_for_cleanup(INACTIVE_DAYS)
+        inactive = await _users_repo.get_inactive_users_for_cleanup(
+            INACTIVE_DAYS, free_tier_enabled=settings.free_tier_enabled
+        )
         if not inactive:
             logger.info("Inactive cleanup: no users to process.")
             return
 
         for row in inactive:
-            telegram_id = row["telegram_id"]
-            # Resolve by stored UUID first. Looking up `str(telegram_id)` alone
-            # would miss every account created after the identity rework --
-            # those are named `u-<uuid>` and would quietly never be cleaned up.
+            label = row.get("telegram_id") or row.get("id")
             try:
-                user_uuid = row.get("remnawave_uuid")
+                user_uuid = await resolve_panel_uuid(row)
                 if not user_uuid:
-                    for name in (row.get("remnawave_username"), str(telegram_id) if telegram_id else None):
-                        if not name:
-                            continue
-                        found = await user_service.get_user_by_username(name)
-                        if found and found.get("uuid"):
-                            user_uuid = found["uuid"]
-                            break
-                if not user_uuid:
+                    # Already gone from the panel. Clear the dead handles so
+                    # the next lookup does not chase them again.
+                    if row.get("id"):
+                        await _users_repo.clear_panel_identity(str(row["id"]))
                     skipped += 1
                     continue
-                await user_service.delete_user(str(user_uuid))
+
+                await user_service.delete_user(user_uuid)
+                if row.get("id"):
+                    await _users_repo.clear_panel_identity(str(row["id"]))
                 deleted += 1
             except Exception as exc:
-                failures.append(f"{telegram_id}: {exc}")
-                logger.warning("Inactive cleanup failed for %s: %s", telegram_id, exc)
+                failures.append(f"{label}: {exc}")
+                logger.warning("Inactive cleanup failed for %s: %s", label, exc)
 
         if deleted or failures:
+            mode = "free-squad" if settings.free_tier_enabled else "expired"
             lines = [
                 "🧹 Очистка неактивных пользователей Remnawave",
-                f"Порог: {INACTIVE_DAYS} дней без активной подписки",
+                f"Порог: {INACTIVE_DAYS} дней без оплаты ({mode})",
                 f"Удалено: {deleted}",
-                f"Не найдено в Remnawave: {skipped}",
+                f"Уже отсутствовали в Remnawave: {skipped}",
                 f"Ошибок: {len(failures)}",
             ]
             if failures:

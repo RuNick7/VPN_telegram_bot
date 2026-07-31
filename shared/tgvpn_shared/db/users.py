@@ -120,6 +120,31 @@ class UserRepository:
             user_id,
         )
 
+    async def get_subscription_map_by_panel_uuid(self) -> dict[str, dict]:
+        """
+        Expiry keyed by panel account UUID, for the reconciliation jobs.
+
+        They iterate the *panel*, so they need to get from a panel account
+        back to our row. `get_subscription_ends_map` does that by telegram_id,
+        which fails for an account that has none -- a website signup. Without
+        this such a user is invisible to the demotion job: never moved to the
+        FREE squad when they lapse, and never tagged, so never cleaned up
+        either.
+        """
+        pool = await get_pool()
+        rows = await pool.fetch(
+            """
+            SELECT
+                remnawave_uuid::text AS remnawave_uuid,
+                id::text AS id,
+                telegram_id,
+                EXTRACT(EPOCH FROM subscription_ends)::bigint AS subscription_ends
+            FROM users
+            WHERE remnawave_uuid IS NOT NULL AND merged_into IS NULL
+            """
+        )
+        return {row["remnawave_uuid"]: dict(row) for row in rows}
+
     async def set_subscription_ends(self, user_id: str, subscription_ends: int) -> bool:
         """
         Set a user's expiry, addressed by internal id.
@@ -549,31 +574,66 @@ class UserRepository:
         )
         return [int(row["telegram_id"]) for row in rows]
 
-    async def get_inactive_users_for_cleanup(self, inactive_days: int = 30) -> list[dict]:
+    async def get_inactive_users_for_cleanup(
+        self, inactive_days: int = 30, *, free_tier_enabled: bool = False
+    ) -> list[dict]:
         """
-        Long-lapsed users, with everything needed to find their panel account.
+        Users whose panel account should be removed, with the handles to find it.
 
-        Returns the stored panel handles alongside the Telegram ID because
+        The clock is `subscription_ends`: someone who has not paid for
+        `inactive_days` after their subscription ran out. With the FREE tier
+        on, that is the same as "has sat on the free servers that long", which
+        is what the deletion is for -- the free squad filling up with accounts
+        nobody is paying for.
+
+        `squad_tier = 'free'` is required in that mode, and it is not
+        redundant with the date. It is written by the demotion job, so
+        requiring it means we only delete accounts we have actually seen and
+        demoted. A user the job has not reached yet reads as 'unknown' and is
+        left alone -- under-deleting for one more pass is recoverable, and
+        deleting someone the job would have promoted is not.
+
+        Returns the stored panel handles alongside the Telegram ID, because
         looking accounts up by `str(telegram_id)` alone would miss every one
-        created after the identity rework -- those are named `u-<uuid>`, and
-        they would silently never be cleaned up.
+        created after the identity rework -- those are named `u-<uuid>`.
 
-        `subscription_ends > to_timestamp(0)` excludes accounts that have
-        never had a subscription at all: they have nothing in the panel to
-        delete, and sweeping them up would only add noise to the report.
+        `subscription_ends > to_timestamp(0)` excludes accounts that never had
+        a subscription at all: nothing to delete, and only noise in the report.
         """
         pool = await get_pool()
         rows = await pool.fetch(
             """
-            SELECT telegram_id, remnawave_uuid, remnawave_username
+            SELECT id::text AS id, telegram_id, remnawave_uuid::text AS remnawave_uuid,
+                   remnawave_username, squad_tier,
+                   EXTRACT(EPOCH FROM subscription_ends)::bigint AS subscription_ends
             FROM users
             WHERE merged_into IS NULL
               AND subscription_ends > to_timestamp(0)
               AND subscription_ends <= now() - ($1 * INTERVAL '1 day')
+              AND (NOT $2::boolean OR squad_tier = 'free')
             """,
-            inactive_days,
+            inactive_days, free_tier_enabled,
         )
         return [dict(row) for row in rows]
+
+    async def clear_panel_identity(self, user_id: str) -> None:
+        """
+        Forget which panel account was this user's, after it has been deleted.
+
+        The row itself stays -- `subscription_ends` is what stops a returning
+        user being handed a second trial, and it has to survive. Only the dead
+        handles are cleared, so the next lookup does not chase a UUID that no
+        longer resolves.
+        """
+        pool = await get_pool()
+        await pool.execute(
+            """
+            UPDATE users SET remnawave_uuid = NULL, remnawave_username = NULL,
+                             squad_tier = 'unknown'
+            WHERE id = $1::uuid
+            """,
+            user_id,
+        )
 
     # --- reminders/nurture (formerly defined ad hoc in user_bot/utils/reminders.py) ---
 
