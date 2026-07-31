@@ -37,8 +37,9 @@ from app.api.client import RemnawaveClient
 from app.config.settings import settings
 from app.notify.admin import send_admin_message
 from app.scheduler.jobs.subscription_expire_monitor import (
+    Subject,
     extract_squad_uuids,
-    extract_telegram_id,
+    resolve_subject,
 )
 
 logger = logging.getLogger(__name__)
@@ -172,14 +173,25 @@ def format_low_traffic_warning(threshold_mb: int, remaining: int) -> str:
     )
 
 
+async def _set_notified(subject: Subject, threshold_mb: int) -> None:
+    if subject.telegram_id is not None:
+        await _lte.set_low_traffic_notified(subject.telegram_id, threshold_mb)
+    elif subject.user_id:
+        await _lte.set_low_traffic_notified_by_user_id(subject.user_id, threshold_mb)
+
+
 async def _maybe_warn_low_traffic(
-    telegram_id: int, *, remaining: int, already_notified_mb: int
+    subject: Subject, *, remaining: int, already_notified_mb: int
 ) -> None:
     """
     Warn once per threshold crossed, and re-arm when the balance recovers.
 
     The monitor runs every few minutes, so sending on every pass below the
     threshold would be a message every five minutes until the user topped up.
+
+    A user with no Telegram account -- one who signed up on the website --
+    still has the flag moved, so the accounting stays right; they simply see
+    the balance in the cabinet instead of getting a message.
     """
     threshold = low_traffic_threshold(remaining)
     if threshold == already_notified_mb:
@@ -188,16 +200,22 @@ async def _maybe_warn_low_traffic(
     # Recovered above every threshold -- clear the flag so the next slide
     # downward warns again instead of staying silent.
     if threshold == 0:
-        await _lte.set_low_traffic_notified(telegram_id, 0)
+        await _set_notified(subject, 0)
         return
 
-    try:
-        await _notify_user(telegram_id, format_low_traffic_warning(threshold, remaining))
-    except Exception as exc:
-        # A user who blocked the bot must not stop the monitor, but the flag
-        # is still moved so we don't retry them every pass.
-        logger.info("Не удалось отправить предупреждение о трафике %s: %s", telegram_id, exc)
-    await _lte.set_low_traffic_notified(telegram_id, threshold)
+    if subject.telegram_id is not None:
+        try:
+            await _notify_user(
+                subject.telegram_id, format_low_traffic_warning(threshold, remaining)
+            )
+        except Exception as exc:
+            # A user who blocked the bot must not stop the monitor, but the
+            # flag is still moved so we don't retry them every pass.
+            logger.info(
+                "Не удалось отправить предупреждение о трафике %s: %s",
+                subject.telegram_id, exc,
+            )
+    await _set_notified(subject, threshold)
 
 
 async def _notify_user(telegram_id: int, text: str) -> None:
@@ -246,16 +264,24 @@ async def _reconcile_user(
     roles: SquadRoles,
     user: dict[str, Any],
     *,
-    telegram_id: int,
-    subscription_ends: int,
+    subject: Subject,
     nodes: set[str],
     now: int,
 ) -> str | None:
     user_uuid = str(user["uuid"])
+    telegram_id = subject.telegram_id
 
-    state = await _lte.start_cycle_if_unset(telegram_id, now)
+    if telegram_id is not None:
+        state = await _lte.start_cycle_if_unset(telegram_id, now)
+    elif subject.user_id:
+        state = await _lte.start_cycle_if_unset_by_user_id(subject.user_id, now)
+    else:
+        return None
     if state is None:
         return None
+    # The row may have been reached by Telegram ID; keep the internal id so
+    # the writes below can use it when there is no Telegram ID.
+    subject.user_id = subject.user_id or (state.get("id") or None)
 
     cycle_start = int(state["lte_cycle_start"] or now)
     cycle_spent = max(0, int(state["lte_cycle_spent_bytes"] or 0))
@@ -268,7 +294,10 @@ async def _reconcile_user(
         cycle_spent=cycle_spent,
     )
     if rolled_start != cycle_start:
-        await _lte.roll_cycle(telegram_id, rolled_start)
+        if telegram_id is not None:
+            await _lte.roll_cycle(telegram_id, rolled_start)
+        elif subject.user_id:
+            await _lte.roll_cycle_by_user_id(subject.user_id, rolled_start)
         cycle_start = rolled_start
 
     usage = await fetch_usage_bytes(client, user_uuid, cycle_start, now, nodes)
@@ -277,23 +306,26 @@ async def _reconcile_user(
         free_bytes=free_bytes_for(state, settings.lte_free_gb_per_cycle),
         cycle_spent=cycle_spent,
         paid_balance=paid_balance,
-        subscription_active=subscription_ends > now,
+        subscription_active=subject.subscription_ends > now,
     )
 
     outcome = await _apply_squad(
         client, roles, user_uuid, extract_squad_uuids(user), blocked=blocked
     )
 
-    written = await _lte.consume_balance(
-        telegram_id,
+    consume_kwargs = dict(
         spent_delta_bytes=spend_delta,
         cycle_spent_bytes=cycle_spent,
         blocked=blocked,
         last_usage_bytes=usage,
     )
+    if telegram_id is not None:
+        written = await _lte.consume_balance(telegram_id, **consume_kwargs)
+    else:
+        written = await _lte.consume_balance_by_user_id(subject.user_id, **consume_kwargs)
 
     await _maybe_warn_low_traffic(
-        telegram_id,
+        subject,
         remaining=remaining_bytes(
             usage_bytes=usage,
             free_bytes=free_bytes_for(state, settings.lte_free_gb_per_cycle),
@@ -326,19 +358,25 @@ async def _run() -> tuple[int, int, int]:
             return 0, 0, 0
 
         ends_by_telegram_id = await _users.get_subscription_ends_map()
+        # Second index, by panel UUID. Without it an account created on the
+        # website -- which has no Telegram ID -- was skipped entirely: no
+        # metering, no blocking when the quota ran out, no warnings.
+        rows_by_panel_uuid = await _users.get_subscription_map_by_panel_uuid()
         now = int(time.time())
 
         async for user in client.iter_all_users():
-            telegram_id = extract_telegram_id(user)
-            if telegram_id is None or not user.get("uuid"):
+            if not user.get("uuid"):
                 continue
+            subject = resolve_subject(user, ends_by_telegram_id, rows_by_panel_uuid)
+            if subject is None:
+                continue
+            telegram_id = subject.telegram_id or subject.user_id
             try:
                 outcome = await _reconcile_user(
                     client,
                     roles,
                     user,
-                    telegram_id=telegram_id,
-                    subscription_ends=ends_by_telegram_id.get(telegram_id, 0),
+                    subject=subject,
                     nodes=nodes,
                     now=now,
                 )

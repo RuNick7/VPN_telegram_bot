@@ -19,6 +19,7 @@ from app.scheduler.jobs.lte_traffic_monitor import (
     _maybe_warn_low_traffic,
     format_low_traffic_warning,
 )
+from app.scheduler.jobs.subscription_expire_monitor import Subject
 
 MB = 1024**2
 GB = 1024**3
@@ -61,14 +62,25 @@ def test_remaining_never_goes_negative_on_overuse():
 # -- sending ---------------------------------------------------------------
 
 
-async def _warn(remaining_mb: int, already_notified_mb: int):
+def telegram_subject(telegram_id: int = 555) -> Subject:
+    return Subject(telegram_id=telegram_id, user_id=None, subscription_ends=0)
+
+
+def website_subject(user_id: str = "3f2504e0-4f89-11d3-9a0c-0305e82c3301") -> Subject:
+    """Someone who signed up on the site: no Telegram account to message."""
+    return Subject(telegram_id=None, user_id=user_id, subscription_ends=0)
+
+
+async def _warn(remaining_mb: int, already_notified_mb: int, subject: Subject | None = None):
     repo = AsyncMock()
     notify = AsyncMock()
     with patch("app.scheduler.jobs.lte_traffic_monitor._lte", repo), patch(
         "app.scheduler.jobs.lte_traffic_monitor._notify_user", notify
     ):
         await _maybe_warn_low_traffic(
-            555, remaining=remaining_mb * MB, already_notified_mb=already_notified_mb
+            subject or telegram_subject(),
+            remaining=remaining_mb * MB,
+            already_notified_mb=already_notified_mb,
         )
     return repo, notify
 
@@ -117,7 +129,9 @@ async def test_a_blocked_user_does_not_stop_the_monitor():
     with patch("app.scheduler.jobs.lte_traffic_monitor._lte", repo), patch(
         "app.scheduler.jobs.lte_traffic_monitor._notify_user", notify
     ):
-        await _maybe_warn_low_traffic(555, remaining=100 * MB, already_notified_mb=0)
+        await _maybe_warn_low_traffic(
+            telegram_subject(), remaining=100 * MB, already_notified_mb=0
+        )
 
     repo.set_low_traffic_notified.assert_awaited_once_with(555, 150)
 
@@ -141,3 +155,28 @@ def test_exhausted_traffic_says_so_rather_than_quoting_a_threshold():
 def test_the_warning_reassures_that_other_servers_still_work():
     """Running out of metered traffic is not losing the VPN."""
     assert "серверы работают" in format_low_traffic_warning(150, 0)
+
+
+# -- users with no Telegram account ----------------------------------------
+
+
+async def test_a_website_user_is_accounted_for_without_a_message(monkeypatch):
+    """
+    They have no chat to message, but the flag still has to move -- otherwise
+    every pass would re-evaluate them as freshly crossed.
+    """
+    repo, notify = await _warn(100, already_notified_mb=0, subject=website_subject())
+
+    notify.assert_not_awaited()
+    repo.set_low_traffic_notified_by_user_id.assert_awaited_once_with(
+        "3f2504e0-4f89-11d3-9a0c-0305e82c3301", 150
+    )
+    repo.set_low_traffic_notified.assert_not_awaited()
+
+
+async def test_a_website_user_is_rearmed_on_recovery_too():
+    repo, _notify = await _warn(5000, already_notified_mb=150, subject=website_subject())
+
+    repo.set_low_traffic_notified_by_user_id.assert_awaited_once_with(
+        "3f2504e0-4f89-11d3-9a0c-0305e82c3301", 0
+    )

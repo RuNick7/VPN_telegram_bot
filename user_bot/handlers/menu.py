@@ -107,11 +107,17 @@ async def _render_main_menu(
 
     user_already_in_db = await _users.user_in_db(user_id)
     if not user_already_in_db:
+        # Our database first, the panel second. If the panel call fails the
+        # user holds their trial with no profile yet, and
+        # `ensure_vpn_profile_exists` builds it from the days already
+        # recorded. The other order left the panel granting 30 days while our
+        # row still said zero -- and nothing revisited it, because the next
+        # /start sees the row and skips this branch entirely.
+        expire_ts = now_ts + TRIAL_DAYS * SECONDS_IN_DAY
         await _users.create_user_record(user_id, username)
+        await _users.update_subscription_expire(user_id, expire_ts)
         await create_vpn_user(user_id, TRIAL_DAYS)
         await ensure_vpn_profile_exists(user_id)
-        expire_ts = now_ts + TRIAL_DAYS * SECONDS_IN_DAY
-        await _users.update_subscription_expire(user_id, expire_ts)
 
         msg = await bot.send_message(
             chat_id,

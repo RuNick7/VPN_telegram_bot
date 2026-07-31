@@ -4,7 +4,7 @@ import logging
 from aiohttp import web
 from yookassa.domain.notification import WebhookNotification
 
-from app.services.remnawave.vpn_service import extend_subscription
+from app.services.remnawave.vpn_service import extend_subscription, extend_subscription_for_row
 from bot import bot
 from tgvpn_shared.db import (
     LteRepository,
@@ -65,6 +65,77 @@ async def _resolve_payer(metadata: dict) -> dict | None:
     # A payer with no row at all is still creditable: the subscription path
     # creates the row it needs. Report the ID rather than nothing.
     return dict(row) if row is not None else {"id": None, "telegram_id": telegram_id}
+
+
+def _payer_label(payer: dict | None) -> str:
+    """How to name a payer in a log line, whichever identity they have."""
+    if not payer:
+        return "?"
+    return str(payer.get("telegram_id") or payer.get("id") or "?")
+
+
+# Everything below picks the identity the payer actually has. A Telegram user
+# goes through the telegram_id-keyed path the bot has always used; a website
+# account has no Telegram ID and is addressed by our own `id`. Before this
+# split existed the website case was charged and never credited.
+
+
+async def _credit_traffic(payer: dict, bytes_added: int) -> int | None:
+    if payer.get("telegram_id"):
+        return await _lte.credit_balance(int(payer["telegram_id"]), bytes_added)
+    if payer.get("id"):
+        return await _lte.credit_balance_by_user_id(str(payer["id"]), bytes_added)
+    return None
+
+
+async def _increment_gifted(payer: dict) -> None:
+    if payer.get("telegram_id"):
+        await _users.increment_gifted_subscriptions(int(payer["telegram_id"]))
+    elif payer.get("id"):
+        await _users.increment_gifted_subscriptions_by_user_id(str(payer["id"]))
+
+
+async def _extend_for_payer(payer: dict, days: int) -> str:
+    if payer.get("telegram_id"):
+        return await extend_subscription(int(payer["telegram_id"]), days)
+    if payer.get("id"):
+        return await extend_subscription_for_row(payer, days)
+    return "❌ Не удалось определить пользователя."
+
+
+async def _award_referral_for_payer(payer: dict) -> None:
+    """
+    Credit whoever invited this payer, at most once ever.
+
+    Re-read rather than trusting the payer dict: it was assembled before the
+    extension ran, and `referrer_tag` may have been set in between.
+    """
+    telegram_id = payer.get("telegram_id")
+    user_id = payer.get("id")
+
+    row = None
+    if telegram_id:
+        row = await _users.get_user_by_id(int(telegram_id))
+    elif user_id:
+        row = await _users.get_user_by_uuid(str(user_id))
+    if row is None:
+        logger.info("[Referral] Не начислен: пользователь %s не найден", _payer_label(payer))
+        return
+
+    tag = row["referrer_tag"]
+    if not tag:
+        logger.info("[Referral] Не начислен: пригласивший не указан (%s)", _payer_label(payer))
+        return
+
+    if telegram_id:
+        applied = await _users.award_referral(tag, int(telegram_id))
+    else:
+        applied = await _users.award_referral_by_user_id(tag, str(row["id"]))
+
+    logger.info(
+        "[Referral] %s: @%s от %s",
+        "Зачислен" if applied else "Уже начислен", tag, _payer_label(payer),
+    )
 
 
 async def _send_markdown_or_plain(chat_id: int, text: str) -> None:
@@ -208,9 +279,13 @@ async def yookassa_webhook_handler(request: web.Request):
         else:
             is_gift = str(is_gift_raw).strip().lower() in {"true", "1", "yes", "y"}
 
-        logger.info("Платёж успешен. telegram_id: %s, days_to_extend: %s", telegram_id, days_to_extend)
+        logger.info("Платёж успешен. Пользователь: %s / tg=%s, дней: %s",
+                    (payer or {}).get("id"), telegram_id, days_to_extend)
 
-        if telegram_id:
+        # Branch on the payer, not on telegram_id. Gating on the Telegram ID
+        # meant a website account -- which has none -- was charged, marked
+        # processing_error and never credited, with no alert anywhere.
+        if payer is not None:
             result = ""
             user_message = ""
             group_message = ""
@@ -220,13 +295,13 @@ async def yookassa_webhook_handler(request: web.Request):
                 # 📶 Начисляем купленный трафик. Additive by construction, so a
                 # concurrent monitor pass spending the balance can't erase it.
                 try:
-                    new_balance = await _lte.credit_balance(telegram_id, lte_gb * 1024**3)
+                    new_balance = await _credit_traffic(payer, lte_gb * 1024**3)
                     if new_balance is None:
-                        raise RuntimeError(f"пользователь {telegram_id} не найден в БД")
+                        raise RuntimeError(f"пользователь {_payer_label(payer)} не найден в БД")
                     result = f"📶 Начислено {lte_gb} ГБ"
                     logger.info(
                         "[LTE] Начислено %s ГБ пользователю %s, баланс: %.2f ГБ",
-                        lte_gb, telegram_id, new_balance / 1024**3,
+                        lte_gb, _payer_label(payer), new_balance / 1024**3,
                     )
                     user_message = (
                         f"✅ Платёж успешно завершён\\!\n"
@@ -243,7 +318,7 @@ async def yookassa_webhook_handler(request: web.Request):
                     # as processing_error so a YooKassa retry can credit it.
                     processed_ok = False
                     logger.error("[LTE] Не удалось начислить %s ГБ для %s: %s",
-                                 lte_gb, telegram_id, exc)
+                                 lte_gb, _payer_label(payer), exc)
                     result = f"❌ Ошибка начисления трафика: {exc}"
                     user_message = (
                         "⚠️ Платёж прошёл, но при начислении трафика возникла ошибка.\n"
@@ -260,13 +335,16 @@ async def yookassa_webhook_handler(request: web.Request):
                 # 🎁 Генерация подарочного кода
                 gift_code = generate_gift_code()
                 escape_gift_code = escape_markdown_v2(gift_code)
+                # `creator_id` is a telegram_id column, and it is what stops
+                # someone activating their own gift. A buyer without one is
+                # recorded as having no creator rather than blocking the sale.
                 await _promo.create_gift_promo(gift_code, days_to_extend, telegram_id)
-                # Увеличиваем счётчик
                 try:
-                    await _users.increment_gifted_subscriptions(telegram_id)
-                    logger.info(f"[GIFT] Пользователь {telegram_id} теперь подарил ещё одну подписку.")
+                    await _increment_gifted(payer)
+                    logger.info("[GIFT] %s подарил ещё одну подписку.", _payer_label(payer))
                 except Exception as e:
-                    logger.error(f"[GIFT] Не удалось обновить gifted_subscriptions для {telegram_id}: {e}")
+                    logger.error("[GIFT] Не удалось обновить gifted_subscriptions для %s: %s",
+                                 _payer_label(payer), e)
 
                 # Формируем текст
                 result = f"🎁 Промокод для подарка: `{escape_gift_code}`"
@@ -286,27 +364,21 @@ async def yookassa_webhook_handler(request: web.Request):
                 # Remnawave не держал обработку вебхука бесконечно.
                 try:
                     result = await asyncio.wait_for(
-                        extend_subscription(telegram_id, days_to_extend),
+                        _extend_for_payer(payer, days_to_extend),
                         timeout=REMNAWAVE_EXTEND_TIMEOUT_SECONDS,
                     )
                 except asyncio.TimeoutError:
                     result = (
                         f"❌ Таймаут продления подписки (>{REMNAWAVE_EXTEND_TIMEOUT_SECONDS}s)"
                     )
-                    logger.error("extend_subscription timeout for %s", telegram_id)
+                    logger.error("extend_subscription timeout for %s", _payer_label(payer))
                 logger.info("Результат продления подписки: %s", result)
 
-                # ✅ Проверка на реферала
+                # ✅ Реферал начисляется по факту оплаты, а не по факту
+                # указания пригласившего -- иначе лестницу скидок можно было
+                # бы фармить бесплатно.
                 try:
-                    user = await _users.get_user_by_id(telegram_id)
-                    if user and user["referrer_tag"]:
-                        applied = await _users.award_referral(user["referrer_tag"], telegram_id)
-                        if applied:
-                            logger.info(f"[Referral] Зачислен реферал: @{user['referrer_tag']} от {telegram_id}")
-                        else:
-                            logger.info(f"[Referral] Уже начислен: {telegram_id}")
-                    else:
-                        logger.info(f"[Referral] Не начислен: {telegram_id}")
+                    await _award_referral_for_payer(payer)
                 except Exception as e:
                     logger.exception(f"[Referral] Ошибка: {e}")
 
@@ -340,12 +412,18 @@ async def yookassa_webhook_handler(request: web.Request):
                 "succeeded" if processed_ok else "processing_error",
             )
 
-            # 🔔 Уведомления
-            try:
-                await _send_markdown_or_plain(telegram_id, user_message)
-                logger.info("Сообщение пользователю отправлено")
-            except Exception as e:
-                logger.error("Ошибка отправки сообщения пользователю: %s", e)
+            # 🔔 Уведомления. Пользователю пишем только если у него вообще
+            # есть Telegram: у аккаунта с сайта его нет, и результат он видит
+            # на самой странице через GET /api/payments/{id}.
+            if telegram_id:
+                try:
+                    await _send_markdown_or_plain(telegram_id, user_message)
+                    logger.info("Сообщение пользователю отправлено")
+                except Exception as e:
+                    logger.error("Ошибка отправки сообщения пользователю: %s", e)
+            else:
+                logger.info("Пользователь %s без Telegram — уведомление не отправляем",
+                            _payer_label(payer))
 
             if ADMIN_ID:
                 try:
@@ -356,8 +434,19 @@ async def yookassa_webhook_handler(request: web.Request):
             else:
                 logger.warning("ADMIN_IDS не задан, уведомление админу не отправлено")
         else:
-            logger.warning("telegram_id не найден в metadata.")
+            # Money taken and nobody to credit. This must never be quiet:
+            # it needs a human, and YooKassa retries will not fix it.
+            logger.error("Платёж %s: пользователь не определён, metadata=%s", payment_id, metadata)
             await _payments.update_payment_status(payment_id, "processing_error")
+            if ADMIN_ID:
+                try:
+                    await bot.send_message(
+                        ADMIN_ID,
+                        f"🚨 Платёж {payment_id} прошёл, но пользователь не определён.\n"
+                        f"metadata: {metadata}",
+                    )
+                except Exception as send_err:
+                    logger.error("Ошибка отправки админу: %s", send_err)
     else:
         logger.info("Получено событие '%s'. Обработка не требуется.", event)
     # Можно обрабатывать и другие события (payment.waiting_for_capture и т.д.),

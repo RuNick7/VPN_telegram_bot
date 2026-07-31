@@ -397,6 +397,72 @@ async def extend_subscription(telegram_id: int, days_to_add: int) -> str:
         return f"❌ Ошибка: {str(exc)}"
 
 
+async def extend_subscription_for_row(user_row: dict, days_to_add: int) -> str:
+    """
+    Same, for a user identified by our own id rather than by a Telegram ID.
+
+    This is what makes a website purchase creditable. `extend_subscription`
+    above resolves everything through `telegram_id`, which an account created
+    by email simply does not have -- so before this existed such a payment was
+    taken and never applied.
+
+    Users who *do* have a Telegram ID keep going through the function above:
+    it is the same logic and changing the bot's path here would risk the
+    working case to fix the broken one.
+    """
+    user_id = str(user_row.get("id") or "")
+    if not user_id:
+        return "❌ Не удалось определить пользователя."
+
+    days_to_add = int(days_to_add)
+    try:
+        profile = await resolve_panel_user(user_row)
+        if profile is None:
+            # Created with zero days: the extension below adds them, and
+            # creating with them too would grant the period twice.
+            created = await create_panel_account(
+                user_row=user_row, telegram_id=user_row.get("telegram_id"), days_to_add=0
+            )
+            if not created:
+                return "❌ Не удалось создать профиль в панели."
+            profile = await resolve_panel_user(await _reload_row(user_id) or user_row)
+            if profile is None:
+                return "❌ Профиль создан, но не найден в панели."
+
+        current_expire = int(user_row.get("subscription_ends") or 0)
+        if not get_settings().free_tier_enabled:
+            # Without the FREE tier the panel still owns the date, so read it
+            # back rather than trusting a row that may be behind.
+            try:
+                current_expire = _epoch(profile["expireAt"])
+            except (KeyError, TypeError, ValueError):
+                pass
+
+        new_expire = max(current_expire, int(time.time())) + days_to_add * SECONDS_IN_DAY
+
+        await get_client().update_user(
+            {
+                "uuid": str(profile["uuid"]),
+                "expireAt": _utc_iso(panel_expire_timestamp(new_expire)),
+            }
+        )
+        await _users.set_subscription_ends(user_id, new_expire)
+        return (
+            f"✅ Подписка продлена на {days_to_add} дней.\n"
+            f"📆 Новая дата окончания: "
+            f"{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(new_expire))}"
+        )
+    except Exception as exc:
+        logger.error("[Remnawave] Ошибка продления подписки для %s: %s", user_id, exc)
+        get_client().invalidate_token()
+        return f"❌ Ошибка: {exc}"
+
+
+async def _reload_row(user_id: str) -> dict | None:
+    row = await _users.get_user_by_uuid(user_id)
+    return dict(row) if row else None
+
+
 async def ensure_vpn_profile_exists(telegram_id: int) -> None:
     """
     Recreate a panel profile that went missing, preserving the DB's remaining days.

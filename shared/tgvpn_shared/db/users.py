@@ -120,6 +120,62 @@ class UserRepository:
             user_id,
         )
 
+    async def get_user_by_email(self, email: str) -> Optional[asyncpg.Record]:
+        """Case-insensitive: nobody expects Bob@ and bob@ to be two accounts."""
+        pool = await get_pool()
+        return await pool.fetchrow(
+            f"SELECT {_EPOCH_SELECT} FROM users WHERE lower(email) = lower($1)",
+            email.strip(),
+        )
+
+    async def get_user_by_panel_username(self, username: str) -> Optional[asyncpg.Record]:
+        """
+        Find a user by the name their panel account carries.
+
+        The handle an operator has in front of them when they are looking at
+        Remnawave, and the one they are most likely to paste into a search.
+        """
+        pool = await get_pool()
+        return await pool.fetchrow(
+            f"SELECT {_EPOCH_SELECT} FROM users WHERE remnawave_username = $1",
+            username.strip(),
+        )
+
+    async def award_referral_by_user_id(self, referrer_tag: str, user_id: str) -> bool:
+        """
+        Credit a referrer, addressed by the invitee's internal id.
+
+        Same one-shot guarantee as `award_referral`: `is_referred` is flipped
+        in the same statement that increments the counter, so a retry cannot
+        credit the same person twice. Needed because a website account has no
+        telegram_id to pass to the original.
+        """
+        pool = await get_pool()
+        async with pool.acquire() as connection:
+            async with connection.transaction():
+                already = await connection.fetchval(
+                    "SELECT is_referred FROM users WHERE id = $1::uuid FOR UPDATE", user_id
+                )
+                if already is None or already:
+                    return False
+                updated = await connection.execute(
+                    "UPDATE users SET referred_people = referred_people + 1 WHERE telegram_tag = $1",
+                    referrer_tag,
+                )
+                if updated == "UPDATE 0":
+                    return False
+                await connection.execute(
+                    "UPDATE users SET is_referred = TRUE WHERE id = $1::uuid", user_id
+                )
+                return True
+
+    async def increment_gifted_subscriptions_by_user_id(self, user_id: str) -> None:
+        pool = await get_pool()
+        await pool.execute(
+            "UPDATE users SET gifted_subscriptions = gifted_subscriptions + 1 WHERE id = $1::uuid",
+            user_id,
+        )
+
     async def get_subscription_map_by_panel_uuid(self) -> dict[str, dict]:
         """
         Expiry keyed by panel account UUID, for the reconciliation jobs.

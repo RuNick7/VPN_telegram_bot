@@ -23,6 +23,7 @@ from .pool import get_pool
 # convention the rest of this package uses.
 _STATE_SELECT = """
     SELECT
+        id::text AS id,
         telegram_id,
         lte_paid_balance_bytes,
         EXTRACT(EPOCH FROM lte_cycle_start)::bigint AS lte_cycle_start,
@@ -37,12 +38,106 @@ _STATE_SELECT = """
 
 
 class LteRepository:
-    """Per-user LTE quota balances and cycle state."""
+    """
+    Per-user LTE quota balances and cycle state.
+
+    Most methods come in two forms. The `telegram_id` ones are what the bot
+    and the admin panel have in hand; the `_by_user_id` ones address the same
+    row by our internal UUID, which is the *only* handle an account created on
+    the website has. Without the second form the traffic monitor skipped those
+    users entirely -- no metering, no blocking when the quota ran out, no
+    low-traffic warnings.
+    """
 
     async def get_state(self, telegram_id: int) -> Optional[dict]:
         pool = await get_pool()
         row = await pool.fetchrow(f"{_STATE_SELECT} WHERE telegram_id = $1", telegram_id)
         return dict(row) if row else None
+
+    async def get_state_by_user_id(self, user_id: str) -> Optional[dict]:
+        pool = await get_pool()
+        row = await pool.fetchrow(f"{_STATE_SELECT} WHERE id = $1::uuid", user_id)
+        return dict(row) if row else None
+
+    async def start_cycle_if_unset_by_user_id(
+        self, user_id: str, cycle_start: int
+    ) -> Optional[dict]:
+        pool = await get_pool()
+        await pool.execute(
+            """
+            UPDATE users SET lte_cycle_start = to_timestamp($1::bigint)
+            WHERE id = $2::uuid AND lte_cycle_start IS NULL
+            """,
+            cycle_start, user_id,
+        )
+        return await self.get_state_by_user_id(user_id)
+
+    async def roll_cycle_by_user_id(self, user_id: str, new_cycle_start: int) -> Optional[int]:
+        pool = await get_pool()
+        return await pool.fetchval(
+            """
+            UPDATE users
+            SET lte_cycle_start = to_timestamp($1::bigint),
+                lte_cycle_spent_bytes = 0,
+                lte_low_traffic_notified_mb = 0
+            WHERE id = $2::uuid
+            RETURNING EXTRACT(EPOCH FROM lte_cycle_start)::bigint
+            """,
+            new_cycle_start, user_id,
+        )
+
+    async def credit_balance_by_user_id(self, user_id: str, bytes_added: int) -> Optional[int]:
+        """Additive, exactly like `credit_balance`; see that docstring."""
+        pool = await get_pool()
+        return await pool.fetchval(
+            """
+            UPDATE users
+            SET lte_paid_balance_bytes = lte_paid_balance_bytes + $1::bigint
+            WHERE id = $2::uuid
+            RETURNING lte_paid_balance_bytes
+            """,
+            max(0, int(bytes_added)), user_id,
+        )
+
+    async def consume_balance_by_user_id(
+        self,
+        user_id: str,
+        *,
+        spent_delta_bytes: int,
+        cycle_spent_bytes: int,
+        blocked: bool,
+        last_usage_bytes: int,
+    ) -> Optional[dict]:
+        """Delta-based, exactly like `consume_balance`; see that docstring."""
+        pool = await get_pool()
+        row = await pool.fetchrow(
+            """
+            UPDATE users
+            SET lte_paid_balance_bytes = GREATEST(0::bigint, lte_paid_balance_bytes - $1::bigint),
+                lte_cycle_spent_bytes  = GREATEST(0::bigint, $2::bigint),
+                lte_blocked            = $3,
+                lte_last_usage_bytes   = GREATEST(0::bigint, $4::bigint)
+            WHERE id = $5::uuid
+            RETURNING
+                lte_paid_balance_bytes,
+                lte_cycle_spent_bytes,
+                lte_blocked,
+                lte_last_usage_bytes
+            """,
+            max(0, int(spent_delta_bytes)),
+            int(cycle_spent_bytes),
+            bool(blocked),
+            int(last_usage_bytes),
+            user_id,
+        )
+        return dict(row) if row else None
+
+    async def set_low_traffic_notified_by_user_id(self, user_id: str, threshold_mb: int) -> None:
+        pool = await get_pool()
+        await pool.execute(
+            "UPDATE users SET lte_low_traffic_notified_mb = $1 WHERE id = $2::uuid",
+            max(0, int(threshold_mb)), user_id,
+        )
 
     async def start_cycle_if_unset(self, telegram_id: int, cycle_start: int) -> Optional[dict]:
         """
