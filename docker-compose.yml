@@ -48,6 +48,33 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  # Customer website backend (Go). Independent of the bots: it shares only the
+  # database, and the two never write the same rows -- payment state stays
+  # owned by the Python webhook handler.
+  #
+  # Not started by a bare `docker compose up`. Bring it up explicitly:
+  #     docker compose --profile web up -d web
+  web:
+    profiles: ["web"]
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tgvpn}:${POSTGRES_PASSWORD:-tgvpn}@postgres:5432/${POSTGRES_DB:-tgvpn}
+      WEB_LISTEN_ADDR: ":8080"
+    ports:
+      # Bound to loopback: TLS termination belongs to the reverse proxy in
+      # front, and the session cookie is Secure-only, so exposing this port
+      # directly would produce a site that cannot log anybody in.
+      - "127.0.0.1:${WEB_HOST_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   # The same three processes as separate services, for restarting or reading
   # the logs of one bot without touching the others:
   #     docker compose --profile separate up -d

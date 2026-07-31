@@ -9,9 +9,11 @@ Two independent Telegram bots for a VPN-subscription service (Remnawave panel + 
 - `admin_bot/` — operator-facing aiogram bot: manage Remnawave users/hosts/nodes/squads, promo codes, broadcasts, node/squad monitoring, backups. Entrypoint `admin_bot/main.py`.
 - `user_bot/` — customer-facing aiogram bot: signup, subscription purchase via YooKassa, referrals, promo codes, device setup instructions. Two runtime entrypoints against the same codebase: `user_bot/bot.py` (long-polling) and `user_bot/run_webhook.py` (aiohttp server receiving YooKassa payment webhooks at `/webhook-yookassa`).
 - `shared/` — installable package (`tgvpn-shared`, imported as `tgvpn_shared`) holding the Postgres repository layer, the Remnawave client, the settings model, and squad-placement logic. See Architecture below.
-- `web/` — legacy FastAPI + static-JS MVP for a customer web cabinet. **Currently broken and unused**: its adapters shell out to Python subprocesses importing `user_bot` modules that no longer exist. It is slated for a full rewrite (in Go), so don't repair it — and don't treat its code as a reference for how anything currently works.
+- `web/` — customer web cabinet backend, **Go**, JSON API only. Replaced the FastAPI + static-JS MVP outright. Entrypoint `web/cmd/server`. See `web/README.md`; the frontend is served separately and is not in this repo yet.
 
 The overhaul is running in strictly sequential phases, each tested and deployed before the next begins. Phase 0 (webhook security fix), Phase 1 (SQLite → Postgres, Docker), and Phase 2 (this refactor) are done. Comments referencing "Phase N" mean this sequence.
+
+**Two numbering schemes collide in this repo.** The original master plan's Phase 3 is the Go website and its Phase 4 is a continuous security audit. Separately, the FREE-tier/LTE-quota work shipped later also took the name "Phase 3" (see `docs/phase3-free-lte-rollout.md`), and comments in `migrations/0001_init.up.sql` and `vpn_service._panel_username` call the identity rework "Phase 4". When a comment says "Phase 4", it means the identity rework, not the audit.
 
 ## Commands
 
@@ -72,6 +74,11 @@ cd admin_bot && python -m pytest tests/ -v
 ```
 The root `tests/` directory holds tests for code that belongs to neither bot (currently `run_all.py`), and must stay free of `admin_bot`/`user_bot` imports for the same reason.
 
+The website is a separate Go module with its own suite:
+```bash
+cd web && go test ./...
+```
+
 ## Architecture
 
 ### `shared/` — the code both bots use
@@ -111,6 +118,17 @@ Note `remnawave_api` (the SDK this project imports, for its request/response mod
 
 `app/services/remnawave/vpn_service.py` is async throughout and awaits the repositories directly.
 
+### web/ structure (Go)
+
+Standard layout: `cmd/server` wires everything, `internal/` holds the pieces — `config` (reads the same root `.env`), `store` (pgxpool, the only route to Postgres), `auth` (magic links, sessions, Telegram HMAC), `account` (coordinates DB + panel), `panel` (narrow Remnawave client), `yookassa`, `pricing`, `quota`, `mailer`, `api`.
+
+Two invariants are enforced structurally rather than by discipline:
+
+- **`store` has no way to update a payment's status.** Only the Python webhook may move a payment out of `pending`, because only it re-fetches the payment from YooKassa first. Go inserts pending rows and reads status; the capability to do more simply does not exist in the package.
+- **There is no session-signing secret.** Sessions are opaque random tokens stored *hashed* in Postgres, so the old `JWT_SECRET=change_me` failure mode has nothing to default to. Magic-link tokens are likewise stored hashed and never returned in an API response.
+
+`internal/pricing` and `internal/quota` duplicate Python logic (`user_bot/handlers/constants.py`, `utils.py`, `shared/tgvpn_shared/lte_quota.py`) because Go cannot import it. Their tests pin the values against the Python ones — edit one side alone and they fail. Same for `internal/account/deviceid.go`, which must produce the same device token as `user_bot/handlers/devices.py`.
+
 ### Payments
 
-YooKassa. `user_bot/payments/yookassa_client.py` creates payments; `user_bot/payments/webhook.py` receives the success callback. **The webhook has no signature of its own from YooKassa** — the only trustworthy signal is a server-to-server re-fetch of the payment by ID (`fetch_payment`). The handler must never credit a subscription/gift code based on the raw request body (`event`/`status`/`metadata`) alone, only on a verified fetch's own result — this was a real, previously-shipped vulnerability (forgeable free subscriptions), not a hypothetical one, so don't reintroduce a code path that trusts the request body. `user_bot/tests/test_webhook_security.py` guards both halves of it.
+YooKassa. `user_bot/payments/yookassa_client.py` creates payments; `user_bot/payments/webhook.py` receives the success callback. The Go site can also create payments, with identical metadata — the webhook is the single consumer either way. **The webhook has no signature of its own from YooKassa** — the only trustworthy signal is a server-to-server re-fetch of the payment by ID (`fetch_payment`). The handler must never credit a subscription/gift code based on the raw request body (`event`/`status`/`metadata`) alone, only on a verified fetch's own result — this was a real, previously-shipped vulnerability (forgeable free subscriptions), not a hypothetical one, so don't reintroduce a code path that trusts the request body. `user_bot/tests/test_webhook_security.py` guards both halves of it.
