@@ -26,10 +26,37 @@ type Service struct {
 	store           *store.Store
 	panel           *panel.Client
 	freeTierEnabled bool
+	trialDays       int
 }
 
-func NewService(st *store.Store, pc *panel.Client, freeTierEnabled bool) *Service {
-	return &Service{store: st, panel: pc, freeTierEnabled: freeTierEnabled}
+func NewService(st *store.Store, pc *panel.Client, freeTierEnabled bool, trialDays int) *Service {
+	if trialDays < 0 {
+		trialDays = 0
+	}
+	return &Service{
+		store:           st,
+		panel:           pc,
+		freeTierEnabled: freeTierEnabled,
+		trialDays:       trialDays,
+	}
+}
+
+// TrialEligible reports whether creating this user's first panel account
+// should come with free days.
+//
+// The test is "has never had a subscription", not "has no panel account".
+// Those are different, and only the first one is safe: the nightly cleanup
+// deletes the panel account of a user who has been inactive for a month, so
+// "no panel account" is also true of someone coming back after a break --
+// granting them another trial every time they lapsed would make the trial
+// renewable by waiting.
+//
+// `subscription_ends` is left at epoch 0 for an account that has never had
+// anything, and moves to a real date the moment anything is granted, so it
+// survives the panel account being deleted and is the durable record of "this
+// person has already had their free period".
+func (s *Service) TrialEligible(user *store.User) bool {
+	return s.trialDays > 0 && user.SubscriptionEnds.Unix() <= 0
 }
 
 // panelExpiry is what to write into the panel's `expireAt`.
@@ -91,10 +118,27 @@ func (s *Service) EnsureProfile(ctx context.Context, user *store.User) (*panel.U
 		return profile, nil
 	}
 
+	// No panel account anywhere: this is the user's first one.
+	//
+	// The trial is written to our database *before* the panel account is
+	// created, and that order matters. If the panel call then fails, the user
+	// holds days with no profile yet -- and the next request finds
+	// `subscription_ends` already set, so it creates the profile with those
+	// days and does not grant a second trial. The reverse order would grant
+	// the trial again on every failed attempt.
 	expiry := user.SubscriptionEnds
+	if s.TrialEligible(user) {
+		granted, err := s.store.ExtendSubscription(ctx, user.ID, s.trialDays)
+		if err != nil {
+			return nil, err
+		}
+		user.SubscriptionEnds, expiry = granted, granted
+		slog.Info("granted trial", "user", user.ID, "days", s.trialDays)
+	}
 	if expiry.IsZero() || expiry.Before(time.Now()) {
 		expiry = time.Now()
 	}
+
 	username := panel.UsernameFor(user.ID)
 	profile, err := s.panel.CreateUser(ctx, username, user.TelegramID, s.panelExpiry(expiry))
 	if err != nil {

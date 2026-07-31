@@ -34,6 +34,10 @@ type Config struct {
 	LTEFreeGBPerCycle int
 	LTECycleDays      int
 	TrialDays         int
+	// WebTrialDays is the trial granted to someone who signs up on the site
+	// and has no panel account yet. Falls back to TRIAL_DAYS so the bot and
+	// the site offer the same thing; set to 0 to switch it off.
+	WebTrialDays int
 }
 
 type SMTP struct {
@@ -98,6 +102,10 @@ func Load(envFiles ...string) (*Config, error) {
 		LTEFreeGBPerCycle: getInt("LTE_FREE_GB_PER_CYCLE", 10),
 		LTECycleDays:      getInt("LTE_CYCLE_DAYS", 30),
 		TrialDays:         getInt("TRIAL_DAYS", 30),
+	}
+	cfg.WebTrialDays = getInt("WEB_TRIAL_DAYS", cfg.TrialDays)
+	if cfg.WebTrialDays < 0 {
+		cfg.WebTrialDays = 0
 	}
 	return cfg, cfg.Validate()
 }

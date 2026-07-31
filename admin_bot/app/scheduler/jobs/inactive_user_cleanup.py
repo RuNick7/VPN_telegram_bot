@@ -6,6 +6,7 @@ import time
 from app.notify.admin import send_admin_message
 from app.services.users import user_service
 from tgvpn_shared.db import UserRepository
+from tgvpn_shared.settings import get_settings
 
 logger = logging.getLogger(__name__)
 _users_repo = UserRepository()
@@ -19,26 +20,46 @@ async def run_inactive_user_cleanup() -> None:
     """
     Delete Remnawave users inactive for INACTIVE_DAYS.
 
-    User rows remain in subscription.db to prevent re-issuing trial access.
+    Our own `users` rows are kept, which is what stops a returning user being
+    handed a second trial: eligibility is judged on `subscription_ends` having
+    never been set, not on whether a panel account exists.
+
+    Skipped entirely when the FREE tier is on. The two features want opposite
+    things -- FREE tier keeps a lapsed account alive so it falls back to the
+    free servers, and deleting it is precisely what that is meant to prevent.
     """
+    if get_settings().free_tier_enabled:
+        logger.info("Inactive cleanup skipped: the FREE tier keeps lapsed accounts alive.")
+        return
+
     deleted = 0
     skipped = 0
     failures: list[str] = []
     try:
-        inactive_ids = await _users_repo.get_inactive_telegram_ids_for_cleanup(INACTIVE_DAYS)
-        if not inactive_ids:
+        inactive = await _users_repo.get_inactive_users_for_cleanup(INACTIVE_DAYS)
+        if not inactive:
             logger.info("Inactive cleanup: no users to process.")
             return
 
-        for telegram_id in inactive_ids:
-            username = str(telegram_id)
+        for row in inactive:
+            telegram_id = row["telegram_id"]
+            # Resolve by stored UUID first. Looking up `str(telegram_id)` alone
+            # would miss every account created after the identity rework --
+            # those are named `u-<uuid>` and would quietly never be cleaned up.
             try:
-                user = await user_service.get_user_by_username(username)
-                user_uuid = user.get("uuid")
+                user_uuid = row.get("remnawave_uuid")
+                if not user_uuid:
+                    for name in (row.get("remnawave_username"), str(telegram_id) if telegram_id else None):
+                        if not name:
+                            continue
+                        found = await user_service.get_user_by_username(name)
+                        if found and found.get("uuid"):
+                            user_uuid = found["uuid"]
+                            break
                 if not user_uuid:
                     skipped += 1
                     continue
-                await user_service.delete_user(user_uuid)
+                await user_service.delete_user(str(user_uuid))
                 deleted += 1
             except Exception as exc:
                 failures.append(f"{telegram_id}: {exc}")

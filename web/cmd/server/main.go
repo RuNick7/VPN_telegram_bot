@@ -69,7 +69,7 @@ func run(log *slog.Logger) error {
 	}
 
 	authSvc := auth.NewService(st, ml, cfg.BaseURL, cfg.MagicLinkTTL, cfg.SessionTTL, cfg.TelegramBotToken)
-	accountSvc := account.NewService(st, panelClient, cfg.FreeTierEnabled)
+	accountSvc := account.NewService(st, panelClient, cfg.FreeTierEnabled, cfg.WebTrialDays)
 	server := api.NewServer(cfg, st, authSvc, accountSvc, yookassa.New(cfg.YooKassaShopID, cfg.YooKassaSecretKey), log)
 
 	go sweepExpired(ctx, st, log)

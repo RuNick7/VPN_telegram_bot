@@ -236,5 +236,6 @@ func (s *Server) handleClientConfig(w http.ResponseWriter, r *http.Request) {
 		"telegram_bot":     s.cfg.TelegramBotUsername,
 		"payments_enabled": s.cfg.PaymentsEnabled(),
 		"traffic_enabled":  s.cfg.LTEEnabled,
+		"trial_days":       s.cfg.WebTrialDays,
 	})
 }

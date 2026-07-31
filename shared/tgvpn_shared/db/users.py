@@ -120,6 +120,25 @@ class UserRepository:
             user_id,
         )
 
+    async def set_subscription_ends(self, user_id: str, subscription_ends: int) -> bool:
+        """
+        Set a user's expiry, addressed by internal id.
+
+        The telegram_id-keyed variants above cannot serve a website account,
+        which has none. Clears `reminded` for the same reason they do: a new
+        period should be able to send its own expiry warning.
+        """
+        pool = await get_pool()
+        result = await pool.execute(
+            """
+            UPDATE users
+            SET subscription_ends = to_timestamp($1::bigint), reminded = FALSE
+            WHERE id = $2::uuid
+            """,
+            subscription_ends, user_id,
+        )
+        return result != "UPDATE 0"
+
     async def set_panel_identity(
         self, user_id: str, *, remnawave_uuid: str | None, remnawave_username: str | None
     ) -> None:
@@ -529,6 +548,32 @@ class UserRepository:
             inactive_days,
         )
         return [int(row["telegram_id"]) for row in rows]
+
+    async def get_inactive_users_for_cleanup(self, inactive_days: int = 30) -> list[dict]:
+        """
+        Long-lapsed users, with everything needed to find their panel account.
+
+        Returns the stored panel handles alongside the Telegram ID because
+        looking accounts up by `str(telegram_id)` alone would miss every one
+        created after the identity rework -- those are named `u-<uuid>`, and
+        they would silently never be cleaned up.
+
+        `subscription_ends > to_timestamp(0)` excludes accounts that have
+        never had a subscription at all: they have nothing in the panel to
+        delete, and sweeping them up would only add noise to the report.
+        """
+        pool = await get_pool()
+        rows = await pool.fetch(
+            """
+            SELECT telegram_id, remnawave_uuid, remnawave_username
+            FROM users
+            WHERE merged_into IS NULL
+              AND subscription_ends > to_timestamp(0)
+              AND subscription_ends <= now() - ($1 * INTERVAL '1 day')
+            """,
+            inactive_days,
+        )
+        return [dict(row) for row in rows]
 
     # --- reminders/nurture (formerly defined ad hoc in user_bot/utils/reminders.py) ---
 
