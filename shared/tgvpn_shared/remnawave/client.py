@@ -358,11 +358,6 @@ class RemnawaveClient:
             return payload.get("internalSquads") or []
         return payload or []
 
-    async def create_internal_squad(self, name: str, inbound_ids: list[str]) -> dict[str, Any]:
-        return unwrap(
-            await self.request("POST", "/internal-squads", json={"name": name, "inbounds": inbound_ids})
-        ) or {}
-
     async def set_user_squads(self, user_uuids: list[str], squad_uuids: list[str]) -> dict[str, Any]:
         """Replace the given users' squad membership outright."""
         return await self.request(

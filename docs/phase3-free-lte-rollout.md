@@ -24,9 +24,27 @@ safe to run — not the reason it can be turned on without thought:
 
 ## 1. Create the squads in Remnawave
 
-The panel must contain a squad named exactly `FREE` (and `LTE`, if using
-quotas) before enabling anything. Give FREE only the inbounds you're willing
-to hand out for nothing.
+Three squads, all managed by hand in the panel — nothing in this codebase
+creates one. Named exactly:
+
+| Squad | Setting | Required |
+|---|---|---|
+| paid | `PAID_SQUAD_NAME` (default `internal`) | yes |
+| free | `FREE_SQUAD_NAME` (default `FREE`) | yes |
+| LTE | `LTE_SQUAD_NAME` (default `LTE`) | only with quotas |
+
+Give FREE only the inbounds you're willing to hand out for nothing.
+
+Everyone who is paying goes into the one paid squad. Users are **not** spread
+across `internal-1..N` any more — that existed to cap members per squad, and
+load is now handled by balancers in front of the nodes instead. If you are
+migrating from the old layout, move everyone into the single squad in the
+panel first; the bots read whatever `PAID_SQUAD_NAME` points at and will not
+find users left behind in `internal-2`.
+
+A missing FREE **or** paid squad aborts the reconciliation run loudly. The
+paid one matters just as much: without it nobody is promoted after paying, so
+customers are charged and get nothing, with silence as the only symptom.
 
 Check what exists:
 

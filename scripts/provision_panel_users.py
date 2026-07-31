@@ -46,7 +46,7 @@ from tgvpn_shared.db import UserRepository, close_pool, get_pool  # noqa: E402
 from tgvpn_shared.free_tier import format_panel_timestamp, panel_expire_timestamp  # noqa: E402
 from tgvpn_shared.remnawave import RemnawaveClient  # noqa: E402
 from tgvpn_shared.settings import get_settings  # noqa: E402
-from tgvpn_shared.squads import get_or_create_internal_squad  # noqa: E402
+from tgvpn_shared.squads import resolve_paid_squad_uuid  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("provision")
@@ -118,14 +118,8 @@ def print_plan(plan: Plan, *, verbose: bool) -> None:
 
 
 async def assign_squad(client: RemnawaveClient, user_uuid: str) -> None:
-    """Place a freshly created account into a squad with room."""
-    settings = get_settings()
-    squad, _created = await get_or_create_internal_squad(
-        client,
-        max_users=settings.internal_squad_max_users,
-        prefix=settings.internal_squad_prefix,
-    )
-    squad_uuid = (squad or {}).get("uuid")
+    """Place a freshly created account into the paid squad."""
+    squad_uuid = await resolve_paid_squad_uuid(client, get_settings().paid_squad_name)
     if squad_uuid:
         await client.set_user_squads([user_uuid], [str(squad_uuid)])
 

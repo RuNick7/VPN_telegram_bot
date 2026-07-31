@@ -17,9 +17,7 @@ from app.scheduler.jobs.subscription_expire_monitor import (
     plan_membership,
 )
 
-ROLES = SquadRoles(
-    free_uuid="free-1", lte_uuid="lte-1", paid_uuids=frozenset({"int-1", "int-2"})
-)
+ROLES = SquadRoles(free_uuid="free-1", lte_uuid="lte-1", paid_uuid="int-1")
 
 
 def plan(current, *, active, paid="int-1"):

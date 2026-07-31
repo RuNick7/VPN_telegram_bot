@@ -110,7 +110,9 @@ Note `remnawave_api` (the SDK this project imports, for its request/response mod
 
 **`settings.py`** — one `pydantic-settings` model over the root `.env`, reached via `get_settings()`. Every field is optional; entrypoints assert what they need with `settings.require("user_bot_token", ...)`. `ADMIN_IDS` is deliberately stored as a raw string and split in the `admin_ids` property: typing it as `list[int]` makes pydantic-settings JSON-decode the env value before any validator runs, which crashed the bot on a plain `ADMIN_IDS=1,2`.
 
-**`squads.py`** — internal-squad placement. New users go into the first squad under `INTERNAL_SQUAD_MAX_USERS`; when all are full, the next `internal-N` is created (numbering continues from the highest existing name, not the count) copying inbounds from an existing squad.
+**`squads.py`** — which of three squads a user belongs in: **paid** (`PAID_SQUAD_NAME`, default `internal`), **FREE**, **LTE**. None of them is about capacity — they describe entitlement, and load is spread by balancers in front of the nodes. Nothing here creates squads; an operator manages them in the panel, and a missing FREE or paid squad raises `SquadResolutionError` rather than degrading (a missing paid squad means paying customers get nothing, with silence as the only symptom).
+
+Users used to be distributed across `internal-1..N` with a per-squad cap, which also required a workaround that re-read up to 200 users five seconds after creating a squad. All of that is gone.
 
 ### admin_bot structure
 

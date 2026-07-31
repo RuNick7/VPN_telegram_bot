@@ -34,7 +34,6 @@ from tgvpn_shared.free_tier import plan_panel_update
 from tgvpn_shared.squads import (
     SquadResolutionError,
     SquadRoles,
-    get_or_create_internal_squad,
     resolve_squad_roles,
 )
 
@@ -184,18 +183,9 @@ async def _reconcile_user(
     current = extract_squad_uuids(user)
     active = subject.subscription_ends > now
 
-    paid_uuid = None
-    if active and roles.tier_of(current) != "paid":
-        # Only reach for a squad when the user actually needs one; this can
-        # create a squad, so it must not run on every pass.
-        squad, _created = await get_or_create_internal_squad(
-            client,
-            max_users=settings.internal_squad_max_users,
-            prefix=settings.internal_squad_prefix,
-        )
-        paid_uuid = str((squad or {}).get("uuid") or "") or None
-    elif active:
-        paid_uuid = next(iter(set(current) & roles.paid_uuids), None)
+    # One squad for everyone who is paying; resolved up front, so there is
+    # nothing to look up or create per user any more.
+    paid_uuid = roles.paid_uuid if active else None
 
     tier = "paid" if active else "free"
 
@@ -242,7 +232,7 @@ async def _run(reason: str) -> tuple[int, int, list[str]]:
             client,
             free_name=settings.free_squad_name,
             lte_name=settings.lte_squad_name if settings.lte_enabled else None,
-            paid_prefix=settings.internal_squad_prefix,
+            paid_name=settings.paid_squad_name,
         )
 
         ends_by_telegram_id = await _users.get_subscription_ends_map()

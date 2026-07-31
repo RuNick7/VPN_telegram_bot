@@ -1,6 +1,5 @@
 """User management service (admin side)."""
 
-import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
@@ -8,7 +7,7 @@ from typing import Any, Dict, Optional
 from remnawave_api.models.users import CreateUserRequestDto
 from tgvpn_shared.db import UserRepository
 from tgvpn_shared.remnawave import UserNotFoundError
-from tgvpn_shared.squads import get_or_create_internal_squad, normalize_new_squad_members
+from tgvpn_shared.squads import resolve_paid_squad_uuid
 
 from app.api.client import RemnawaveClient
 from app.config.settings import settings
@@ -24,27 +23,19 @@ class UserService:
         self.log = logging.getLogger(__name__)
 
     async def _assign_internal_squad(self, user_uuid: str, username: str) -> None:
-        """Place a freshly created user into a squad; never fatal to creation."""
-        try:
-            self.log.info("Assigning internal squad for user %s (uuid=%s)", username, user_uuid)
-            squad, created = await get_or_create_internal_squad(
-                self.client,
-                max_users=settings.internal_squad_max_users,
-                prefix=settings.internal_squad_prefix,
-            )
-            squad_uuid = (squad or {}).get("uuid")
-            if not squad_uuid:
-                self.log.warning("Internal squad not found/created for user %s", username)
-                return
+        """
+        Put a freshly created user into the paid squad; never fatal to creation.
 
-            self.log.info("Selected squad %s created=%s for user %s", squad_uuid, created, username)
+        One squad, nothing created here -- see `resolve_paid_squad_uuid`.
+        """
+        try:
+            squad_uuid = await resolve_paid_squad_uuid(self.client, settings.paid_squad_name)
+            if not squad_uuid:
+                return
             await self.client.set_user_squads([str(user_uuid)], [str(squad_uuid)])
-            if created:
-                asyncio.create_task(
-                    normalize_new_squad_members(self.client, str(squad_uuid), str(user_uuid))
-                )
+            self.log.info("User %s placed in paid squad %s", username, squad_uuid)
         except Exception as exc:
-            self.log.error("Failed to assign internal squad for %s: %s", username, exc)
+            self.log.error("Failed to assign paid squad for %s: %s", username, exc)
 
     async def create_user(
         self,

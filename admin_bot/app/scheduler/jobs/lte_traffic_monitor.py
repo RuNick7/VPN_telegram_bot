@@ -344,7 +344,7 @@ async def _run() -> tuple[int, int, int]:
             client,
             free_name=settings.free_squad_name,
             lte_name=settings.lte_squad_name,
-            paid_prefix=settings.internal_squad_prefix,
+            paid_name=settings.paid_squad_name,
         )
         if not roles.lte_uuid:
             logger.info("LTE squad not present in the panel; nothing to enforce")

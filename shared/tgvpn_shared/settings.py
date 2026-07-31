@@ -71,8 +71,11 @@ class Settings(BaseSettings):
     webhook_shutdown_timeout: float = Field(5.0, validation_alias="WEBHOOK_SHUTDOWN_TIMEOUT")
 
     # -- Squads ------------------------------------------------------------
-    internal_squad_max_users: int = Field(30, validation_alias="INTERNAL_SQUAD_MAX_USERS")
-    internal_squad_prefix: str = Field("internal", validation_alias="INTERNAL_SQUAD_PREFIX")
+    # The one squad every paying subscriber goes into. Named, not derived from
+    # a prefix: users are no longer spread across `internal-1..N`, because load
+    # is handled by balancers in front of the nodes rather than by splitting
+    # people up. The panel must contain a squad with exactly this name.
+    paid_squad_name: str = Field("internal", validation_alias="PAID_SQUAD_NAME")
 
     # -- FREE tier (Phase 3) -----------------------------------------------
     # Off by default, and deliberately so. Turning it on changes how expiry is

@@ -7,6 +7,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app.config.settings import settings
 from app.scheduler.jobs import (
+    daily_squad_report,
     inactive_user_cleanup,
     lte_traffic_monitor,
     node_monitor,
@@ -34,6 +35,18 @@ def create_scheduler() -> AsyncIOScheduler:
         id="subscription_db_backup",
         name="Daily Subscription DB Backup",
         replace_existing=True
+    )
+
+    # Information, not an alarm: how many people sit in each squad, so buying
+    # another server is a decision rather than a surprise. Sent every day even
+    # when the numbers are dull -- a report that only arrives when something is
+    # wrong teaches you to read its absence as "fine".
+    scheduler.add_job(
+        daily_squad_report.run_daily_squad_report,
+        trigger=CronTrigger(hour=10, minute=0, timezone="Europe/Moscow"),
+        id="daily_squad_report",
+        name="Daily Squad Headcount",
+        replace_existing=True,
     )
 
     scheduler.add_job(

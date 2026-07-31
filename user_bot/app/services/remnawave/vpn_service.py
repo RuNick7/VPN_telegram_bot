@@ -8,7 +8,6 @@ that the shared Remnawave client is natively async, both detours are gone: the
 repository layer is awaited directly and callers just `await`.
 """
 
-import asyncio
 import logging
 import time
 from datetime import datetime, timezone
@@ -19,7 +18,7 @@ from tgvpn_shared.free_tier import panel_expire_timestamp
 from tgvpn_shared.identity import panel_username_for, resolve_panel_identity
 from tgvpn_shared.remnawave import APINotFoundError, RemnawaveClient, UserNotFoundError
 from tgvpn_shared.settings import get_settings
-from tgvpn_shared.squads import get_or_create_internal_squad, normalize_new_squad_members
+from tgvpn_shared.squads import resolve_paid_squad_uuid
 
 logger = logging.getLogger(__name__)
 
@@ -215,26 +214,23 @@ async def delete_device(telegram_id: int, hwid: str) -> None:
 
 
 async def _assign_internal_squad(user_uuid: str) -> None:
-    """Place a new user into a squad with room; never fatal to creation."""
-    settings = get_settings()
+    """
+    Put a new user into the paid squad; never fatal to creation.
+
+    There is one squad now and nothing is created here -- an operator manages
+    them in the panel. A failure leaves the user unassigned, which the expiry
+    monitor repairs on its next pass, and that is better than refusing to
+    create the account at all.
+    """
     client = get_client()
     try:
-        squad, created = await get_or_create_internal_squad(
-            client,
-            max_users=settings.internal_squad_max_users,
-            prefix=settings.internal_squad_prefix,
-        )
-        squad_uuid = (squad or {}).get("uuid")
+        squad_uuid = await resolve_paid_squad_uuid(client, get_settings().paid_squad_name)
         if not squad_uuid:
-            logger.warning("[Remnawave] Internal squad not found/created for user %s", user_uuid)
             return
-
-        logger.info("[Remnawave] Selected squad %s created=%s", squad_uuid, created)
         await client.set_user_squads([str(user_uuid)], [str(squad_uuid)])
-        if created:
-            asyncio.create_task(normalize_new_squad_members(client, str(squad_uuid), str(user_uuid)))
+        logger.info("[Remnawave] User %s placed in paid squad %s", user_uuid, squad_uuid)
     except Exception as exc:
-        logger.error("[Remnawave] Failed to assign internal squad: %s", exc)
+        logger.error("[Remnawave] Failed to assign paid squad: %s", exc)
 
 
 async def create_vpn_user(telegram_id: int, days_to_add: int) -> bool:

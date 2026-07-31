@@ -1,4 +1,15 @@
-"""Node and squad monitoring job."""
+"""
+Node health monitoring.
+
+Squad occupancy used to be checked here too, and alerted on when a squad went
+past its cap. There is no cap any more -- everyone paying sits in one squad and
+load is spread by balancers -- so "too many members" is not a fault condition.
+Occupancy moved to `daily_squad_report`, which reports it once a day as
+information rather than as an alarm.
+
+What is left is genuinely urgent: a node that is offline or out of memory
+should not wait until tomorrow.
+"""
 
 import logging
 import time
@@ -35,27 +46,8 @@ def _extract_percent(data: Dict[str, Any], keys: list[str]) -> Optional[float]:
     return None
 
 
-def _last_internal_squad(squads: list[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-    prefix = settings.internal_squad_prefix
-    best: tuple[int, Dict[str, Any]] | None = None
-    for squad in squads:
-        name = str(squad.get("name") or "")
-        if not name.startswith(prefix):
-            continue
-        suffix = name[len(prefix):].lstrip("-_")
-        try:
-            idx = int(suffix)
-        except (TypeError, ValueError):
-            continue
-        if best is None or idx > best[0]:
-            best = (idx, squad)
-    if best:
-        return best[1]
-    return squads[-1] if squads else None
-
-
 async def run_node_monitor() -> None:
-    """Check nodes CPU/RAM and squads size, notify admins."""
+    """Check node CPU/RAM and reachability, notify admins."""
     client = RemnawaveClient()
     alerts: list[str] = []
     try:
@@ -104,26 +96,6 @@ async def run_node_monitor() -> None:
 
             if node.get("isConnected") is False:
                 alerts.append(f"Node offline: {name}")
-
-        squads = await _with_retry("internal squads", client.list_internal_squads)
-        last_squad = _last_internal_squad(squads)
-        for squad in squads:
-            name = squad.get("name") or squad.get("uuid", "unknown")
-            members = (squad.get("info") or {}).get("membersCount")
-            if isinstance(members, int) and members > settings.internal_squad_max_users:
-                alerts.append(
-                    f"Squad '{name}' members {members} > {settings.internal_squad_max_users}"
-                )
-        if last_squad:
-            name = last_squad.get("name") or last_squad.get("uuid", "unknown")
-            members = (last_squad.get("info") or {}).get("membersCount")
-            limit = settings.internal_squad_max_users
-            if isinstance(members, int) and limit > 0:
-                percent = (members / limit) * 100
-                if percent >= 75:
-                    alerts.append(
-                        f"Last squad '{name}' is {percent:.0f}% full ({members}/{limit})"
-                    )
 
         if alerts:
             now = time.time()
