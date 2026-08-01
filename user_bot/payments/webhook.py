@@ -346,13 +346,25 @@ async def yookassa_webhook_handler(request: web.Request):
                     logger.error("[GIFT] Не удалось обновить gifted_subscriptions для %s: %s",
                                  _payer_label(payer), e)
 
-                # Формируем текст
+                # Two ways to hand the gift over, because the recipient may
+                # not be a Telegram user at all. The code is the old path and
+                # still works everywhere; the link is for someone who will
+                # redeem it on the website. Both redeem the *same* code, so it
+                # can only be used once whichever route is taken.
+                gift_link = get_settings().gift_link(gift_code)
+
                 result = f"🎁 Промокод для подарка: `{escape_gift_code}`"
                 user_message = (
                     f"✅ Платёж успешно завершен\\!\n"
                     f"Вы приобрели *подарочную подписку* на *{days_to_extend}* дней\\.\n\n"
                     f"Передайте другу этот код: `{escape_gift_code}`"
                 )
+                if gift_link:
+                    user_message += (
+                        "\n\nИли отправьте ссылку — по ней подарок можно "
+                        "активировать без Telegram:\n"
+                        f"{escape_markdown_v2(gift_link)}"
+                    )
                 group_message = (
                     f"🎁 Подарок оформлен\\!\n"
                     f"Пользователь: {telegram_id}\n"

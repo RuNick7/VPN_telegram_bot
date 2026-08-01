@@ -122,6 +122,28 @@ class Settings(BaseSettings):
     faq_url: str = Field("https://nitratex-company.gitbook.io/kairavpn/", validation_alias="FAQ_URL")
     status_channel_url: str = Field("https://t.me/nitratex1", validation_alias="STATUS_CHANNEL_URL")
 
+    # Public origin of the website. The bot needs it to build gift links --
+    # the same value the Go service validates its own redirects against.
+    web_base_url: str = Field("", validation_alias="WEB_BASE_URL")
+
+    # Legal documents, shown by /docs. Empty means the bot says the document
+    # is not published yet rather than offering a dead link.
+    offer_url: str = Field("", validation_alias="OFFER_URL")
+    refund_policy_url: str = Field("", validation_alias="REFUND_POLICY_URL")
+    terms_url: str = Field("", validation_alias="TERMS_URL")
+    privacy_policy_url: str = Field("", validation_alias="PRIVACY_POLICY_URL")
+
+    def gift_link(self, code: str) -> str:
+        """
+        Where to send someone to redeem a gift code on the website.
+
+        Empty when no site is configured, and the caller then offers only the
+        code itself -- the bot path has always worked and does not depend on
+        the site existing.
+        """
+        base = self.web_base_url.strip().rstrip("/")
+        return f"{base}/gift/{code}" if base else ""
+
     # -- Backups (admin_bot) ----------------------------------------------
     # BACKUP_DIR / BACKUP_RETENTION_DAYS / REMNAWAVE_BACKUP_ENABLED are gone:
     # they configured a panel-side backup job that called an endpoint

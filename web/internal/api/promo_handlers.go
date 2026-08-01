@@ -22,16 +22,6 @@ func (s *Server) handleRedeemPromo(w http.ResponseWriter, r *http.Request, user 
 		return
 	}
 
-	// promo_usage is keyed by telegram_id, so redemption is unavailable to an
-	// account that has never been linked to Telegram. Saying so is better than
-	// failing on a foreign-key violation.
-	if user.TelegramID == nil {
-		writeError(w, http.StatusConflict, "telegram_required",
-			"Промокоды пока доступны только аккаунтам с привязанным Telegram.")
-		return
-	}
-	telegramID := *user.TelegramID
-
 	promo, err := s.store.PromoByCode(r.Context(), code)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "invalid_code", "Промокод недействителен.")
@@ -49,7 +39,12 @@ func (s *Server) handleRedeemPromo(w http.ResponseWriter, r *http.Request, user 
 		writeError(w, http.StatusBadRequest, "unsupported_code", "Этот тип промокода пока не поддерживается.")
 		return
 	}
-	if promo.Type == "gift" && promo.CreatorID != nil && *promo.CreatorID == telegramID {
+	// A gift's creator is recorded as a telegram_id, so this check only has
+	// anything to compare when both sides have one. A website buyer's gift
+	// carries no creator, and there is nothing to guard against there: they
+	// cannot be the same account.
+	if promo.Type == "gift" && promo.CreatorID != nil &&
+		user.TelegramID != nil && *promo.CreatorID == *user.TelegramID {
 		writeError(w, http.StatusBadRequest, "own_gift", "Нельзя активировать собственный подарочный промокод.")
 		return
 	}
@@ -58,7 +53,7 @@ func (s *Server) handleRedeemPromo(w http.ResponseWriter, r *http.Request, user 
 	// two people racing each other -- the loser's claim fails and nothing is
 	// credited. Same ordering as the bot's promo flow.
 	oneTime := promo.OneTime || promo.Type == "gift"
-	claimed, err := s.store.ClaimPromo(r.Context(), code, telegramID, oneTime)
+	claimed, err := s.store.ClaimPromo(r.Context(), code, user.ID, user.TelegramID, oneTime)
 	if err != nil {
 		s.fail(w, r, err)
 		return
@@ -79,7 +74,7 @@ func (s *Server) handleRedeemPromo(w http.ResponseWriter, r *http.Request, user 
 	if err != nil {
 		// Roll the claim back so the user can try again rather than losing the
 		// code to a failure that was ours.
-		if releaseErr := s.store.ReleasePromo(r.Context(), code, telegramID); releaseErr != nil {
+		if releaseErr := s.store.ReleasePromo(r.Context(), code, user.ID); releaseErr != nil {
 			s.log.Error("release promo after failed credit", "code", code, "err", releaseErr)
 		}
 		s.log.Error("promo credit", "code", code, "err", err)

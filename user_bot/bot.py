@@ -12,7 +12,6 @@ from precache_videos import precache_videos, _load_cache
 from utils.heartbeat import heartbeat_loop
 from utils.reminders import reminders_scheduler
 from handlers.user_handlers import router as user_router
-from middlewares.email_gate import EmailGateMiddleware
 
 # ── config ────────────────────────────────────────────────────────────
 settings = get_settings()
@@ -28,7 +27,6 @@ heartbeat_task: asyncio.Task | None = None
 # ─── MIDDLEWARE: сбор кликов ─────────────────────────────────────────
 evlog = EventLogger()          # экземпляр; соединится при startup
 dp.update.middleware(evlog)    # регистрируем в диспетчере
-dp.message.middleware(EmailGateMiddleware())
 
 # ─── STARTUP HOOK ────────────────────────────────────────────────────
 async def on_startup(dispatcher: Dispatcher) -> None:

@@ -107,6 +107,9 @@ def help_menu_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="✉️ Поменять email", callback_data="change_email"),
             ],
             [
+                InlineKeyboardButton(text="📄 Документы", callback_data="documents"),
+            ],
+            [
                 InlineKeyboardButton(text="🔙 В меню", callback_data="main_menu"),
             ],
         ]

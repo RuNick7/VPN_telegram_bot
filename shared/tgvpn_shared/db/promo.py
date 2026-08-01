@@ -77,35 +77,56 @@ class PromoRepository:
 
     async def try_claim_promo_usage(self, code: str, telegram_id: int, *, one_time: bool) -> bool:
         """
-        Atomically records promo usage BEFORE crediting days.
+        Claim a code for a Telegram user. Thin wrapper over the id-based form.
 
-        For one_time codes (gift), the claim only succeeds for the first
-        user ever; for multi-use codes, once per user. Returns False if the
-        code is already claimed. Roll back a failed credit with
-        release_promo_usage().
+        Kept because every bot call site has a telegram_id in hand and nothing
+        else; the row it resolves to is what actually owns the claim.
+        """
+        row = await self._user_id_for_telegram(telegram_id)
+        if row is None:
+            return False
+        return await self.try_claim_promo_usage_by_user_id(
+            code, row, one_time=one_time, telegram_id=telegram_id
+        )
+
+    async def try_claim_promo_usage_by_user_id(
+        self, code: str, user_id: str, *, one_time: bool, telegram_id: int | None = None
+    ) -> bool:
+        """
+        Atomically record promo usage BEFORE crediting days.
+
+        Claiming first is what stops a one-time code being redeemed twice by
+        two people racing each other: the loser's insert finds the code taken
+        and nothing is credited. If crediting then fails, `release_promo_usage`
+        puts it back.
+
+        Keyed on `users.id`, so an account with no Telegram -- someone who
+        signed up on the website, and the most likely person to be handed a
+        gift link -- can redeem exactly like anyone else. `telegram_id` is
+        still stored when we have one, purely so support can recognise the row.
         """
         pool = await get_pool()
         if one_time:
             claimed = await pool.fetchval(
                 """
-                INSERT INTO promo_usage (code, telegram_id)
-                SELECT $1, $2
+                INSERT INTO promo_usage (code, telegram_id, user_id)
+                SELECT $1, $2, $3::uuid
                 WHERE NOT EXISTS (SELECT 1 FROM promo_usage WHERE code = $1)
                 RETURNING id
                 """,
-                code, telegram_id,
+                code, telegram_id, user_id,
             )
         else:
             claimed = await pool.fetchval(
                 """
-                INSERT INTO promo_usage (code, telegram_id)
-                SELECT $1, $2
+                INSERT INTO promo_usage (code, telegram_id, user_id)
+                SELECT $1, $2, $3::uuid
                 WHERE NOT EXISTS (
-                    SELECT 1 FROM promo_usage WHERE code = $1 AND telegram_id = $2
+                    SELECT 1 FROM promo_usage WHERE code = $1 AND user_id = $3::uuid
                 )
                 RETURNING id
                 """,
-                code, telegram_id,
+                code, telegram_id, user_id,
             )
         return claimed is not None
 
@@ -115,3 +136,16 @@ class PromoRepository:
             "DELETE FROM promo_usage WHERE code = $1 AND telegram_id = $2",
             code, telegram_id,
         )
+
+    async def release_promo_usage_by_user_id(self, code: str, user_id: str) -> None:
+        pool = await get_pool()
+        await pool.execute(
+            "DELETE FROM promo_usage WHERE code = $1 AND user_id = $2::uuid", code, user_id
+        )
+
+    async def _user_id_for_telegram(self, telegram_id: int) -> Optional[str]:
+        pool = await get_pool()
+        row = await pool.fetchval(
+            "SELECT id::text FROM users WHERE telegram_id = $1", telegram_id
+        )
+        return str(row) if row else None

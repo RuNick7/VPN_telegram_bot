@@ -226,7 +226,6 @@ async def help_cb(cb: types.CallbackQuery) -> None:
 async def change_email_cb(cb: types.CallbackQuery, state: FSMContext) -> None:
     await cb.answer()
     await state.set_state(EmailCaptureState.waiting_email)
-    await state.update_data(email_forced=False)
     await cb.message.answer(
         "✉️ Введите новый email в формате example@mail.com",
         reply_markup=_email_cancel_keyboard(),
@@ -236,12 +235,6 @@ async def change_email_cb(cb: types.CallbackQuery, state: FSMContext) -> None:
 @router.callback_query(F.data == "change_email_cancel")
 async def change_email_cancel_cb(cb: types.CallbackQuery, state: FSMContext) -> None:
     await cb.answer()
-    state_data = await state.get_data()
-    if state_data.get("email_forced"):
-        await cb.message.answer(
-            "❗️Сейчас отменить нельзя — сначала укажите email."
-        )
-        return
     await state.clear()
     await cb.message.answer("✅ Изменение email отменено.")
 
@@ -257,21 +250,23 @@ async def channel_cmd(message: types.Message) -> None:
 
 @router.message(EmailCaptureState.waiting_email)
 async def capture_email(message: types.Message, state: FSMContext) -> None:
+    """
+    Save an email the user chose to give us.
+
+    Nothing forces this any more. A middleware used to block every command a
+    day after signup until an address was typed -- taxing everyone to solve a
+    problem only the website had. The website identifies people by our own id
+    now, so the bot does not need an address to function. Giving one is still
+    useful (it is how you sign in on the site), so the entry point stays,
+    opt-in.
+    """
     email = (message.text or "").strip()
-    state_data = await state.get_data()
-    forced = bool(state_data.get("email_forced"))
     if not _is_valid_email(email):
-        if forced:
-            await message.answer(
-                "❌ Некорректный email.\n"
-                "Введите адрес в формате example@mail.com"
-            )
-        else:
-            await message.answer(
-                "❌ Некорректный email.\n"
-                "Введите адрес в формате example@mail.com",
-                reply_markup=_email_cancel_keyboard(),
-            )
+        await message.answer(
+            "❌ Некорректный email.\n"
+            "Введите адрес в формате example@mail.com",
+            reply_markup=_email_cancel_keyboard(),
+        )
         return
 
     await _users.update_user_email(message.from_user.id, email.lower())
