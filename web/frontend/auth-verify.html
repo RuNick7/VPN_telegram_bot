@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Вход — KairaVPN</title>
+<meta name="theme-color" content="#000000">
+<meta name="robots" content="noindex, nofollow">
+<!-- The URL that reaches this page carries a live sign-in token. Referrer
+     stripping keeps it out of the logs of anything the page later links to. -->
+<meta name="referrer" content="no-referrer">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="/assets/fonts/inter-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/css/app.css">
+<script type="module" src="/assets/js/verify.js"></script>
+</head>
+<body>
+<!--icon-sprite-->
+
+<header class="site-header">
+  <a class="brand" href="/">
+    <svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg>
+    <span>KairaVPN</span>
+  </a>
+</header>
+
+<main>
+  <div class="slab">
+    <div class="slab-inner stack">
+
+      <div data-working>
+        <span class="section-tag">Проверка ссылки</span>
+        <h1 class="h-md">Входим…</h1>
+        <p class="lead">Секунду — проверяем ссылку из письма.</p>
+      </div>
+
+      <div data-failed hidden>
+        <span class="section-tag">Ссылка не подошла</span>
+        <h1 class="h-md">Нужна новая</h1>
+        <p class="lead" data-reason></p>
+      </div>
+
+      <div class="notice" data-notice hidden role="status"></div>
+
+      <a class="btn btn-block" href="/login" data-retry hidden>Запросить новую ссылку</a>
+
+    </div>
+  </div>
+</main>
+
+</body>
+</html>

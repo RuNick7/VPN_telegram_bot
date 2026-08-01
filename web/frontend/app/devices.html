@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Устройства — KairaVPN</title>
+<meta name="theme-color" content="#000000">
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png">
+<link rel="preload" href="/assets/fonts/inter-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/assets/fonts/jetbrains-mono-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/css/app.css">
+<script type="module" src="/assets/js/devices.js"></script>
+</head>
+<body>
+<!--icon-sprite-->
+
+<header class="site-header">
+  <a class="brand" href="/app">
+    <svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg>
+    <span>KairaVPN</span>
+  </a>
+  <nav class="tabs" aria-label="Разделы кабинета">
+    <a href="/app" data-tab>Обзор</a>
+    <a href="/app/plans" data-tab>Тарифы</a>
+    <a href="/app/devices" data-tab>Устройства</a>
+    <a href="/app/profile" data-tab>Профиль</a>
+  </nav>
+  <div class="row">
+    <div class="who">
+      <span class="mono-sm strong" data-me-email>&nbsp;</span>
+      <span class="mono-sm accent" data-me-tag hidden></span>
+    </div>
+    <button class="btn btn-ghost btn-sm" type="button" data-logout>Выйти</button>
+  </div>
+</header>
+
+<main class="app-main">
+
+  <section class="split">
+    <div class="stack">
+      <span class="section-tag">01 // Подключение</span>
+      <h1 class="h-md">Одна ссылка на всё</h1>
+      <p class="lead">Вставьте её в приложение Happ на любом устройстве. Конфигурация подтянется сама и будет обновляться, когда мы меняем узлы.</p>
+
+      <div class="notice" data-notice hidden role="status"></div>
+
+      <div class="copy">
+        <input type="text" readonly data-sub-url value="" aria-label="Ссылка подписки" spellcheck="false">
+        <button type="button" data-copy-sub aria-label="Копировать">
+          <span data-icon="copy"></span>
+        </button>
+      </div>
+
+      <div class="row wrap-row">
+        <button class="btn btn-ghost btn-sm" type="button" data-reset>
+          <span data-icon="refresh"></span> Сбросить ссылку
+        </button>
+        <span class="mono-sm muted">Старая перестанет работать сразу — на случай, если ссылка утекла.</span>
+      </div>
+    </div>
+
+    <div class="side">
+      <span class="mono-sm muted">QR-код</span>
+      <div data-qr aria-live="polite">
+        <p class="mono-sm muted">Готовим…</p>
+      </div>
+      <p class="mono-sm muted">В приложении: <span class="strong">+</span> → добавить по QR-коду.</p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap stack">
+      <span class="section-tag">02 // Приложение</span>
+      <div class="grid-lines cols-4">
+        <div class="stack">
+          <span data-icon="phone" data-icon-class="icon-lg accent"></span>
+          <h3 class="mono strong">iPhone / iPad</h3>
+          <a class="mono-sm accent" href="https://apps.apple.com/us/app/happ-proxy-utility/id6504287215" rel="noopener" target="_blank">Happ в App Store →</a>
+        </div>
+        <div class="stack">
+          <span data-icon="phone" data-icon-class="icon-lg accent"></span>
+          <h3 class="mono strong">Android</h3>
+          <a class="mono-sm accent" href="https://play.google.com/store/apps/details?id=com.happproxy" rel="noopener" target="_blank">Happ в Google Play →</a>
+        </div>
+        <div class="stack">
+          <span data-icon="monitor" data-icon-class="icon-lg accent"></span>
+          <h3 class="mono strong">Windows</h3>
+          <a class="mono-sm accent" href="https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe" rel="noopener" target="_blank">Скачать Happ →</a>
+        </div>
+        <div class="stack">
+          <span data-icon="laptop" data-icon-class="icon-lg accent"></span>
+          <h3 class="mono strong">macOS</h3>
+          <a class="mono-sm accent" href="https://apps.apple.com/us/app/happ-proxy-utility/id6504287215" rel="noopener" target="_blank">Happ в App Store →</a>
+        </div>
+        <div class="stack">
+          <span data-icon="tv" data-icon-class="icon-lg accent"></span>
+          <h3 class="mono strong">Android TV</h3>
+          <a class="mono-sm accent" href="https://github.com/Happ-proxy/happ-android/releases/latest/download/Happ.apk" rel="noopener" target="_blank">APK для телевизора →</a>
+        </div>
+        <div class="stack">
+          <span data-icon="tv" data-icon-class="icon-lg accent"></span>
+          <h3 class="mono strong">Apple TV</h3>
+          <a class="mono-sm accent" href="https://apps.apple.com/us/app/happ-proxy-utility-for-tv/id6748297274" rel="noopener" target="_blank">Happ для Apple TV →</a>
+        </div>
+        <div class="stack span-2">
+          <span data-icon="info" data-icon-class="icon-lg accent"></span>
+          <h3 class="mono strong">Не получается?</h3>
+          <p class="mono-sm muted">На телевизоре добавляйте профиль QR-кодом с этой страницы. Если приложение не принимает ссылку — сбросьте её выше и попробуйте снова.</p>
+          <a class="mono-sm accent" href="#" data-faq hidden rel="noopener" target="_blank">Частые вопросы →</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap stack">
+      <span class="section-tag">03 // Подключённые устройства</span>
+      <p class="mono-sm muted" data-device-summary></p>
+      <div class="panel" data-device-panel>
+        <ul class="rows" data-device-list></ul>
+      </div>
+      <p class="mono-sm muted">Отключение освобождает слот сразу. Устройство подключится снова, если открыть на нём приложение — если это чужое устройство, сначала сбросьте ссылку.</p>
+    </div>
+  </section>
+
+</main>
+
+<nav class="tabbar" aria-label="Разделы кабинета">
+  <a href="/app" data-tab><span data-icon="dashboard"></span>Обзор</a>
+  <a href="/app/plans" data-tab><span data-icon="card"></span>Тарифы</a>
+  <a href="/app/devices" data-tab><span data-icon="devices"></span>Устройства</a>
+  <a href="/app/profile" data-tab><span data-icon="person"></span>Профиль</a>
+</nav>
+
+</body>
+</html>

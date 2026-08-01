@@ -1,0 +1,1003 @@
+/*
+ * KairaVPN — one stylesheet for the whole site.
+ *
+ * Hand-written rather than generated, because the design has perhaps thirty
+ * distinct rules in it and a utility framework would have cost more bytes than
+ * the entire site does. Every value below traces back to the Stitch design
+ * system: zero radius, one accent, hairline borders, and a black/white
+ * alternation between sections.
+ *
+ * No inline styles anywhere. That is what lets the server send a
+ * Content-Security-Policy with no 'unsafe-inline' in it.
+ */
+
+@import url("../fonts/fonts.css");
+
+/* -- tokens ------------------------------------------------------------- */
+
+:root {
+  --void: #000;
+  --surface: #131313;
+  --carbon: #1a1a1a;
+  --surface-low: #1c1b1b;
+  --line: #3c3c3c;
+  --steel: #737373;
+  --on-bg: #e5e2e1;
+  --bone: #f5f5f5;
+  --ember: #ff4f2b;
+  --ember-dim: #b82100;
+  --danger: #ffb4ab;
+  --ok: #7ddc8b;
+
+  --sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  --gutter: clamp(1.5rem, 5vw, 4rem);
+  --header: 5rem;
+  --pad: clamp(1.5rem, 3vw, 2rem);
+
+  color-scheme: dark;
+}
+
+/* -- reset -------------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--void);
+  color: var(--on-bg);
+  font: 400 16px/1.5 var(--sans);
+  overscroll-behavior-y: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+img,
+svg,
+video {
+  display: block;
+  max-width: 100%;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+h1,
+h2,
+h3,
+p,
+figure,
+ul {
+  margin: 0;
+}
+
+ul {
+  padding: 0;
+  list-style: none;
+}
+
+/* Every interactive element gets the same visible ring. Removing the outline
+   without replacing it is the single most common way a site becomes unusable
+   by keyboard. */
+:focus-visible {
+  outline: 2px solid var(--ember);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--ember);
+  color: var(--void);
+}
+
+/* -- type --------------------------------------------------------------- */
+
+.display,
+.h-md {
+  font-weight: 300;
+  color: var(--bone);
+  text-transform: uppercase;
+}
+
+.display {
+  font-size: clamp(2.75rem, 8vw, 6rem);
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+}
+
+.h-md {
+  font-size: clamp(2rem, 4.5vw, 3rem);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.lead {
+  font-size: clamp(1rem, 2vw, 1.125rem);
+  line-height: 1.6;
+  color: var(--steel);
+}
+
+.mono,
+.mono-sm,
+.section-tag {
+  font-family: var(--mono);
+  font-weight: 500;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.mono {
+  font-size: 0.875rem;
+  letter-spacing: 0.05em;
+}
+
+.mono-sm,
+.section-tag {
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+}
+
+.section-tag {
+  display: block;
+  color: var(--ember);
+  letter-spacing: 0.18em;
+  margin-bottom: 2rem;
+}
+
+.muted {
+  color: var(--steel);
+}
+
+.accent {
+  color: var(--ember);
+}
+
+.strong {
+  color: var(--bone);
+}
+
+.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* -- icons -------------------------------------------------------------- */
+
+/* The sprite's symbols carry no paint of their own -- see icons.svg. Every one
+   of these properties is inherited, which is what lets them reach content
+   cloned in by an external <use>. */
+.icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.icon-lg {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+/* -- layout ------------------------------------------------------------- */
+
+.wrap {
+  max-width: 84rem;
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+.section {
+  padding-block: clamp(4rem, 9vw, 7rem);
+  border-bottom: 1px solid var(--line);
+}
+
+.grid-lines {
+  display: grid;
+  border: 1px solid var(--line);
+}
+
+/* The hairline grid: cells butt against each other and share one border, which
+   is what makes it read as a drawn table rather than a row of cards. */
+.grid-lines > * {
+  border-top: 1px solid var(--line);
+  padding: var(--pad);
+}
+
+.grid-lines > *:first-child {
+  border-top: 0;
+}
+
+@media (min-width: 48rem) {
+  .cols-2 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .cols-3 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .cols-4 {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  .cols-2 > *,
+  .cols-3 > *,
+  .cols-4 > * {
+    border-top: 0;
+    border-left: 1px solid var(--line);
+  }
+  .cols-2 > :nth-child(2n + 1),
+  .cols-3 > :nth-child(3n + 1),
+  .cols-4 > :nth-child(4n + 1) {
+    border-left: 0;
+  }
+  .cols-2 > :nth-child(n + 3),
+  .cols-3 > :nth-child(n + 4),
+  .cols-4 > :nth-child(n + 5) {
+    border-top: 1px solid var(--line);
+  }
+}
+
+/* There are no inline `style` attributes anywhere in this project, which is
+   what lets style-src stay free of 'unsafe-inline'. One-off layout tweaks live
+   here instead. */
+@media (min-width: 48rem) {
+  .span-2 {
+    grid-column: span 2;
+  }
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.between {
+  justify-content: space-between;
+}
+
+.wrap-row {
+  flex-wrap: wrap;
+}
+
+.grow {
+  flex: 1;
+}
+
+/* -- header ------------------------------------------------------------- */
+
+.site-header {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 50;
+  height: var(--header);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-inline: var(--gutter);
+  background: var(--void);
+  border-bottom: 1px solid var(--line);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  color: var(--ember);
+}
+
+.brand svg {
+  width: 2rem;
+  height: 2rem;
+}
+
+.brand span {
+  color: var(--bone);
+  font-family: var(--mono);
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.tabs {
+  display: none;
+  align-items: center;
+  gap: 0.25rem;
+  height: 3rem;
+  padding: 0.25rem;
+  border: 1px solid var(--line);
+}
+
+.tabs a {
+  padding: 0.5rem 1rem;
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--bone);
+  transition: color 0.15s;
+}
+
+.tabs a:hover {
+  color: var(--ember);
+}
+
+.tabs a[aria-current="page"] {
+  background: var(--ember);
+  color: var(--void);
+}
+
+.who {
+  display: none;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.3;
+}
+
+@media (min-width: 64rem) {
+  .tabs,
+  .who {
+    display: flex;
+  }
+}
+
+/* Bottom bar on phones, replacing the tab strip. */
+.tabbar {
+  position: fixed;
+  inset: auto 0 0;
+  z-index: 50;
+  display: flex;
+  height: var(--header);
+  background: var(--void);
+  border-top: 1px solid var(--line);
+}
+
+.tabbar a {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  font-family: var(--mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--steel);
+}
+
+.tabbar a[aria-current="page"] {
+  color: var(--ember);
+}
+
+@media (min-width: 64rem) {
+  .tabbar {
+    display: none;
+  }
+}
+
+main {
+  padding-top: var(--header);
+}
+
+.app-main {
+  padding-bottom: calc(var(--header) + 1rem);
+  min-height: 100vh;
+}
+
+@media (min-width: 64rem) {
+  .app-main {
+    padding-bottom: 0;
+  }
+}
+
+/* -- buttons ------------------------------------------------------------ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.625rem;
+  padding: 1rem 2rem;
+  border: 1px solid var(--ember);
+  background: var(--ember);
+  color: var(--void);
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s, border-color 0.18s;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--bone);
+  border-color: var(--bone);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: var(--bone);
+  color: var(--bone);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--bone);
+  color: var(--void);
+}
+
+.btn-outline {
+  background: transparent;
+  color: var(--ember);
+}
+
+.btn-outline:hover:not(:disabled) {
+  background: var(--ember);
+  color: var(--void);
+  border-color: var(--ember);
+}
+
+.btn-sm {
+  padding: 0.5rem 1.25rem;
+}
+
+.btn-block {
+  width: 100%;
+}
+
+.btn-danger {
+  border-color: var(--line);
+  background: transparent;
+  color: var(--danger);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: var(--danger);
+  color: var(--void);
+  border-color: var(--danger);
+}
+
+/* Busy buttons keep their label so the layout does not jump, and announce the
+   state to assistive tech rather than only dimming. */
+.btn[aria-busy="true"] {
+  position: relative;
+  color: transparent;
+}
+
+.btn[aria-busy="true"]::after {
+  content: "";
+  position: absolute;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid currentcolor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  color: var(--void);
+  animation: spin 0.7s linear infinite;
+}
+
+.btn-ghost[aria-busy="true"]::after,
+.btn-outline[aria-busy="true"]::after {
+  color: var(--bone);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* -- forms -------------------------------------------------------------- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.field > label {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--steel);
+}
+
+.input {
+  width: 100%;
+  padding: 0.9375rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--void);
+  color: var(--bone);
+  font-family: var(--mono);
+  font-size: 0.875rem;
+  letter-spacing: 0.03em;
+  transition: border-color 0.15s;
+  appearance: none;
+}
+
+.input::placeholder {
+  color: #4a4a4a;
+}
+
+.input:focus {
+  border-color: var(--ember);
+  outline: none;
+}
+
+.input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+/* -- notices ------------------------------------------------------------ */
+
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--line);
+  background: var(--carbon);
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.notice[data-kind="error"] {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.notice[data-kind="ok"] {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+.notice[hidden] {
+  display: none;
+}
+
+/* -- panels ------------------------------------------------------------- */
+
+.panel {
+  border: 1px solid var(--line);
+  padding: var(--pad);
+  background: var(--void);
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  color: var(--steel);
+}
+
+.card-hover {
+  transition: background 0.18s;
+}
+
+.card-hover:hover {
+  background: var(--carbon);
+}
+
+.metric {
+  font-size: clamp(2rem, 4vw, 3rem);
+  font-weight: 300;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--bone);
+}
+
+.metric small {
+  font-size: 1.25rem;
+  color: var(--steel);
+}
+
+/* An inverted cell. The design uses one per screen at most: it is the thing
+   your eye lands on first, so a second one would cancel the first. */
+.invert {
+  background: var(--ember);
+  color: var(--void);
+}
+
+.invert .metric,
+.invert .muted,
+.invert .panel-head {
+  color: var(--void);
+}
+
+/* -- meters ------------------------------------------------------------- */
+
+.meter {
+  height: 4px;
+  background: var(--carbon);
+  overflow: hidden;
+}
+
+.meter > span {
+  display: block;
+  height: 100%;
+  background: var(--bone);
+  transition: width 0.6s ease-out;
+}
+
+.meter[data-low="true"] > span {
+  background: var(--ember);
+}
+
+.pips {
+  display: flex;
+  gap: 4px;
+}
+
+.pips > span {
+  height: 8px;
+  flex: 1;
+  background: var(--carbon);
+}
+
+.pips > span[data-on="true"] {
+  background: var(--ember);
+}
+
+/* -- hero --------------------------------------------------------------- */
+
+.hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-height: min(85vh, 46rem);
+  margin-top: calc(var(--header) * -1);
+  padding-top: var(--header);
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.hero-media {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  object-fit: cover;
+  width: 100%;
+  height: 100%;
+}
+
+/* The scrim is doing real work: the footage has bright syntax highlighting in
+   it, and the headline has to stay legible over whichever frame is showing. */
+.hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(
+    to bottom,
+    rgb(0 0 0 / 0.7) 0%,
+    rgb(0 0 0 / 0.78) 55%,
+    rgb(0 0 0 / 0.92) 100%
+  );
+}
+
+.hero-body {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 3rem;
+  padding: 0 var(--gutter) clamp(3rem, 6vw, 4rem);
+}
+
+.hero-mark {
+  display: grid;
+  place-items: center;
+  width: 6rem;
+  height: 6rem;
+  margin-bottom: 2rem;
+  border: 1px solid var(--line);
+  background: var(--void);
+  color: var(--ember);
+}
+
+.hero-mark svg {
+  width: 4rem;
+  height: 4rem;
+}
+
+.hero-price {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+/* A section that sits on a photographic background. */
+.tex {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+/* Not `> img`: these sit inside a <picture>, so the image is a grandchild. */
+.tex img {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.28;
+}
+
+.tex::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: rgb(0 0 0 / 0.55);
+}
+
+/* -- split band --------------------------------------------------------- */
+
+.split {
+  display: grid;
+  border-bottom: 1px solid var(--line);
+}
+
+.split > * {
+  padding: var(--gutter);
+}
+
+.split > :first-child {
+  border-bottom: 1px solid var(--line);
+}
+
+@media (min-width: 64rem) {
+  .split {
+    grid-template-columns: 2fr 1fr;
+  }
+  .split > :first-child {
+    border-bottom: 0;
+    border-right: 1px solid var(--line);
+  }
+}
+
+.split .side {
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* The pulse is the only ambient motion in the cabinet, and it is load-bearing:
+   it is what says "this is live" rather than a screenshot of a state. */
+.dot {
+  width: 0.625rem;
+  height: 0.625rem;
+  background: var(--ember);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.dot[data-off="true"] {
+  background: var(--steel);
+  animation: none;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* -- plans -------------------------------------------------------------- */
+
+.plan {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  justify-content: space-between;
+}
+
+.plan[data-best="true"] {
+  background: var(--carbon);
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid currentcolor;
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ember);
+}
+
+.badge[data-kind="on"] {
+  color: var(--ok);
+}
+
+.badge[data-kind="off"] {
+  color: var(--steel);
+}
+
+/* -- lists -------------------------------------------------------------- */
+
+.rows > li {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.125rem var(--pad);
+  border-bottom: 1px solid var(--line);
+}
+
+.rows > li:last-child {
+  border-bottom: 0;
+}
+
+.checklist li {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding-block: 0.4rem;
+  color: var(--steel);
+  font-size: 0.9375rem;
+}
+
+.checklist .icon {
+  color: var(--ember);
+  margin-top: 0.15rem;
+}
+
+/* -- copy field --------------------------------------------------------- */
+
+.copy {
+  display: flex;
+  border: 1px solid var(--line);
+}
+
+.copy input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.875rem 1rem;
+  border: 0;
+  background: var(--void);
+  color: var(--bone);
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  text-overflow: ellipsis;
+}
+
+.copy input:focus {
+  outline: none;
+}
+
+.copy button {
+  padding-inline: 1.125rem;
+  border: 0;
+  border-left: 1px solid var(--line);
+  background: transparent;
+  color: var(--steel);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.copy button:hover {
+  background: var(--ember);
+  color: var(--void);
+}
+
+/* -- centred single-column pages (login, gift, verify) ------------------ */
+
+.slab {
+  display: grid;
+  place-items: center;
+  min-height: calc(100vh - var(--header));
+  padding: clamp(2rem, 6vw, 4rem) var(--gutter);
+}
+
+.slab-inner {
+  width: 100%;
+  max-width: 30rem;
+}
+
+/* -- footer ------------------------------------------------------------- */
+
+.site-footer {
+  padding-block: 3rem;
+  border-top: 1px solid var(--line);
+}
+
+.site-footer .row {
+  align-items: flex-start;
+  gap: 2.5rem 4rem;
+}
+
+.site-footer nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.site-footer a:hover {
+  color: var(--ember);
+}
+
+/* -- utility ------------------------------------------------------------ */
+
+.skeleton {
+  color: transparent;
+  background: linear-gradient(90deg, var(--carbon), var(--surface-low), var(--carbon));
+  background-size: 200% 100%;
+  animation: sweep 1.4s linear infinite;
+}
+
+@keyframes sweep {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* Someone who has asked their operating system to stop animating things has
+   asked this site too — including the background video, which is the single
+   largest source of motion on the page. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

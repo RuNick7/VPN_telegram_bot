@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"log/slog"
 	"net/http"
 	"os"
@@ -11,17 +12,48 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/RuNick7/VPN_telegram_bot/web/frontend"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/account"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/api"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/auth"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/config"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/mailer"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/panel"
+	"github.com/RuNick7/VPN_telegram_bot/web/internal/static"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/store"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/yookassa"
 )
 
+// routes puts the JSON API and the website on one origin.
+//
+// One origin rather than two is a security decision, not a convenience: the
+// session cookie is `__Host-` prefixed and same-site, there is no CORS policy
+// to get wrong, and no preflight surface at all. The API keeps its own
+// middleware and its own headers; everything not claimed by it falls through
+// to the static site, which sets the document-level ones.
+func routes(apiHandler, site http.Handler) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/api/", apiHandler)
+	mux.Handle("/auth/telegram", apiHandler)
+	mux.Handle("/", site)
+	return mux
+}
+
 func main() {
+	// Sends one test message and exits. Deliberately a flag on this binary
+	// rather than a separate tool: it then reads the same .env, through the
+	// same config loader, as the thing whose behaviour it is predicting.
+	testMailTo := flag.String("check-smtp", "",
+		"send a test message to this address and exit, instead of serving")
+	flag.Parse()
+
+	if *testMailTo != "" {
+		if err := checkSMTP(*testMailTo); err != nil {
+			os.Exit(1)
+		}
+		return
+	}
+
 	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(log)
 
@@ -72,11 +104,22 @@ func run(log *slog.Logger) error {
 	accountSvc := account.NewService(st, panelClient, cfg.FreeTierEnabled, cfg.WebTrialDays)
 	server := api.NewServer(cfg, st, authSvc, accountSvc, yookassa.New(cfg.YooKassaShopID, cfg.YooKassaSecretKey), log)
 
+	site, err := static.New(frontend.Files, static.Options{
+		TelegramLogin: cfg.TelegramLoginEnabled(),
+		// A year, which is what a preload list wants. Only ever sent on a
+		// request that arrived over TLS, so running this on loopback during
+		// development cannot pin a browser to HTTPS for localhost.
+		HSTSSeconds: 31536000,
+	})
+	if err != nil {
+		return err
+	}
+
 	go sweepExpired(ctx, st, log)
 
 	httpServer := &http.Server{
 		Addr:    cfg.ListenAddr,
-		Handler: server.Routes(),
+		Handler: routes(server.Routes(), site),
 		// A slow or stalled client must not hold a connection open forever.
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,

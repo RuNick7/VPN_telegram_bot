@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Тарифы и оплата — KairaVPN</title>
+<meta name="theme-color" content="#000000">
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png">
+<link rel="preload" href="/assets/fonts/inter-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/assets/fonts/jetbrains-mono-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/css/app.css">
+<script type="module" src="/assets/js/plans.js"></script>
+</head>
+<body>
+<!--icon-sprite-->
+
+<header class="site-header">
+  <a class="brand" href="/app">
+    <svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg>
+    <span>KairaVPN</span>
+  </a>
+  <nav class="tabs" aria-label="Разделы кабинета">
+    <a href="/app" data-tab>Обзор</a>
+    <a href="/app/plans" data-tab>Тарифы</a>
+    <a href="/app/devices" data-tab>Устройства</a>
+    <a href="/app/profile" data-tab>Профиль</a>
+  </nav>
+  <div class="row">
+    <div class="who">
+      <span class="mono-sm strong" data-me-email>&nbsp;</span>
+      <span class="mono-sm accent" data-me-tag hidden></span>
+    </div>
+    <button class="btn btn-ghost btn-sm" type="button" data-logout>Выйти</button>
+  </div>
+</header>
+
+<main class="app-main">
+
+  <section class="section">
+    <div class="wrap stack">
+      <span class="section-tag">01 // Подписка</span>
+      <div class="notice" data-notice hidden role="status"></div>
+      <p class="mono-sm muted" data-tier-note></p>
+      <p class="notice" data-payments-off hidden>
+        <span data-icon="warning"></span>
+        <span>Оплата временно недоступна. Промокод и подарочная ссылка продолжают работать.</span>
+      </p>
+      <div class="grid-lines cols-4" data-plans>
+        <div class="plan"><span class="mono-sm muted skeleton">загрузка</span><div class="metric skeleton">000 ₽</div></div>
+        <div class="plan"><span class="mono-sm muted skeleton">загрузка</span><div class="metric skeleton">000 ₽</div></div>
+        <div class="plan"><span class="mono-sm muted skeleton">загрузка</span><div class="metric skeleton">000 ₽</div></div>
+        <div class="plan"><span class="mono-sm muted skeleton">загрузка</span><div class="metric skeleton">000 ₽</div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="traffic" data-traffic-section hidden>
+    <div class="wrap stack">
+      <span class="section-tag">02 // <span data-traffic-label>Трафик</span></span>
+      <p class="mono-sm muted">Пакеты не сгорают в конце месяца: купленные гигабайты складываются с бесплатной квотой и расходуются после неё.</p>
+      <div class="grid-lines cols-4" data-packs></div>
+    </div>
+  </section>
+
+  <section class="section" id="gift">
+    <div class="wrap stack">
+      <span class="section-tag">03 // Подарок</span>
+      <p class="mono-sm muted">Оплатите подписку — придёт ссылка и промокод. Ссылка работает у того, кто не пользуется Telegram; промокод — в боте. Активировать можно только один раз, любым из двух способов.</p>
+      <div class="grid-lines cols-4" data-gifts></div>
+      <p class="mono-sm muted">Скидка за приглашённых на подарки не распространяется — цена всегда базовая.</p>
+    </div>
+  </section>
+
+  <section class="section" id="promo">
+    <div class="wrap stack">
+      <span class="section-tag">04 // Промокод</span>
+      <form class="stack" data-promo-form novalidate>
+        <div class="field">
+          <label for="promo">Код или подарочная ссылка</label>
+          <input class="input" id="promo" name="promo" type="text" autocomplete="off"
+                 spellcheck="false" placeholder="KAIRA-XXXXXX" required>
+        </div>
+        <button class="btn" type="submit" data-promo-submit>
+          <span data-icon="ticket"></span> Активировать
+        </button>
+      </form>
+    </div>
+  </section>
+
+</main>
+
+<nav class="tabbar" aria-label="Разделы кабинета">
+  <a href="/app" data-tab><span data-icon="dashboard"></span>Обзор</a>
+  <a href="/app/plans" data-tab><span data-icon="card"></span>Тарифы</a>
+  <a href="/app/devices" data-tab><span data-icon="devices"></span>Устройства</a>
+  <a href="/app/profile" data-tab><span data-icon="person"></span>Профиль</a>
+</nav>
+
+</body>
+</html>

@@ -6,8 +6,10 @@ used to live here, which had no database access of its own — it shelled out to
 links and rate-limit counters in in-memory dicts, so every restart logged
 everyone out and a second instance could never be run.
 
-The frontend is not here yet. This serves JSON only; static files are served by
-whatever sits in front of it.
+It now also serves the site itself. The API and the pages share one origin,
+which is the reason there is no CORS policy anywhere: the session cookie is
+`__Host-` prefixed and same-site, and there is no cross-origin surface to get
+wrong. See [Frontend](#frontend).
 
 ## Running
 
@@ -41,6 +43,25 @@ response whenever that mock was active — so "email verification" verified
 nothing and anyone could claim any address. A sender that cannot reach a real
 mailbox must fail, not fall back.
 
+### Checking that mail actually sends
+
+```bash
+cd web && go run ./cmd/server -check-smtp you@example.com
+```
+
+Sends one test message and exits, starting nothing else — no database, no panel
+client, no listener — so it is usable before the rest of the deployment exists.
+The startup check only asserts that `SMTP_HOST` and `SMTP_FROM` are non-empty;
+everything that decides whether mail *arrives* (a port paired with the wrong TLS
+mode, a key pasted with a trailing space, a sending domain the provider has not
+verified, an outbound port the hosting company blocks) otherwise surfaces as a
+customer who never got their login link — and, with no password to fall back on,
+cannot get into their account at all.
+
+On failure it names the setting to change rather than echoing a bare `535`. The
+password is never printed, only its length, which is what makes a truncated
+paste visible.
+
 Optional: `SMTP_PORT` (587), `SMTP_USERNAME`/`SMTP_PASSWORD`, `SMTP_STARTTLS`
 (true; set false for implicit TLS on 465), `WEB_LISTEN_ADDR` (`:8080`),
 `WEB_SESSION_TTL_HOURS` (720), `WEB_MAGIC_LINK_TTL_MINUTES` (15).
@@ -70,6 +91,7 @@ Session cookie is `__Host-session`: HttpOnly, Secure, SameSite=Lax.
 | `POST` | `/api/auth/magic-link` | `{email}` → always the same answer |
 | `POST` | `/api/auth/verify` | `{token}` → sets the session cookie |
 | `POST` | `/api/auth/telegram` | login-widget payload, HMAC-checked |
+| `GET` | `/auth/telegram` | where the widget redirects; same check, answers with a redirect |
 | `POST` | `/api/auth/logout` | |
 | `GET` | `/api/me` | |
 | `PATCH` | `/api/me/email` | |
@@ -108,16 +130,71 @@ listing on every use. A hardware fingerprint is not something to publish in a
 URL, and a stale ID must resolve to nothing rather than to whichever device has
 since taken that slot.
 
+## Frontend
+
+`frontend/` — plain HTML, one stylesheet, ES modules. No framework, no build
+step, no `node_modules`: the whole site is about 12 KB of markup and script
+before compression, and a bundler would have weighed more than the thing it
+bundled. It is compiled into the binary with `go:embed`, so a deployment is one
+artefact and there is no directory the server can be pointed at by mistake.
+
+`internal/static` loads it at start-up: every file gets a strong ETag, text
+files get a gzip copy, and the route table is fixed. Nothing is read from disk
+while serving, so no request can influence a filesystem path.
+
+**The Content-Security-Policy has no `unsafe-inline` in it**, for scripts or for
+styles. That is a constraint the markup was written to satisfy rather than a
+header bolted on afterwards: there is not one inline `<script>`, `<style>` or
+`style=` attribute in the site, and a test asserts it stays that way. The one
+third-party script — Telegram's login widget — is admitted only when Telegram
+login is actually configured, and is used in redirect mode specifically so that
+`unsafe-eval` is not needed for it.
+
+Everything else is served from this origin too. Inter and JetBrains Mono are
+self-hosted rather than loaded from Google Fonts, and the icons are an SVG
+sprite rather than an icon font from a CDN — for a service sold to people whose
+networks block things, a customer who cannot reach `fonts.googleapis.com`
+should still get a working page instead of the words "person" and "devices"
+where the icons belong.
+
+The sprite is **inlined into each page** by `internal/static`, not linked.
+Chromium and WebKit do not resolve `<use href="external.svg#id">` at all — they
+render nothing and log nothing, while Firefox renders it correctly, which is
+what makes the mistake easy to ship. Inlining server-side keeps one copy of the
+sprite in the repository instead of nine that drift.
+
+QR codes are generated in the browser by `assets/js/qr.js`, written out rather
+than taken from npm for the same CSP reason. Its tests check the Reed-Solomon
+stage against the worked example in ISO/IEC 18004 Annex I and read the finished
+matrix back — a wrong QR code looks exactly like a right one, so "it rendered"
+proves nothing.
+
+Cache policy follows how often a file can change: fonts, images and video are
+`immutable` for a year because a new one means a new filename; HTML, CSS and
+JavaScript revalidate, which a matching ETag answers with a bodyless 304. A
+first visit to the landing page is ~136 KB gzipped, 117 KB of which is the two
+typefaces; every page after that is ~30 KB.
+
+The background video is decoration on top of a poster that is already in place,
+so it is only fetched on a wide screen, and never when the visitor has asked for
+reduced motion or turned on a data saver. Phones get the still.
+
+### Tests
+
+```bash
+cd web && go test ./...    # includes the real embedded site
+cd web && node --test jstest/
+```
+
+The Go suite checks the frontend as shipped, not just the handler: that every
+route renders, that every asset and icon a page references exists, that no page
+carries inline script or style, and that nothing loads from a Google origin.
+
 ## What is not done
 
-- **Account merging.** Someone who registers by email gets a `users` row with
-  `telegram_id` NULL. Linking a Telegram account onto it afterwards is the
-  identity rework — the `merged_into` column exists for it and is still unused.
-  Until then such an account cannot pay or redeem promo codes: the webhook
-  credits by `telegram_id`, and `promo_usage` is keyed by it. Both endpoints
-  say so plainly rather than failing on a constraint violation.
-- **No trial for web registrations.** The bot grants 30 days on `/start`, tied
-  to a Telegram account. Granting the same per email address would be a trial
-  per mailbox, so a web-registered profile is created already expired. Worth
-  revisiting as a product decision.
-- **Frontend.** Static files, served separately.
+- **No fingerprinted asset filenames.** CSS and JavaScript revalidate on every
+  navigation instead of being cached outright. It costs one conditional request
+  each, answered 304 with no body; hashing the names would need a build step,
+  which is the thing this frontend is deliberately without.
+- **Search-engine niceties.** No `sitemap.xml`, no `robots.txt`. The cabinet is
+  `noindex` already; the landing page is the only thing worth indexing.

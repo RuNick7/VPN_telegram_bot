@@ -9,7 +9,7 @@ Two independent Telegram bots for a VPN-subscription service (Remnawave panel + 
 - `admin_bot/` — operator-facing aiogram bot: manage Remnawave users/hosts/nodes/squads, promo codes, broadcasts, node/squad monitoring, backups. Entrypoint `admin_bot/main.py`.
 - `user_bot/` — customer-facing aiogram bot: signup, subscription purchase via YooKassa, referrals, promo codes, device setup instructions. Two runtime entrypoints against the same codebase: `user_bot/bot.py` (long-polling) and `user_bot/run_webhook.py` (aiohttp server receiving YooKassa payment webhooks at `/webhook-yookassa`).
 - `shared/` — installable package (`tgvpn-shared`, imported as `tgvpn_shared`) holding the Postgres repository layer, the Remnawave client, the settings model, and squad-placement logic. See Architecture below.
-- `web/` — customer web cabinet backend, **Go**, JSON API only. Replaced the FastAPI + static-JS MVP outright. Entrypoint `web/cmd/server`. See `web/README.md`; the frontend is served separately and is not in this repo yet.
+- `web/` — customer web cabinet, **Go**: JSON API plus the site itself, on one origin. Replaced the FastAPI + static-JS MVP outright. Entrypoint `web/cmd/server`. See `web/README.md`.
 
 The overhaul is running in strictly sequential phases, each tested and deployed before the next begins. Phase 0 (webhook security fix), Phase 1 (SQLite → Postgres, Docker), and Phase 2 (this refactor) are done. Comments referencing "Phase N" mean this sequence.
 
@@ -74,10 +74,15 @@ cd admin_bot && python -m pytest tests/ -v
 ```
 The root `tests/` directory holds tests for code that belongs to neither bot (currently `run_all.py`), and must stay free of `admin_bot`/`user_bot` imports for the same reason.
 
-The website is a separate Go module with its own suite:
+The website is a separate Go module with its own suite, plus a small Node one for
+the frontend's pure helpers:
 ```bash
 cd web && go test ./...
+cd web && node --test jstest/
 ```
+`web/package.json` exists only to mark `frontend/assets/js` as ES modules so the
+Node runner can import the same files the browser loads. There is no build step
+and no dependency tree.
 
 ## Architecture
 
@@ -128,12 +133,15 @@ Users used to be distributed across `internal-1..N` with a per-squad cap, which 
 
 ### web/ structure (Go)
 
-Standard layout: `cmd/server` wires everything, `internal/` holds the pieces — `config` (reads the same root `.env`), `store` (pgxpool, the only route to Postgres), `auth` (magic links, sessions, Telegram HMAC), `account` (coordinates DB + panel), `panel` (narrow Remnawave client), `yookassa`, `pricing`, `quota`, `mailer`, `api`.
+Standard layout: `cmd/server` wires everything, `internal/` holds the pieces — `config` (reads the same root `.env`), `store` (pgxpool, the only route to Postgres), `auth` (magic links, sessions, Telegram HMAC), `account` (coordinates DB + panel), `panel` (narrow Remnawave client), `yookassa`, `pricing`, `quota`, `mailer`, `api`, `static`. `frontend/` is the site, compiled in with `go:embed`.
 
 Two invariants are enforced structurally rather than by discipline:
 
 - **`store` has no way to update a payment's status.** Only the Python webhook may move a payment out of `pending`, because only it re-fetches the payment from YooKassa first. Go inserts pending rows and reads status; the capability to do more simply does not exist in the package.
 - **There is no session-signing secret.** Sessions are opaque random tokens stored *hashed* in Postgres, so the old `JWT_SECRET=change_me` failure mode has nothing to default to. Magic-link tokens are likewise stored hashed and never returned in an API response.
+
+- **The frontend has no inline script or style, anywhere.** `internal/static` sends a Content-Security-Policy with no `unsafe-inline` for either, so an inline `<script>`, `<style>` or `style=` attribute would silently not run — in production only. Tests in `cmd/server` assert both halves: that the policy stays strict and that the markup stays free of them. Per-element styling that genuinely varies (a progress bar's width) is written through the CSSOM from JavaScript, which `style-src` does not police.
+- **The icon sprite is inlined into pages at start-up, not linked.** Chromium and WebKit do not resolve `<use href="external.svg#id">` at all and report nothing; Firefox does, which is what makes it easy to ship broken. `assets/img/icons.svg` stays the single source and `internal/static.inlineSprite` puts it into each page in place of an `<!--icon-sprite-->` marker, stripping its comments on the way.
 
 `internal/pricing` and `internal/quota` duplicate Python logic (`user_bot/handlers/constants.py`, `utils.py`, `shared/tgvpn_shared/lte_quota.py`) because Go cannot import it. Their tests pin the values against the Python ones — edit one side alone and they fail. Same for `internal/account/deviceid.go`, which must produce the same device token as `user_bot/handlers/devices.py`.
 

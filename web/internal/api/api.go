@@ -18,6 +18,7 @@ import (
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/account"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/auth"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/config"
+	"github.com/RuNick7/VPN_telegram_bot/web/internal/pricing"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/store"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/yookassa"
 )
@@ -61,6 +62,10 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/auth/verify", s.handleVerifyMagicLink)
 	mux.HandleFunc("POST /api/auth/telegram", s.handleTelegramLogin)
 	mux.HandleFunc("POST /api/auth/logout", s.handleLogout)
+	// Not under /api: this one is navigated to by the browser, because it is
+	// where Telegram's login widget redirects. It answers with a redirect, not
+	// with JSON.
+	mux.HandleFunc("GET /auth/telegram", s.handleTelegramCallback)
 
 	// Everything below requires a session.
 	mux.Handle("GET /api/me", s.authenticated(s.handleMe))
@@ -230,6 +235,12 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // handleClientConfig tells the frontend which login routes and features are
 // available, so it can render the right buttons instead of guessing.
+//
+// It also carries the landing page's whole payload -- undiscounted prices and
+// the document links -- so a first-time visitor's browser makes exactly one API
+// call. The prices here are tier 0: quoting a signed-in user's discounted
+// price to an anonymous visitor would leak that the discount ladder exists at
+// whatever tier the *last* caller happened to be.
 func (s *Server) handleClientConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"telegram_login":   s.cfg.TelegramLoginEnabled(),
@@ -237,5 +248,14 @@ func (s *Server) handleClientConfig(w http.ResponseWriter, r *http.Request) {
 		"payments_enabled": s.cfg.PaymentsEnabled(),
 		"traffic_enabled":  s.cfg.LTEEnabled,
 		"trial_days":       s.cfg.WebTrialDays,
+		"plans":            pricing.PlansFor(0),
+		"docs": map[string]string{
+			"offer":   s.cfg.Links.Offer,
+			"refund":  s.cfg.Links.Refund,
+			"terms":   s.cfg.Links.Terms,
+			"privacy": s.cfg.Links.Privacy,
+		},
+		"support_url": s.cfg.Links.Support,
+		"faq_url":     s.cfg.Links.FAQ,
 	})
 }

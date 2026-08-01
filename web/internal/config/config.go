@@ -29,6 +29,11 @@ type Config struct {
 
 	Remnawave Remnawave
 
+	// Links the frontend renders but does not own. They live in the same .env
+	// the bot reads them from, so the offer the site links to and the offer
+	// `/docs` links to cannot drift apart.
+	Links Links
+
 	FreeTierEnabled   bool
 	LTEEnabled        bool
 	LTEFreeGBPerCycle int
@@ -59,6 +64,19 @@ type Remnawave struct {
 	Username string
 	Password string
 	Timeout  time.Duration
+}
+
+// Links are optional by design. An unset document URL renders as "готовится к
+// публикации" rather than as a button to a 404 -- someone looking for the
+// refund policy should learn it is not published yet, not be sent to a dead
+// page and conclude there isn't one.
+type Links struct {
+	Offer   string
+	Refund  string
+	Terms   string
+	Privacy string
+	Support string
+	FAQ     string
 }
 
 // Load reads .env files (later files do not override earlier ones, matching
@@ -96,6 +114,14 @@ func Load(envFiles ...string) (*Config, error) {
 			Username: getString("REMNAWAVE_USERNAME", ""),
 			Password: getString("REMNAWAVE_PASSWORD", ""),
 			Timeout:  time.Duration(getInt("REMNAWAVE_TIMEOUT_SECONDS", 10)) * time.Second,
+		},
+		Links: Links{
+			Offer:   getString("OFFER_URL", ""),
+			Refund:  getString("REFUND_POLICY_URL", ""),
+			Terms:   getString("TERMS_URL", ""),
+			Privacy: getString("PRIVACY_POLICY_URL", ""),
+			Support: getString("SUPPORT_URL", ""),
+			FAQ:     getString("FAQ_URL", ""),
 		},
 		FreeTierEnabled:   getBool("FREE_TIER_ENABLED", false),
 		LTEEnabled:        getBool("LTE_ENABLED", false),

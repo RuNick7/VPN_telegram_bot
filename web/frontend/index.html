@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KairaVPN — безопасный доступ без ограничений</title>
+<meta name="description" content="VPN без логов и без ограничений скорости. Подписка от 89 ₽ в месяц, оплата картой, подключение за минуту на любом устройстве.">
+<meta name="theme-color" content="#000000">
+<meta name="robots" content="index, follow">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="KairaVPN">
+<meta property="og:title" content="KairaVPN — безопасный доступ без ограничений">
+<meta property="og:description" content="VPN без логов и без ограничений скорости. Подписка от 89 ₽ в месяц.">
+<meta property="og:image" content="/assets/img/apple-touch-icon.png">
+<link rel="canonical" href="https://kairavpn.pro/">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png">
+<!-- The two subsets every page needs before it can paint text. The rest of the
+     stylesheet's @font-face rules load on demand via unicode-range. -->
+<link rel="preload" href="/assets/fonts/inter-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/assets/fonts/jetbrains-mono-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/css/app.css">
+<script type="module" src="/assets/js/landing.js"></script>
+</head>
+<body>
+<!--icon-sprite-->
+
+<header class="site-header">
+  <a class="brand" href="/">
+    <svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg>
+    <span>KairaVPN</span>
+  </a>
+  <nav class="row">
+    <a class="mono muted" href="#tariffs">Тарифы</a>
+    <a class="btn btn-sm" href="/login" data-cabinet-link>Личный кабинет</a>
+  </nav>
+</header>
+
+<main>
+
+  <section class="hero">
+    <!-- Poster first, always. The video is attached by script only where it is
+         worth the bytes; see landing.js. -->
+    <picture>
+      <source srcset="/assets/img/hero-poster.avif" type="image/avif">
+      <img class="hero-media" src="/assets/img/hero-poster.webp" alt="" width="1600" height="900" fetchpriority="high" decoding="async">
+    </picture>
+
+    <div class="hero-body">
+      <div>
+        <div class="hero-mark">
+          <svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg>
+        </div>
+        <h1 class="display">Безопасный доступ.<br><span class="accent">Без ограничений.</span></h1>
+        <p class="lead">Быстрый, прямой и защищённый. Обход блокировок мгновенно. Только чистый доступ к сети.</p>
+      </div>
+      <div class="hero-price">
+        <span class="mono accent">Месячный тариф</span>
+        <span class="h-md num" data-monthly-price>—</span>
+        <a class="btn" href="/login">Подключить VPN</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="grid-lines cols-4" aria-label="Показатели сервиса">
+    <div class="card-hover">
+      <span class="mono-sm muted">Канал</span>
+      <div class="metric num">2 Гбит/с</div>
+      <span class="mono-sm accent">Без ограничений</span>
+    </div>
+    <div class="card-hover">
+      <span class="mono-sm muted">Сетевые узлы</span>
+      <div class="metric num">04</div>
+      <span class="mono-sm accent">Локации</span>
+    </div>
+    <div class="card-hover">
+      <span class="mono-sm muted">Маршрутизация</span>
+      <div class="metric">Обход</div>
+      <span class="mono-sm accent">Блокировок</span>
+    </div>
+    <div class="card-hover">
+      <span class="mono-sm muted">Стоимость</span>
+      <div class="metric num" data-monthly-price>—</div>
+      <span class="mono-sm accent">В месяц</span>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <span class="section-tag">01 // Инфраструктура</span>
+      <div class="grid-lines cols-3">
+        <div class="card-hover stack">
+          <svg class="icon icon-lg accent" aria-hidden="true"><use href="#i-eye-off"></use></svg>
+          <h3 class="mono strong">Без логов</h3>
+          <p class="mono-sm muted">Мы не пишем историю подключений и не храним то, что вы открываете. Хранить нечего — значит нечего и выдать.</p>
+        </div>
+        <div class="card-hover stack">
+          <svg class="icon icon-lg accent" aria-hidden="true"><use href="#i-unlock"></use></svg>
+          <h3 class="mono strong">Обход блокировок</h3>
+          <p class="mono-sm muted">Протоколы с маскировкой трафика: соединение выглядит как обычный HTTPS и проходит там, где стандартный VPN уже не поднимается.</p>
+        </div>
+        <div class="card-hover stack">
+          <svg class="icon icon-lg accent" aria-hidden="true"><use href="#i-speed"></use></svg>
+          <h3 class="mono strong">Канал 2 Гбит/с</h3>
+          <p class="mono-sm muted">Скорость не режется искусственно и не зависит от тарифа. Нагрузка распределяется балансировщиками между четырьмя узлами.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <span class="section-tag">02 // Сценарии</span>
+      <div class="grid-lines cols-3">
+        <div class="stack tex">
+          <picture>
+            <source srcset="/assets/img/tex-tv.avif" type="image/avif">
+            <img src="/assets/img/tex-tv.webp" alt="" width="1280" height="720" loading="lazy" decoding="async">
+          </picture>
+          <svg class="icon icon-lg accent" aria-hidden="true"><use href="#i-tv"></use></svg>
+          <h3 class="mono strong">Телевизор и приставка</h3>
+          <p class="mono-sm muted">Android TV и Apple TV настраиваются по той же подписке. Инструкция — в личном кабинете.</p>
+        </div>
+        <div class="stack tex">
+          <picture>
+            <source srcset="/assets/img/tex-mobile.avif" type="image/avif">
+            <img src="/assets/img/tex-mobile.webp" alt="" width="1280" height="720" loading="lazy" decoding="async">
+          </picture>
+          <svg class="icon icon-lg accent" aria-hidden="true"><use href="#i-phone"></use></svg>
+          <h3 class="mono strong">Телефон</h3>
+          <p class="mono-sm muted">iOS и Android: один QR-код из кабинета, приложение подхватывает конфигурацию само.</p>
+        </div>
+        <div class="stack tex">
+          <picture>
+            <source srcset="/assets/img/tex-game.avif" type="image/avif">
+            <img src="/assets/img/tex-game.webp" alt="" width="1280" height="720" loading="lazy" decoding="async">
+          </picture>
+          <svg class="icon icon-lg accent" aria-hidden="true"><use href="#i-monitor"></use></svg>
+          <h3 class="mono strong">Компьютер и консоль</h3>
+          <p class="mono-sm muted">Windows, macOS и Linux. Одна ссылка подписки на все устройства сразу.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="tariffs">
+    <div class="wrap">
+      <span class="section-tag">03 // Тарифы</span>
+      <div class="grid-lines cols-4" data-plans>
+        <div class="plan"><span class="mono-sm muted skeleton">Загрузка</span><div class="metric skeleton">000 ₽</div></div>
+        <div class="plan"><span class="mono-sm muted skeleton">Загрузка</span><div class="metric skeleton">000 ₽</div></div>
+        <div class="plan"><span class="mono-sm muted skeleton">Загрузка</span><div class="metric skeleton">000 ₽</div></div>
+        <div class="plan"><span class="mono-sm muted skeleton">Загрузка</span><div class="metric skeleton">000 ₽</div></div>
+      </div>
+      <p class="mono-sm muted" data-trial-note hidden></p>
+      <p class="mono-sm muted">Приглашайте друзей — цена подписки снижается на каждом уровне, вплоть до пятого.</p>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap row between wrap-row">
+    <div class="stack">
+      <span class="mono accent">KairaVPN</span>
+      <p class="mono-sm muted">Доступ к сети без посредников и без журналов.</p>
+    </div>
+    <nav aria-label="Документы">
+      <span class="mono-sm strong">Документы</span>
+      <a class="mono-sm muted" href="#" data-doc="offer" hidden>Публичная оферта</a>
+      <a class="mono-sm muted" href="#" data-doc="refund" hidden>Политика возвратов</a>
+      <a class="mono-sm muted" href="#" data-doc="terms" hidden>Пользовательское соглашение</a>
+      <a class="mono-sm muted" href="#" data-doc="privacy" hidden>Политика конфиденциальности</a>
+      <span class="mono-sm muted" data-doc-empty hidden>Готовятся к публикации</span>
+    </nav>
+    <nav aria-label="Связь">
+      <span class="mono-sm strong">Связь</span>
+      <a class="mono-sm muted" href="#" data-support hidden>Поддержка в Telegram</a>
+    </nav>
+  </div>
+</footer>
+
+</body>
+</html>

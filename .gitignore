@@ -45,6 +45,9 @@ cookies*.txt
 
 # --- Claude Code local session config ---
 .claude/
+# Holds an API key in plaintext. `.mcp.json` is normally shared with a team,
+# but this one carries a credential, so it stays local.
+.mcp.json
 
 # --- OS ---
 .DS_Store

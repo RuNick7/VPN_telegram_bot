@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Профиль — KairaVPN</title>
+<meta name="theme-color" content="#000000">
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png">
+<link rel="preload" href="/assets/fonts/inter-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/assets/fonts/jetbrains-mono-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/css/app.css">
+<script type="module" src="/assets/js/profile.js"></script>
+</head>
+<body>
+<!--icon-sprite-->
+
+<header class="site-header">
+  <a class="brand" href="/app">
+    <svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg>
+    <span>KairaVPN</span>
+  </a>
+  <nav class="tabs" aria-label="Разделы кабинета">
+    <a href="/app" data-tab>Обзор</a>
+    <a href="/app/plans" data-tab>Тарифы</a>
+    <a href="/app/devices" data-tab>Устройства</a>
+    <a href="/app/profile" data-tab>Профиль</a>
+  </nav>
+  <div class="row">
+    <div class="who">
+      <span class="mono-sm strong" data-me-email>&nbsp;</span>
+      <span class="mono-sm accent" data-me-tag hidden></span>
+    </div>
+    <button class="btn btn-ghost btn-sm" type="button" data-logout>Выйти</button>
+  </div>
+</header>
+
+<main class="app-main">
+
+  <section class="section">
+    <div class="wrap stack">
+      <span class="section-tag">01 // Вход</span>
+      <div class="notice" data-notice hidden role="status"></div>
+
+      <div class="grid-lines cols-2">
+        <div class="stack">
+          <div class="panel-head">
+            <span class="mono-sm">Почта</span>
+            <span data-icon="mail"></span>
+          </div>
+          <p class="mono-sm muted">По этому адресу приходит ссылка для входа. Смена адреса меняет и способ войти.</p>
+          <form class="stack" data-email-form novalidate>
+            <div class="field">
+              <label for="email">Адрес</label>
+              <input class="input" id="email" name="email" type="email" inputmode="email"
+                     autocomplete="email" spellcheck="false" required>
+            </div>
+            <button class="btn btn-ghost btn-sm" type="submit" data-email-submit>Сохранить</button>
+          </form>
+        </div>
+
+        <div class="stack">
+          <div class="panel-head">
+            <span class="mono-sm">Telegram</span>
+            <span data-icon="telegram"></span>
+          </div>
+          <p class="mono-sm muted" data-tg-note>Проверяем…</p>
+          <div data-tg-linked hidden>
+            <span class="badge" data-kind="on">Привязан</span>
+            <p class="mono-sm strong" data-tg-tag></p>
+          </div>
+          <div data-tg-unlinked hidden>
+            <p class="mono-sm muted">После привязки дни подписки с обоих аккаунтов сложатся.</p>
+            <button class="btn btn-outline btn-sm" type="button" data-tg-link>
+              <span data-icon="link"></span> Привязать Telegram
+            </button>
+            <div class="copy" data-tg-link-box hidden>
+              <input type="text" readonly data-tg-link-url aria-label="Ссылка привязки" spellcheck="false">
+              <button type="button" data-tg-copy aria-label="Копировать">
+                <span data-icon="copy"></span>
+              </button>
+            </div>
+            <p class="mono-sm muted" data-tg-link-hint hidden></p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="referrals">
+    <div class="wrap stack">
+      <span class="section-tag">02 // Реферальная программа</span>
+
+      <div class="grid-lines cols-3">
+        <div class="stack">
+          <span class="mono-sm muted">Приглашено</span>
+          <div class="metric num" data-ref-count>—</div>
+          <span class="mono-sm accent" data-ref-tier></span>
+        </div>
+        <div class="stack">
+          <span class="mono-sm muted">Ваш ник</span>
+          <div class="mono strong" data-ref-own>—</div>
+          <p class="mono-sm muted" data-ref-own-note></p>
+        </div>
+        <div class="stack">
+          <span class="mono-sm muted">Пригласивший</span>
+          <div data-ref-set hidden>
+            <div class="mono strong" data-ref-referrer>—</div>
+            <p class="mono-sm muted">Изменить нельзя.</p>
+          </div>
+          <form class="stack" data-ref-form hidden novalidate>
+            <div class="field">
+              <label for="referrer">Ник в Telegram</label>
+              <input class="input" id="referrer" name="referrer" type="text"
+                     autocomplete="off" spellcheck="false" placeholder="@nickname" required>
+            </div>
+            <button class="btn btn-ghost btn-sm" type="submit" data-ref-submit>Указать</button>
+            <p class="mono-sm muted">Указать можно один раз. Бонус начислится ему после вашей первой оплаты.</p>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap stack">
+      <span class="section-tag">03 // Документы</span>
+      <ul class="checklist">
+        <li><span data-icon="check"></span><a class="accent" href="#" data-doc="offer" hidden>Публичная оферта</a></li>
+        <li><span data-icon="check"></span><a class="accent" href="#" data-doc="refund" hidden>Политика возвратов</a></li>
+        <li><span data-icon="check"></span><a class="accent" href="#" data-doc="terms" hidden>Пользовательское соглашение</a></li>
+        <li><span data-icon="check"></span><a class="accent" href="#" data-doc="privacy" hidden>Политика конфиденциальности</a></li>
+      </ul>
+      <p class="mono-sm muted" data-doc-empty hidden>Документы готовятся к публикации. Пока их можно запросить в поддержке.</p>
+      <a class="mono-sm accent" href="#" data-support hidden rel="noopener" target="_blank">Написать в поддержку →</a>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap stack">
+      <span class="section-tag">04 // Сессия</span>
+      <p class="mono-sm muted">Выход завершает только эту сессию. Подключённые устройства продолжат работать — они не зависят от входа на сайт.</p>
+      <button class="btn btn-danger" type="button" data-logout>
+        <span data-icon="logout"></span> Выйти из аккаунта
+      </button>
+    </div>
+  </section>
+
+</main>
+
+<nav class="tabbar" aria-label="Разделы кабинета">
+  <a href="/app" data-tab><span data-icon="dashboard"></span>Обзор</a>
+  <a href="/app/plans" data-tab><span data-icon="card"></span>Тарифы</a>
+  <a href="/app/devices" data-tab><span data-icon="devices"></span>Устройства</a>
+  <a href="/app/profile" data-tab><span data-icon="person"></span>Профиль</a>
+</nav>
+
+</body>
+</html>

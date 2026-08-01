@@ -60,6 +60,37 @@ func (m *Mailer) SendLoginLink(to, link string, ttl time.Duration) error {
 	return m.send(m.cfg, to, "Вход в личный кабинет", body)
 }
 
+// SendTest sends a configuration check.
+//
+// Deliberately not a login link: a test that put a real-looking "sign in"
+// button in somebody's inbox would be indistinguishable from the thing an
+// attacker sends, and the link would be dead anyway.
+func (m *Mailer) SendTest(to string) error {
+	body := "Это проверка настроек отправки почты KairaVPN.\n\n" +
+		"Если письмо дошло — SMTP настроен верно, и ссылки для входа будут " +
+		"приходить тем же путём.\n\n" +
+		"Никаких действий не требуется.\n"
+	return m.send(m.cfg, to, "Проверка отправки — KairaVPN", body)
+}
+
+// Describe reports the settings in use, without the password.
+//
+// This is printed by the --check-smtp run: the overwhelming majority of mail
+// failures are a port paired with the wrong TLS mode or a From on somebody
+// else's domain, and both are visible here.
+func (m *Mailer) Describe() string {
+	tlsMode := "implicit TLS (SMTP_STARTTLS=false)"
+	if m.cfg.StartTLS {
+		tlsMode = "STARTTLS (SMTP_STARTTLS=true)"
+	}
+	auth := "none — SMTP_USERNAME is empty"
+	if m.cfg.Username != "" {
+		auth = fmt.Sprintf("PLAIN as %s, password %d chars", m.cfg.Username, len(m.cfg.Password))
+	}
+	return fmt.Sprintf("host %s:%d\n  %s\n  auth: %s\n  from: %s",
+		m.cfg.Host, m.cfg.Port, tlsMode, auth, m.cfg.From)
+}
+
 func sendSMTP(cfg Config, to, subject, body string) error {
 	addr := net.JoinHostPort(cfg.Host, fmt.Sprint(cfg.Port))
 	message := buildMessage(cfg.From, to, subject, body)
