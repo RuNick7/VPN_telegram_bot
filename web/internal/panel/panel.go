@@ -23,8 +23,14 @@ import (
 
 var (
 	ErrUserNotFound = errors.New("panel: user not found")
-	ErrNotFound     = errors.New("panel: not found")
-	ErrUnauthorized = errors.New("panel: unauthorized")
+	// ErrUsernameTaken means an account with that name is already there. Worth
+	// a sentinel of its own because it is recoverable: the caller looks the
+	// account up instead of failing, which is what makes two simultaneous
+	// first requests -- or a create whose identifier we failed to record --
+	// heal rather than wedge.
+	ErrUsernameTaken = errors.New("panel: username already exists")
+	ErrNotFound      = errors.New("panel: not found")
+	ErrUnauthorized  = errors.New("panel: unauthorized")
 )
 
 // tokenTTL caps how long a login-issued token is reused before
@@ -367,6 +373,9 @@ func (c *Client) CreateUser(ctx context.Context, username string, telegramID *in
 	}
 	raw, err := c.do(ctx, http.MethodPost, "/users", payload)
 	if err != nil {
+		if isUsernameTaken(err) {
+			return nil, fmt.Errorf("%w: %s", ErrUsernameTaken, username)
+		}
 		return nil, err
 	}
 	var user User
@@ -376,11 +385,22 @@ func (c *Client) CreateUser(ctx context.Context, username string, telegramID *in
 	return &user, nil
 }
 
-// SetExpiryByUUID updates a panel profile's expiry date.
+// isUsernameTaken recognises the panel's "already exists" refusal.
 //
-// Addressed by UUID rather than by name because the two kinds of account are
-// named differently -- legacy ones str(telegram_id), new ones u-<uuid> -- and
-// patching a name that does not exist updates nothing while returning success.
+// Matched on the response text because that is all the API offers: a 400 whose
+// body carries `errorCode` A019. Both spellings are checked so a version that
+// changes one of them still lands here.
+func isUsernameTaken(err error) bool {
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "a019") || strings.Contains(text, "already exists")
+}
+
+// SetExpiryByRef updates a panel profile's expiry date.
+//
+// Addressed by the panel's own identifier rather than by name because the two
+// kinds of account are named differently -- legacy ones str(telegram_id), new
+// ones u-<uuid> -- and patching a name that does not exist updates nothing
+// while returning success.
 func (c *Client) SetExpiryByRef(ctx context.Context, ref string, expireAt time.Time) error {
 	body := identify(ref)
 	body["expireAt"] = expireAt.UTC().Format(time.RFC3339)

@@ -2,6 +2,7 @@ package panel
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 )
 
@@ -97,6 +98,36 @@ func TestNumericRefDoesNotMistakeAUUIDForAnID(t *testing.T) {
 	}
 	if n, ok := numericRef("2"); !ok || n != 2 {
 		t.Errorf("numericRef(\"2\") = %d, %v", n, ok)
+	}
+}
+
+func TestTheTakenUsernameRefusalIsRecognised(t *testing.T) {
+	// Recognising it is what turns a permanent wedge into a lookup: the caller
+	// reads the account instead of failing. Missing it meant every request
+	// from then on returned an error to a customer who had already paid.
+	taken := []error{
+		errors.New(`panel: POST /users returned 400: {"message":"User username already exists","errorCode":"A019"}`),
+		errors.New(`panel: POST /users returned 400: {"errorCode":"A019"}`),
+		errors.New("panel: POST /users returned 400: user already exists"),
+	}
+	for _, err := range taken {
+		if !isUsernameTaken(err) {
+			t.Errorf("not recognised: %v", err)
+		}
+	}
+
+	// Everything else must stay a real failure -- swallowing an unrelated 400
+	// as "already exists" would send the caller looking for an account that
+	// was never created.
+	other := []error{
+		errors.New("panel: POST /users returned 400: validation failed"),
+		errors.New("panel: POST /users returned 500: internal error"),
+		ErrUserNotFound,
+	}
+	for _, err := range other {
+		if isUsernameTaken(err) {
+			t.Errorf("wrongly recognised as taken: %v", err)
+		}
 	}
 }
 

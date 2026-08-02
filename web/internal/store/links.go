@@ -76,7 +76,9 @@ func (s *Store) DeleteExpiredLinkTokens(ctx context.Context) (int64, error) {
 // time, without a bulk rename against a live panel.
 func (s *Store) SetPanelIdentity(ctx context.Context, userID, panelUUID, panelUsername string) error {
 	_, err := s.pool.Exec(ctx,
-		`UPDATE users SET remnawave_uuid = $1::uuid, remnawave_username = $2 WHERE id = $3`,
+		// No ::uuid cast: the column is TEXT because a newer panel identifies
+		// accounts by a numeric id rather than a UUID (migration 0008).
+		`UPDATE users SET remnawave_uuid = $1, remnawave_username = $2 WHERE id = $3`,
 		panelUUID, panelUsername, userID)
 	return err
 }

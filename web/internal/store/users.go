@@ -185,6 +185,38 @@ func (s *Store) AwardReferral(ctx context.Context, referrerTag string, inviteeID
 // Extending from `now` when a subscription has already lapsed is what stops a
 // renewal from being back-dated into a period the user never had. Returns the
 // new expiry.
+// GrantTrial gives a user their free days, once and only once.
+//
+// The "only once" is in the WHERE clause rather than in a check the caller
+// makes first, because the cabinet fires several requests at the same moment
+// and more than one of them resolves the panel profile. Two of those read
+// `subscription_ends` as still-unset four milliseconds apart and both granted,
+// so a thirty-day trial arrived as sixty. Postgres serialises the update on
+// the row, so exactly one of them can match here.
+//
+// The bool reports whether this call was the one that granted.
+func (s *Store) GrantTrial(ctx context.Context, userID string, days int) (time.Time, bool, error) {
+	var ends time.Time
+	err := s.pool.QueryRow(ctx,
+		`UPDATE users
+		 SET subscription_ends = now() + make_interval(days => $1),
+		     reminded = FALSE
+		 WHERE id = $2
+		   AND (subscription_ends IS NULL OR subscription_ends <= to_timestamp(0))
+		 RETURNING subscription_ends`,
+		days, userID,
+	).Scan(&ends)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Either somebody else granted it a moment ago, or this account has
+		// had a subscription before. Both mean "not this call", not an error.
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	return ends, true, nil
+}
+
 func (s *Store) ExtendSubscription(ctx context.Context, userID string, days int) (time.Time, error) {
 	var newEnds time.Time
 	err := s.pool.QueryRow(ctx,

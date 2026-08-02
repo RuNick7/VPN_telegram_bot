@@ -11,6 +11,7 @@ package account
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -139,12 +140,21 @@ func (s *Service) EnsureProfile(ctx context.Context, user *store.User) (*panel.U
 	// the trial again on every failed attempt.
 	expiry := user.SubscriptionEnds
 	if s.TrialEligible(user) {
-		granted, err := s.store.ExtendSubscription(ctx, user.ID, s.trialDays)
+		// Conditional inside the UPDATE, not on the strength of the check
+		// above: several of this page's requests resolve the profile at once,
+		// and two of them passed that check before either had written.
+		granted, wasGranted, err := s.store.GrantTrial(ctx, user.ID, s.trialDays)
 		if err != nil {
 			return nil, err
 		}
-		user.SubscriptionEnds, expiry = granted, granted
-		slog.Info("granted trial", "user", user.ID, "days", s.trialDays)
+		if wasGranted {
+			user.SubscriptionEnds, expiry = granted, granted
+			slog.Info("granted trial", "user", user.ID, "days", s.trialDays)
+		} else if fresh, err := s.store.UserByID(ctx, user.ID); err == nil {
+			// Somebody else granted it microseconds ago. Use their result
+			// rather than creating the panel account already expired.
+			user.SubscriptionEnds, expiry = fresh.SubscriptionEnds, fresh.SubscriptionEnds
+		}
 	}
 	if expiry.IsZero() || expiry.Before(time.Now()) {
 		expiry = time.Now()
@@ -152,6 +162,19 @@ func (s *Service) EnsureProfile(ctx context.Context, user *store.User) (*panel.U
 
 	username := panel.UsernameFor(user.ID)
 	profile, err := s.panel.CreateUser(ctx, username, user.TelegramID, s.panelExpiry(expiry))
+	if errors.Is(err, panel.ErrUsernameTaken) {
+		// The account exists after all: two of this page's requests raced to
+		// create it, or an earlier create succeeded and its identifier never
+		// reached our database. Either way the answer is to go and read it,
+		// not to report a failure -- which is what used to happen on every
+		// request from then on.
+		profile, err = s.panel.UserByUsername(ctx, username)
+		if err != nil {
+			return nil, fmt.Errorf("panel account %q exists but could not be read: %w", username, err)
+		}
+		s.rememberPanelIdentity(ctx, user, profile)
+		return profile, nil
+	}
 	if err != nil {
 		return nil, err
 	}

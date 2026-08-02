@@ -235,7 +235,7 @@ class UserRepository:
         await pool.execute(
             """
             UPDATE users
-            SET remnawave_uuid = $1::uuid, remnawave_username = $2
+            SET remnawave_uuid = $1, remnawave_username = $2
             WHERE id = $3::uuid
             """,
             remnawave_uuid, remnawave_username, user_id,
@@ -283,7 +283,7 @@ class UserRepository:
                         referred_people        = $4,
                         email                  = COALESCE(email, $5),
                         referrer_tag           = COALESCE(NULLIF(referrer_tag, ''), $6),
-                        remnawave_uuid         = COALESCE(remnawave_uuid, $7::uuid),
+                        remnawave_uuid         = COALESCE(remnawave_uuid, $7),
                         remnawave_username     = COALESCE(remnawave_username, $8)
                     WHERE id = $9::uuid
                     """,
