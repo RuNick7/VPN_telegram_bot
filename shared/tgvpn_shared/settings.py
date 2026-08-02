@@ -121,6 +121,10 @@ class Settings(BaseSettings):
     show_video_instructions: bool = Field(True, validation_alias="SHOW_VIDEO_INSTRUCTIONS")
     faq_url: str = Field("https://nitratex-company.gitbook.io/kairavpn/", validation_alias="FAQ_URL")
     status_channel_url: str = Field("https://t.me/nitratex1", validation_alias="STATUS_CHANNEL_URL")
+    # Where "написать в поддержку" points, in the bot and on the website both.
+    # It used to be a constant in user_bot/handlers/keyboards.py, which meant
+    # the site had no way to learn it and the two could not help but drift.
+    support_url: str = Field("https://t.me/nitratex1", validation_alias="SUPPORT_URL")
 
     # Public origin of the website. The bot needs it to build gift links --
     # the same value the Go service validates its own redirects against.

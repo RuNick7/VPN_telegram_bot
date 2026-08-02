@@ -17,6 +17,7 @@ import {
   flash,
   clearFlash,
   icon,
+  show,
   withBusy,
 } from "./core.js";
 
@@ -26,14 +27,19 @@ let subscriptionURL = "";
 
 function renderLink(url) {
   subscriptionURL = url || "";
+  const has = Boolean(subscriptionURL);
+
+  // No link means no field, no QR and no reset button: all three are actions
+  // on something that does not exist yet.
+  show($("[data-connect]"), has);
+  show($("[data-no-connect]"), !has);
+  show($("[data-qr-side]"), has);
+  if (!has) return;
+
   $("[data-sub-url]").value = subscriptionURL;
 
   const host = $("[data-qr]");
   host.textContent = "";
-  if (!subscriptionURL) {
-    host.append(el("p", { class: "mono-sm muted", text: "Ссылка появится после активации подписки." }));
-    return;
-  }
   try {
     host.append(toSVG(subscriptionURL, { title: "QR-код ссылки подписки" }));
   } catch (err) {

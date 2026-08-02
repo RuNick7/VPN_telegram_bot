@@ -55,24 +55,38 @@
       <p class="lead" data-status-note></p>
     </div>
 
-    <div class="side">
-      <div>
+    <!-- Two mutually exclusive states. Which one is shown is decided in
+         overview.js once the subscription has actually been read; neither is
+         rendered before then, so nothing flashes the wrong answer. -->
+    <div class="side" data-side hidden>
+
+      <div data-has-subscription hidden>
         <span class="mono-sm muted">Текущий тариф</span>
         <div class="h-md" data-plan-name>—</div>
-      </div>
-      <div class="stack">
         <p class="mono-sm muted">Активна до <span class="strong num" data-plan-until>—</span></p>
         <p class="mono-sm muted" data-plan-left></p>
       </div>
-      <div class="stack">
+
+      <div class="stack" data-actions-active hidden>
         <a class="btn btn-block" href="/app/devices">
           <span data-icon="link"></span> Подключить устройство
         </a>
         <a class="btn btn-ghost btn-block" href="/app/plans">
-          <span data-icon="refresh"></span> Продлить подписку
+          <span data-icon="refresh"></span> Продлить
         </a>
-        <a class="btn btn-outline btn-block" href="/app/plans#gift">
+        <a class="btn btn-outline btn-block btn-sm" href="/app/plans#gift">
           <span data-icon="gift"></span> Подарить подписку
+        </a>
+      </div>
+
+      <!-- Nothing to connect and nothing to renew, so neither is offered. -->
+      <div class="stack" data-actions-none hidden>
+        <p class="mono-sm muted">Выберите тариф — доступ откроется сразу после оплаты.</p>
+        <a class="btn btn-block btn-lg" href="/app/plans">
+          <span data-icon="card"></span> Купить подписку
+        </a>
+        <a class="btn btn-outline btn-block btn-sm" href="/app/plans#promo">
+          <span data-icon="ticket"></span> У меня есть промокод
         </a>
       </div>
     </div>
@@ -114,7 +128,9 @@
 
   </section>
 
-  <section class="section">
+  <!-- Hidden until there is a link to put in it. An empty box that focuses
+       when you click it reads as something that ought to have a value. -->
+  <section class="section" data-sub-section hidden>
     <div class="wrap stack">
       <span class="section-tag">Ссылка подписки</span>
       <p class="mono-sm muted">Одна ссылка на все устройства. Вставьте её в приложение — конфигурация подтянется сама и будет обновляться.</p>

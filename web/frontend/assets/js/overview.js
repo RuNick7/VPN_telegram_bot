@@ -10,21 +10,34 @@ import { boot } from "./app.js";
 import {
   $,
   api,
+  ApiError,
   copyText,
   daysLabel,
   el,
+  flash,
   formatDate,
   formatGB,
   setText,
+  show,
 } from "./core.js";
 
 // -- subscription ---------------------------------------------------------
 
+/**
+ * Renders the two states this page really has: with a subscription and
+ * without one.
+ *
+ * Nothing is shown before the answer is known, and the "without" state offers
+ * only the one thing that can be done from it. Showing "renew" or "connect a
+ * device" to somebody with no subscription is offering an action that leads
+ * to an empty page.
+ */
 function renderSubscription(sub) {
   const active = Boolean(sub.active);
+  const url = sub.subscription_url || "";
 
   $("[data-status-dot]").dataset.off = String(!active);
-  setText("[data-status-label]", active ? "Подписка активна" : "Подписка не активна");
+  setText("[data-status-label]", active ? "Подписка активна" : "Подписки нет");
 
   const title = $("[data-status-title]");
   title.textContent = "";
@@ -38,21 +51,28 @@ function renderSubscription(sub) {
     "[data-status-note]",
     active
       ? "Доступ открыт. Подключайте устройства по ссылке подписки — она одна на всех."
-      : "Доступ закрыт. Продлите подписку, чтобы снова подключаться."
+      : "Доступ закрыт. Оформите подписку, чтобы начать пользоваться."
   );
 
-  // `tier` is the squad the account sits in, which is what actually decides
-  // what it can reach — not what was last paid for.
-  const names = { free: "Бесплатный", lte: "С квотой трафика" };
-  setText("[data-plan-name]", active ? names[sub.tier] || "Полный доступ" : "Нет активной");
-  setText("[data-plan-until]", formatDate(sub.expires_at));
-  setText(
-    "[data-plan-left]",
-    active ? `Осталось: ${daysLabel(sub.days_left)}` : "Срок истёк"
-  );
+  show($("[data-side]"), true);
+  show($("[data-has-subscription]"), active);
+  show($("[data-actions-active]"), active);
+  show($("[data-actions-none]"), !active);
 
+  if (active) {
+    // `tier` is the squad the account sits in, which is what actually decides
+    // what it can reach — not what was last paid for.
+    const names = { free: "Бесплатный", lte: "С квотой трафика" };
+    setText("[data-plan-name]", names[sub.tier] || "Полный доступ");
+    setText("[data-plan-until]", formatDate(sub.expires_at));
+    setText("[data-plan-left]", `Осталось: ${daysLabel(sub.days_left)}`);
+  }
+
+  // The link section appears only when there is a link. An empty field that
+  // takes focus when clicked reads as something that should have had a value.
+  show($("[data-sub-section]"), Boolean(url));
   const field = $("[data-sub-url]");
-  if (field) field.value = sub.subscription_url || "";
+  if (field) field.value = url;
 }
 
 // -- traffic --------------------------------------------------------------
@@ -131,8 +151,18 @@ boot(async (user) => {
       return null;
     });
 
+  // The subscription is the one read whose failure the visitor has to be told
+  // about: every other cell is a detail, but a blank status band with no
+  // explanation looks like an account that lost its subscription.
+  const subscription = api("/api/subscription").catch((err) => {
+    if (err instanceof ApiError && err.status === 401) throw err;
+    console.error(err);
+    flash("Не удалось получить состояние подписки. Обновите страницу через минуту.");
+    return null;
+  });
+
   await Promise.all([
-    settle(api("/api/subscription"), renderSubscription),
+    subscription.then((sub) => (sub ? renderSubscription(sub) : null)),
     settle(api("/api/traffic"), renderTraffic),
     settle(api("/api/devices"), renderDevices),
     settle(api("/api/referrals"), (r) => renderReferrals(r, user)),

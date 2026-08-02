@@ -46,26 +46,34 @@
 
       <div class="notice" data-notice hidden role="status"></div>
 
-      <div class="copy">
-        <input type="text" readonly data-sub-url value="" aria-label="Ссылка подписки" spellcheck="false">
-        <button type="button" data-copy-sub aria-label="Копировать">
-          <span data-icon="copy"></span>
-        </button>
+      <!-- Everything below needs a subscription link to exist. Until one does,
+           showing an empty field and a QR placeholder promises something that
+           is not there. -->
+      <div class="stack" data-connect hidden>
+        <div class="copy">
+          <input type="text" readonly data-sub-url value="" aria-label="Ссылка подписки" spellcheck="false">
+          <button type="button" data-copy-sub aria-label="Копировать">
+            <span data-icon="copy"></span>
+          </button>
+        </div>
+
+        <div class="row wrap-row">
+          <button class="btn btn-ghost btn-sm" type="button" data-reset>
+            <span data-icon="refresh"></span> Сбросить ссылку
+          </button>
+          <span class="mono-sm muted">Старая перестанет работать сразу — на случай, если ссылка утекла.</span>
+        </div>
       </div>
 
-      <div class="row wrap-row">
-        <button class="btn btn-ghost btn-sm" type="button" data-reset>
-          <span data-icon="refresh"></span> Сбросить ссылку
-        </button>
-        <span class="mono-sm muted">Старая перестанет работать сразу — на случай, если ссылка утекла.</span>
+      <div class="stack" data-no-connect hidden>
+        <p class="mono-sm muted">Ссылка появится сразу после оформления подписки.</p>
+        <a class="btn btn-lg" href="/app/plans"><span data-icon="card"></span> Выбрать тариф</a>
       </div>
     </div>
 
-    <div class="side">
+    <div class="side" data-qr-side hidden>
       <span class="mono-sm muted">QR-код</span>
-      <div data-qr aria-live="polite">
-        <p class="mono-sm muted">Готовим…</p>
-      </div>
+      <div data-qr aria-live="polite"></div>
       <p class="mono-sm muted">В приложении: <span class="strong">+</span> → добавить по QR-коду.</p>
     </div>
   </section>

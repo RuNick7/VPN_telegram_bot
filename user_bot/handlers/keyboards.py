@@ -3,7 +3,7 @@ from tgvpn_shared.lte_quota import TRAFFIC_LABEL
 from tgvpn_shared.settings import get_settings
 
 _settings = get_settings()
-SUPPORT_URL = "https://t.me/nitratex1"
+SUPPORT_URL = _settings.support_url
 FAQ_URL = _settings.faq_url
 STATUS_CHANNEL_URL = _settings.status_channel_url
 

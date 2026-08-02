@@ -137,10 +137,14 @@ async function load() {
   // figure: the four cells above it state what the service *is*, and those are
   // fixed facts about the infrastructure, not a promotion that can be switched
   // off in .env.
-  const note = $("[data-trial-note]");
-  if (note && config.trial_days > 0) {
-    note.textContent = `Первые ${daysLabel(config.trial_days)} — бесплатно, карта не нужна.`;
-    note.hidden = false;
+  // Said twice on purpose: next to the price, where it changes what the number
+  // means, and again under the plans, where somebody is deciding.
+  if (config.trial_days > 0) {
+    const wording = `Первые ${daysLabel(config.trial_days)} — бесплатно, карта не нужна.`;
+    for (const node of $$("[data-trial-hero], [data-trial-note]")) {
+      node.textContent = wording;
+      node.hidden = false;
+    }
   }
 }
 
