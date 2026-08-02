@@ -9,16 +9,22 @@ import { $, $$, api, el, formatRub, daysLabel, plural } from "./core.js";
 
 // -- hero video -----------------------------------------------------------
 
+const prefersReducedMotion = () =>
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
 /**
- * Whether to spend ~90 KB on the moving background.
+ * Whether spending ~180 KB on the moving background makes sense here.
  *
  * The poster is already in place and already looks like the design; the video
  * is decoration on top of it. Anyone who has said "not now" -- by turning on a
- * data saver, by asking for reduced motion, or by being on a narrow screen
- * where the whole thing is a thumbnail behind text -- gets the still.
+ * data saver, or by being on a narrow screen where the whole thing is a
+ * thumbnail behind text -- gets the still.
+ *
+ * Reduced motion is deliberately *not* one of these. It is a separate question
+ * -- "should this autoplay" rather than "is it worth fetching" -- and it is
+ * answered with an offer instead of a refusal, below.
  */
-function wantsVideo() {
-  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return false;
+function worthFetching() {
   if (!window.matchMedia("(min-width: 64rem)").matches) return false;
 
   const connection = navigator.connection;
@@ -31,7 +37,7 @@ function wantsVideo() {
 
 function attachHeroVideo() {
   const poster = $(".hero-media");
-  if (!poster || !wantsVideo()) return;
+  if (!poster) return;
 
   const video = el("video", {
     class: "hero-media",
@@ -65,6 +71,37 @@ function attachHeroVideo() {
   );
   poster.after(video);
   video.play().catch(() => video.remove());
+}
+
+/**
+ * Decides between playing the background, offering it, and neither.
+ *
+ * Autoplaying a moving background at somebody who has asked their operating
+ * system to stop animating things is the behaviour that setting exists to
+ * prevent, so it is honoured. But honouring it silently means a visitor who
+ * turned animations off years ago for battery reasons never learns there is
+ * anything to see -- so on a screen where the video would have been worth
+ * fetching anyway, it becomes a button rather than nothing.
+ */
+function setUpHeroBackground() {
+  if (!worthFetching()) return;
+
+  if (!prefersReducedMotion()) {
+    attachHeroVideo();
+    return;
+  }
+
+  const button = $("[data-play-bg]");
+  if (!button) return;
+  button.hidden = false;
+  button.addEventListener(
+    "click",
+    () => {
+      button.hidden = true;
+      attachHeroVideo();
+    },
+    { once: true }
+  );
 }
 
 // -- content --------------------------------------------------------------
@@ -148,7 +185,7 @@ async function load() {
   }
 }
 
-attachHeroVideo();
+setUpHeroBackground();
 // A failed config call leaves the static copy standing: the page still says
 // what the service is and still links to sign-in.
 load().catch((err) => console.error("config", err));
