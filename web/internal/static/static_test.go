@@ -423,7 +423,11 @@ func TestContentTypesAreTheOnesBrowsersRequire(t *testing.T) {
 		"/assets/css/app.css":   "text/css",
 		"/assets/img/logo.svg":  "image/svg+xml",
 		"/assets/fonts/i.woff2": "font/woff2",
-		"/":                     "text/html",
+		// The Alpine image the server ships in has no /etc/mime.types, so this
+		// one went out as application/octet-stream in production while every
+		// local test passed.
+		"/assets/video/hero.mp4": "video/mp4",
+		"/":                      "text/html",
 	}
 	for target, want := range cases {
 		got := get(t, h, target, nil).Header.Get("Content-Type")

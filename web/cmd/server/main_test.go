@@ -2,6 +2,7 @@ package main
 
 import (
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -287,6 +288,42 @@ func TestNoPageStillPointsAtTheSpriteAsAnExternalFile(t *testing.T) {
 		if !strings.Contains(body, `id="i-shield"`) {
 			t.Errorf("%s has no inlined sprite", page)
 		}
+	}
+}
+
+func TestNoRealAssetIsServedAsAnUnknownType(t *testing.T) {
+	// application/octet-stream is what the handler falls back to when it does
+	// not recognise an extension, and it is a real failure: a browser will not
+	// run a module, apply a stylesheet or decode a video it is handed under
+	// that type. Walking the embedded tree rather than a list means a new kind
+	// of asset cannot be added without either being recognised or failing here.
+	//
+	// This is also platform-dependent in a way that hides it: the fallback
+	// consults the operating system's mime database, which is populated on a
+	// developer's machine and empty in the Alpine image this ships in.
+	site := newRealSite(t)
+
+	checked := 0
+	err := fs.WalkDir(frontend.Files, "assets", func(name string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil || entry.IsDir() {
+			return walkErr
+		}
+		response, _ := fetch(t, site, "/"+name)
+		if response.StatusCode != http.StatusOK {
+			t.Errorf("%s: status %d", name, response.StatusCode)
+			return nil
+		}
+		if got := response.Header.Get("Content-Type"); strings.HasPrefix(got, "application/octet-stream") {
+			t.Errorf("%s is served as %q", name, got)
+		}
+		checked++
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checked < 20 {
+		t.Errorf("only checked %d assets; the walk is probably wrong", checked)
 	}
 }
 

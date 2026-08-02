@@ -229,27 +229,38 @@ func newAsset(body []byte, name string, modTime time.Time) *asset {
 	return a
 }
 
+// ourTypes is the authoritative table for everything this site serves.
+//
+// Consulted before the platform's, not after, because the platform's answer is
+// not the same everywhere: Windows reads the registry, and the Alpine image
+// this ships in has no /etc/mime.types at all, so `mime.TypeByExtension` there
+// returns nothing for perfectly ordinary extensions. That asymmetry is how a
+// video went out as application/octet-stream from a container while testing
+// clean on a developer's machine.
+var ourTypes = map[string]string{
+	".html":  "text/html; charset=utf-8",
+	".css":   "text/css; charset=utf-8",
+	".js":    "text/javascript; charset=utf-8",
+	".mjs":   "text/javascript; charset=utf-8",
+	".json":  "application/json; charset=utf-8",
+	".svg":   "image/svg+xml",
+	".png":   "image/png",
+	".webp":  "image/webp",
+	".avif":  "image/avif",
+	".ico":   "image/x-icon",
+	".woff2": "font/woff2",
+	".mp4":   "video/mp4",
+	".webm":  "video/webm",
+	".txt":   "text/plain; charset=utf-8",
+	".xml":   "application/xml",
+}
+
 func contentTypeFor(name string) string {
-	if ct := mime.TypeByExtension(path.Ext(name)); ct != "" {
+	if ct, ok := ourTypes[strings.ToLower(path.Ext(name))]; ok {
 		return ct
 	}
-	// Windows resolves several of these from the registry and can return
-	// something unexpected, so the ones that matter are pinned.
-	switch path.Ext(name) {
-	case ".js", ".mjs":
-		return "text/javascript; charset=utf-8"
-	case ".css":
-		return "text/css; charset=utf-8"
-	case ".html":
-		return "text/html; charset=utf-8"
-	case ".svg":
-		return "image/svg+xml"
-	case ".woff2":
-		return "font/woff2"
-	case ".webm":
-		return "video/webm"
-	case ".avif":
-		return "image/avif"
+	if ct := mime.TypeByExtension(path.Ext(name)); ct != "" {
+		return ct
 	}
 	return "application/octet-stream"
 }
