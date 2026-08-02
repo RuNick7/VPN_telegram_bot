@@ -9,9 +9,6 @@ import { $, $$, api, el, formatRub, daysLabel, plural } from "./core.js";
 
 // -- hero video -----------------------------------------------------------
 
-const prefersReducedMotion = () =>
-  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
 /**
  * Whether spending ~180 KB on the moving background makes sense here.
  *
@@ -20,9 +17,10 @@ const prefersReducedMotion = () =>
  * data saver, or by being on a narrow screen where the whole thing is a
  * thumbnail behind text -- gets the still.
  *
- * Reduced motion is deliberately *not* one of these. It is a separate question
- * -- "should this autoplay" rather than "is it worth fetching" -- and it is
- * answered with an offer instead of a refusal, below.
+ * `prefers-reduced-motion` is deliberately not consulted. This is the site's
+ * own header image and it is meant to move; the loop is slow, silent, blurred
+ * and sits under a 70% scrim, which is not the kind of motion that setting
+ * exists to suppress.
  */
 function worthFetching() {
   if (!window.matchMedia("(min-width: 64rem)").matches) return false;
@@ -36,8 +34,11 @@ function worthFetching() {
 }
 
 function attachHeroVideo() {
-  const poster = $(".hero-media");
-  if (!poster) return;
+  const hero = $(".hero");
+  // The <picture> as a whole, not the <img> inside it: the poster has an AVIF
+  // source alongside the fallback, and both have to go together.
+  const poster = $(".hero picture") || $(".hero-media");
+  if (!hero || !poster || $(".hero video")) return;
 
   const video = el("video", {
     class: "hero-media",
@@ -62,49 +63,24 @@ function attachHeroVideo() {
 
   // The poster stays in the DOM until the video actually has a frame, so a
   // failed or blocked load leaves the design intact rather than a black box.
-  video.addEventListener(
-    "playing",
-    () => {
-      poster.parentElement?.remove();
-    },
-    { once: true }
-  );
-  poster.after(video);
+  video.addEventListener("playing", () => poster.remove(), { once: true });
+
+  // Appended to the hero, not next to the <img>. Inserting it after the image
+  // put it *inside* the <picture>, which then took the video with it when the
+  // poster was removed -- leaving an empty black hero, which is exactly what
+  // it looked like.
+  hero.prepend(video);
   video.play().catch(() => video.remove());
 }
 
-/**
- * Decides between playing the background, offering it, and neither.
- *
- * Autoplaying a moving background at somebody who has asked their operating
- * system to stop animating things is the behaviour that setting exists to
- * prevent, so it is honoured. But honouring it silently means a visitor who
- * turned animations off years ago for battery reasons never learns there is
- * anything to see -- so on a screen where the video would have been worth
- * fetching anyway, it becomes a button rather than nothing.
- */
+/** Plays the background as soon as this screen is one worth loading it on. */
 function setUpHeroBackground() {
-  const button = $("[data-play-bg]");
   let settled = false;
 
   const decide = () => {
     if (settled || !worthFetching()) return;
     settled = true;
-
-    if (!prefersReducedMotion()) {
-      attachHeroVideo();
-      return;
-    }
-    if (!button) return;
-    button.hidden = false;
-    button.addEventListener(
-      "click",
-      () => {
-        button.hidden = true;
-        attachHeroVideo();
-      },
-      { once: true }
-    );
+    attachHeroVideo();
   };
 
   decide();
