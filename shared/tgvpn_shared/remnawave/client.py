@@ -79,6 +79,45 @@ def normalize_token(value: str | None) -> str:
     return token
 
 
+# -- panel identifiers -----------------------------------------------------
+#
+# Two generations of Remnawave name users differently. Older ones give every
+# user a `uuid`; newer ones dropped it and address users by a numeric `id`,
+# which also changed the key several request bodies expect. Everything that
+# differs is normalised here so the rest of the codebase keeps passing one
+# opaque string around and never has to know which panel it is talking to.
+
+
+def panel_ref(user: Any) -> str:
+    """The identifier this panel uses for a user record, as a string."""
+    if not isinstance(user, dict):
+        return ""
+    for key in ("uuid", "id"):
+        value = user.get(key)
+        if value not in (None, ""):
+            return str(value)
+    return ""
+
+
+def is_numeric_ref(ref: Any) -> bool:
+    """
+    Whether a ref is a newer panel's numeric id.
+
+    A UUID is never all digits, so one stored string is enough to work out
+    later which spelling to send back -- no second column, and no need to
+    record which panel produced it.
+    """
+    text = str(ref).strip()
+    return bool(text) and text.isdigit()
+
+
+def identify(ref: Any) -> dict[str, Any]:
+    """Name a user in a request body the way the panel expects."""
+    if is_numeric_ref(ref):
+        return {"id": int(str(ref).strip())}
+    return {"uuid": str(ref)}
+
+
 def unwrap(response: dict[str, Any]) -> Any:
     """
     Return a Remnawave payload's `response` envelope, or the payload itself.
@@ -229,7 +268,7 @@ class RemnawaveClient:
             raise UserNotFoundError(f"User not found: {username}") from exc
         if isinstance(payload, dict) and isinstance(payload.get("user"), dict):
             payload = payload["user"]
-        if not isinstance(payload, dict) or not payload.get("uuid"):
+        if not isinstance(payload, dict) or not panel_ref(payload):
             raise UserNotFoundError(f"User not found: {username}")
         return payload
 
@@ -247,7 +286,19 @@ class RemnawaveClient:
         return unwrap(await self.request("POST", "/users", json=payload))
 
     async def update_user(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return unwrap(await self.request("PATCH", "/users", json=payload))
+        """
+        Patch a user. The identifier is re-spelled for whichever panel this is.
+
+        Callers pass `{"uuid": ref, ...}` because that is what the older API
+        wanted. A newer panel answers "At least one of username, id must be
+        provided" and wants the id as a *number*, so the key is rewritten here
+        rather than at each of the call sites.
+        """
+        body = dict(payload)
+        ref = body.pop("uuid", None)
+        if ref is not None:
+            body.update(identify(ref))
+        return unwrap(await self.request("PATCH", "/users", json=body))
 
     async def delete_user(self, user_uuid: str) -> dict[str, Any]:
         return unwrap(await self.request("DELETE", f"/users/{user_uuid}"))
@@ -347,7 +398,12 @@ class RemnawaveClient:
     async def delete_hwid_device(self, user_uuid: str, hwid: str) -> None:
         """Unregister one device. Raises if the panel did not accept it."""
         await self.request(
-            "POST", "/hwid/devices/delete", json={"userUuid": user_uuid, "hwid": hwid}
+            "POST",
+            "/hwid/devices/delete",
+            json={
+                "hwid": hwid,
+                **({"userId": int(user_uuid)} if is_numeric_ref(user_uuid) else {"userUuid": user_uuid}),
+            },
         )
 
     # -- internal squads ---------------------------------------------------
@@ -360,10 +416,17 @@ class RemnawaveClient:
 
     async def set_user_squads(self, user_uuids: list[str], squad_uuids: list[str]) -> dict[str, Any]:
         """Replace the given users' squad membership outright."""
+        # `uuids` on older panels, `userIds` with numbers on newer ones. Squads
+        # themselves kept their UUIDs across that change, so only the user side
+        # of this body varies.
+        if user_uuids and all(is_numeric_ref(ref) for ref in user_uuids):
+            key, values = "userIds", [int(str(ref)) for ref in user_uuids]
+        else:
+            key, values = "uuids", [str(ref) for ref in user_uuids]
         return await self.request(
             "POST",
             "/users/bulk/update-squads",
-            json={"uuids": user_uuids, "activeInternalSquads": squad_uuids},
+            json={key: values, "activeInternalSquads": squad_uuids},
         )
 
     async def add_users_to_squad(self, squad_uuid: str, user_uuids: list[str]) -> dict[str, Any]:

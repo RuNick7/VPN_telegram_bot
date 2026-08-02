@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/panel"
@@ -28,9 +29,10 @@ type Service struct {
 	panel           *panel.Client
 	freeTierEnabled bool
 	trialDays       int
+	paidSquadName   string
 }
 
-func NewService(st *store.Store, pc *panel.Client, freeTierEnabled bool, trialDays int) *Service {
+func NewService(st *store.Store, pc *panel.Client, freeTierEnabled bool, trialDays int, paidSquadName string) *Service {
 	if trialDays < 0 {
 		trialDays = 0
 	}
@@ -39,7 +41,29 @@ func NewService(st *store.Store, pc *panel.Client, freeTierEnabled bool, trialDa
 		panel:           pc,
 		freeTierEnabled: freeTierEnabled,
 		trialDays:       trialDays,
+		paidSquadName:   paidSquadName,
 	}
+}
+
+// paidSquad resolves the squad a new account belongs in.
+//
+// A trial account needs it as much as a paid one: squad membership is what
+// grants servers, so an account created without one is active, has a working
+// subscription link, and reaches nothing. That failure only shows up when the
+// customer tries to connect, which is the worst moment to find it.
+//
+// A failure here is returned rather than shrugged off. Creating the account
+// anyway would produce exactly the silent half-working profile this exists to
+// prevent.
+func (s *Service) paidSquad(ctx context.Context) ([]string, error) {
+	if strings.TrimSpace(s.paidSquadName) == "" {
+		return nil, nil
+	}
+	uuid, err := s.panel.SquadUUIDByName(ctx, s.paidSquadName)
+	if err != nil {
+		return nil, fmt.Errorf("cannot place the account in a squad: %w", err)
+	}
+	return []string{uuid}, nil
 }
 
 // TrialEligible reports whether creating this user's first panel account
@@ -160,8 +184,13 @@ func (s *Service) EnsureProfile(ctx context.Context, user *store.User) (*panel.U
 		expiry = time.Now()
 	}
 
+	squads, err := s.paidSquad(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	username := panel.UsernameFor(user.ID)
-	profile, err := s.panel.CreateUser(ctx, username, user.TelegramID, s.panelExpiry(expiry))
+	profile, err := s.panel.CreateUser(ctx, username, user.TelegramID, s.panelExpiry(expiry), squads)
 	if errors.Is(err, panel.ErrUsernameTaken) {
 		// The account exists after all: two of this page's requests raced to
 		// create it, or an earlier create succeeded and its identifier never

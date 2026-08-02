@@ -13,6 +13,7 @@ import time
 from datetime import datetime, timezone
 
 from remnawave_api.models.users import CreateUserRequestDto
+from tgvpn_shared.remnawave.client import panel_ref
 from tgvpn_shared.db import UserRepository
 from tgvpn_shared.free_tier import panel_expire_timestamp
 from tgvpn_shared.identity import panel_username_for, resolve_panel_identity
@@ -95,7 +96,7 @@ async def resolve_panel_user(user_row: dict) -> dict | None:
     if lookup.uuid:
         try:
             found = await client.get_user_by_uuid(lookup.uuid)
-            if found and found.get("uuid"):
+            if found and panel_ref(found):
                 return found
         except (UserNotFoundError, APINotFoundError):
             # Deleted in the panel, or the UUID is stale. Fall through to the
@@ -115,14 +116,14 @@ async def resolve_panel_user(user_row: dict) -> dict | None:
 async def _remember_panel_identity(user_row: dict, panel_user: dict) -> None:
     """Backfill the panel handle we just resolved the slow way."""
     user_id = user_row.get("id")
-    if not user_id or not panel_user.get("uuid"):
+    if not user_id or not panel_ref(panel_user):
         return
-    if str(user_row.get("remnawave_uuid") or "") == str(panel_user["uuid"]):
+    if str(user_row.get("remnawave_uuid") or "") == panel_ref(panel_user):
         return
     try:
         await _users.set_panel_identity(
             str(user_id),
-            remnawave_uuid=str(panel_user["uuid"]),
+            remnawave_uuid=panel_ref(panel_user),
             remnawave_username=panel_user.get("username"),
         )
     except Exception as exc:
@@ -175,7 +176,7 @@ async def get_devices(telegram_id: int) -> tuple[list[dict], int | None]:
     limit is None when the panel doesn't set one.
     """
     user = await _panel_user_for(telegram_id)
-    devices = await get_client().list_hwid_devices(str(user["uuid"]))
+    devices = await get_client().list_hwid_devices(panel_ref(user))
     limit = user.get("hwidDeviceLimit")
     return devices, int(limit) if isinstance(limit, int) and limit > 0 else None
 
@@ -196,7 +197,7 @@ async def reset_subscription_url(telegram_id: int) -> str:
     only wanted a new link.
     """
     user = await _panel_user_for(telegram_id)
-    revoked = await get_client().revoke_subscription(str(user["uuid"]))
+    revoked = await get_client().revoke_subscription(panel_ref(user))
     url = revoked.get("subscriptionUrl", "")
     if not url:
         # Older panels answer the revoke with a thinner body; the link is
@@ -209,7 +210,7 @@ async def reset_subscription_url(telegram_id: int) -> str:
 async def delete_device(telegram_id: int, hwid: str) -> None:
     """Unregister one device, freeing its slot against the device limit."""
     user = await _panel_user_for(telegram_id)
-    await get_client().delete_hwid_device(str(user["uuid"]), hwid)
+    await get_client().delete_hwid_device(panel_ref(user), hwid)
     logger.info("[Remnawave] Device removed for %s", telegram_id)
 
 
@@ -287,7 +288,7 @@ async def create_panel_account(
         logger.error("[Remnawave] Failed to create user %s: %s", username, exc)
         return False
 
-    user_uuid = user.get("uuid")
+    user_uuid = panel_ref(user)
     if user_uuid:
         if user_row and user_row.get("id"):
             await _users.set_panel_identity(
@@ -351,7 +352,7 @@ async def set_panel_expiry(telegram_id: int, expire_ts: int) -> None:
     """
     user = await _panel_user_for(telegram_id)
     await get_client().update_user(
-        {"uuid": str(user["uuid"]), "expireAt": _utc_iso(panel_expire_timestamp(expire_ts))}
+        {"uuid": panel_ref(user), "expireAt": _utc_iso(panel_expire_timestamp(expire_ts))}
     )
 
 
@@ -438,7 +439,7 @@ async def extend_subscription_for_row(user_row: dict, days_to_add: int) -> str:
 
         await get_client().update_user(
             {
-                "uuid": str(profile["uuid"]),
+                "uuid": panel_ref(profile),
                 "expireAt": _utc_iso(panel_expire_timestamp(new_expire)),
             }
         )

@@ -44,10 +44,17 @@ type Client struct {
 	password string
 	http     *http.Client
 
-	mu          sync.Mutex
-	cachedToken string
-	cachedAt    time.Time
+	mu            sync.Mutex
+	cachedToken   string
+	cachedAt      time.Time
+	squadCache    map[string]string
+	squadCachedAt time.Time
 }
+
+// squadCacheTTL is how long a resolved squad list is reused. Squads are
+// created by hand and essentially never change, but a stale entry must not
+// outlive an operator renaming one.
+const squadCacheTTL = 5 * time.Minute
 
 func New(baseURL, token, username, password string, timeout time.Duration) (*Client, error) {
 	normalized, err := NormalizeBaseURL(baseURL)
@@ -362,11 +369,18 @@ func (c *Client) UserByUsername(ctx context.Context, username string) (*User, er
 // `expireAt` is passed in rather than derived so the caller owns the policy:
 // the site creates web-native accounts already expired, because granting a
 // trial per email address would be a trial per mailbox.
-func (c *Client) CreateUser(ctx context.Context, username string, telegramID *int64, expireAt time.Time) (*User, error) {
+func (c *Client) CreateUser(ctx context.Context, username string, telegramID *int64, expireAt time.Time, squadUUIDs []string) (*User, error) {
 	payload := map[string]any{
 		"username":            username,
 		"expireAt":            expireAt.UTC().Format(time.RFC3339),
 		"activateAllInbounds": true,
+	}
+	// Squad membership is what actually grants servers. An account created
+	// without one is active, has a subscription link, and reaches nothing --
+	// which looks like a working account right up until the customer tries to
+	// connect.
+	if len(squadUUIDs) > 0 {
+		payload["activeInternalSquads"] = squadUUIDs
 	}
 	if telegramID != nil {
 		payload["telegramId"] = *telegramID
@@ -474,4 +488,76 @@ func (c *Client) DeleteDevice(ctx context.Context, ref, hwid string) error {
 	}
 	_, err := c.do(ctx, http.MethodPost, "/hwid/devices/delete", body)
 	return err
+}
+
+// -- squads -----------------------------------------------------------------
+
+type Squad struct {
+	UUID string `json:"uuid"`
+	Name string `json:"name"`
+}
+
+// SquadUUIDByName resolves a configured squad name to the panel's UUID.
+//
+// Squads kept their `uuid` across the version change that took it away from
+// users, so there is only one spelling to handle here. Matched
+// case-insensitively, because the name is typed into a .env by a person and
+// the panel shows it back with whatever capitalisation it was created with.
+//
+// Cached for a few minutes: it is read on every account creation and squads
+// are made by hand, perhaps once.
+func (c *Client) SquadUUIDByName(ctx context.Context, name string) (string, error) {
+	wanted := strings.ToLower(strings.TrimSpace(name))
+	if wanted == "" {
+		return "", errors.New("panel: squad name is empty")
+	}
+
+	c.mu.Lock()
+	cached, fresh := c.squadCache[wanted], time.Since(c.squadCachedAt) < squadCacheTTL
+	c.mu.Unlock()
+	if fresh && cached != "" {
+		return cached, nil
+	}
+
+	raw, err := c.do(ctx, http.MethodGet, "/internal-squads", nil)
+	if err != nil {
+		return "", err
+	}
+	var wrapped struct {
+		InternalSquads []Squad `json:"internalSquads"`
+	}
+	squads := wrapped.InternalSquads
+	if err := json.Unmarshal(raw, &wrapped); err != nil || wrapped.InternalSquads == nil {
+		if err := json.Unmarshal(raw, &squads); err != nil {
+			return "", fmt.Errorf("panel: decode squads: %w", err)
+		}
+	} else {
+		squads = wrapped.InternalSquads
+	}
+
+	found := ""
+	byName := make(map[string]string, len(squads))
+	for _, squad := range squads {
+		key := strings.ToLower(strings.TrimSpace(squad.Name))
+		if squad.UUID != "" {
+			byName[key] = squad.UUID
+		}
+		if key == wanted {
+			found = squad.UUID
+		}
+	}
+
+	c.mu.Lock()
+	c.squadCache, c.squadCachedAt = byName, time.Now()
+	c.mu.Unlock()
+
+	if found == "" {
+		available := make([]string, 0, len(squads))
+		for _, squad := range squads {
+			available = append(available, squad.Name)
+		}
+		return "", fmt.Errorf("panel: squad %q not found; the panel has: %s",
+			name, strings.Join(available, ", "))
+	}
+	return found, nil
 }

@@ -34,6 +34,9 @@ type Config struct {
 	// `/docs` links to cannot drift apart.
 	Links Links
 
+	// PaidSquadName is the squad a paying -- or trialling -- account belongs
+	// in. Same key the bots read, so the two cannot place people differently.
+	PaidSquadName     string
 	FreeTierEnabled   bool
 	LTEEnabled        bool
 	LTEFreeGBPerCycle int
@@ -123,6 +126,7 @@ func Load(envFiles ...string) (*Config, error) {
 			Support: getString("SUPPORT_URL", ""),
 			FAQ:     getString("FAQ_URL", ""),
 		},
+		PaidSquadName:     getString("PAID_SQUAD_NAME", "internal"),
 		FreeTierEnabled:   getBool("FREE_TIER_ENABLED", false),
 		LTEEnabled:        getBool("LTE_ENABLED", false),
 		LTEFreeGBPerCycle: getInt("LTE_FREE_GB_PER_CYCLE", 10),

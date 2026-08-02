@@ -15,7 +15,7 @@ import (
 // make the free period renewable by lapsing.
 
 func service(trialDays int) *Service {
-	return NewService(nil, nil, false, trialDays)
+	return NewService(nil, nil, false, trialDays, "internal")
 }
 
 func user(subscriptionEnds time.Time) *store.User {
