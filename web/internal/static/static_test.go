@@ -299,15 +299,35 @@ func TestCachePolicyMatchesHowOftenAFileCanChange(t *testing.T) {
 		"/assets/fonts/i.woff2":  "immutable",
 		"/assets/img/logo.svg":   "immutable",
 		"/assets/video/hero.mp4": "immutable",
-		// These change under the same name on every deploy.
-		"/assets/css/app.css": "max-age=600",
-		"/assets/js/core.js":  "max-age=600",
+		// These three change under the same name on every deploy and have to
+		// move together, so all of them revalidate.
+		"/assets/css/app.css": "no-cache",
+		"/assets/js/core.js":  "no-cache",
 		"/":                   "no-cache",
 	}
 	for target, want := range cases {
 		got := get(t, h, target, nil).Header.Get("Cache-Control")
 		if !strings.Contains(got, want) {
 			t.Errorf("%s: Cache-Control %q, want it to contain %q", target, got, want)
+		}
+	}
+}
+
+func TestScriptsAndMarkupCannotGoOutOfStepAfterADeploy(t *testing.T) {
+	// A `max-age` on scripts once let a returning visitor run the previous
+	// JavaScript against current markup for ten minutes after a deploy, with
+	// nothing observable to explain it. Whatever the policy becomes, the page
+	// and the code it loads must revalidate on the same terms.
+	h := newTestHandler(t, Options{})
+
+	page := get(t, h, "/", nil).Header.Get("Cache-Control")
+	for _, asset := range []string{"/assets/css/app.css", "/assets/js/core.js"} {
+		got := get(t, h, asset, nil).Header.Get("Cache-Control")
+		if got != page {
+			t.Errorf("%s is cached as %q but the page it belongs to is %q", asset, got, page)
+		}
+		if strings.Contains(got, "max-age") && !strings.Contains(got, "max-age=0") {
+			t.Errorf("%s may be reused without revalidating: %q", asset, got)
 		}
 	}
 }

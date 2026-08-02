@@ -268,21 +268,27 @@ func contentTypeFor(name string) string {
 // cachePolicyFor decides how long a browser may keep a file.
 //
 // Fonts, images and video are cached for a year: their content is fixed for a
-// given name, and changing one means shipping a new name. HTML, CSS and
-// JavaScript change on every deploy under the same name, so they revalidate --
-// cheaply, because a matching ETag answers 304 with no body. `no-store` is not
-// used anywhere here: none of these files is secret, and the whole point is
-// that a returning visitor pays for almost none of them.
+// given name, and changing one means shipping a new name.
+//
+// HTML, CSS and JavaScript all revalidate. They change on every deploy *under
+// the same name*, and the three have to move together -- markup that expects
+// new script behaviour paired with a cached old script is a broken page, not a
+// slightly stale one. A `max-age` here bought one saved round trip and cost
+// exactly that: after a deploy, returning visitors ran the previous
+// JavaScript against the current markup for as long as the age lasted, with no
+// way to tell from the outside. Revalidation is cheap -- a matching ETag
+// answers 304 with no body -- and the whole site is about 30 KB.
+//
+// `no-store` is deliberately not used: none of this is secret, and a 304 still
+// saves the transfer.
 func cachePolicyFor(name string) string {
 	switch {
 	case strings.HasPrefix(name, "assets/fonts/"),
 		strings.HasPrefix(name, "assets/img/"),
 		strings.HasPrefix(name, "assets/video/"):
 		return "public, max-age=31536000, immutable"
-	case strings.HasSuffix(name, ".html"):
-		return "no-cache"
 	default:
-		return "public, max-age=600, stale-while-revalidate=86400"
+		return "no-cache"
 	}
 }
 

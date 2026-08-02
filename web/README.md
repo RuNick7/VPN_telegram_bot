@@ -170,10 +170,14 @@ matrix back — a wrong QR code looks exactly like a right one, so "it rendered"
 proves nothing.
 
 Cache policy follows how often a file can change: fonts, images and video are
-`immutable` for a year because a new one means a new filename; HTML, CSS and
-JavaScript revalidate, which a matching ETag answers with a bodyless 304. A
-first visit to the landing page is ~136 KB gzipped, 117 KB of which is the two
-typefaces; every page after that is ~30 KB.
+`immutable` for a year because a new one means a new filename. HTML, CSS and
+JavaScript all revalidate, which a matching ETag answers with a bodyless 304 --
+and they revalidate on the *same* terms deliberately, because they change
+together. A `max-age` on scripts alone once left returning visitors running the
+previous JavaScript against current markup for ten minutes after a deploy, with
+nothing observable to explain it. A first visit to the landing page is ~136 KB
+gzipped, 117 KB of which is the two typefaces; every page after that is ~30 KB
+and mostly 304s.
 
 The background video is decoration on top of a poster that is already in place,
 so it is only fetched on a wide screen, and never when the visitor has asked for
@@ -194,7 +198,8 @@ carries inline script or style, and that nothing loads from a Google origin.
 
 - **No fingerprinted asset filenames.** CSS and JavaScript revalidate on every
   navigation instead of being cached outright. It costs one conditional request
-  each, answered 304 with no body; hashing the names would need a build step,
-  which is the thing this frontend is deliberately without.
+  each, answered 304 with no body; hashing the names would let them be cached
+  outright *and* stay correct, but needs a build step, which is the thing this
+  frontend is deliberately without.
 - **Search-engine niceties.** No `sitemap.xml`, no `robots.txt`. The cabinet is
   `noindex` already; the landing page is the only thing worth indexing.
