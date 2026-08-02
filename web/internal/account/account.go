@@ -92,7 +92,7 @@ func (s *Service) panelExpiry(subscriptionEnds time.Time) time.Time {
 // an expired-on-creation profile costs a paying user nothing.
 func (s *Service) EnsureProfile(ctx context.Context, user *store.User) (*panel.User, error) {
 	if user.RemnawaveUUID != nil && *user.RemnawaveUUID != "" {
-		profile, err := s.panel.UserByUUID(ctx, *user.RemnawaveUUID)
+		profile, err := s.panel.UserByRef(ctx, *user.RemnawaveUUID)
 		if err == nil {
 			return profile, nil
 		}
@@ -103,7 +103,18 @@ func (s *Service) EnsureProfile(ctx context.Context, user *store.User) (*panel.U
 		// name lookups rather than reporting the user as having no account.
 	}
 
-	for _, name := range []string{user.RemnawaveUsername, panel.LegacyUsername(user.TelegramID)} {
+	// The name we would create is checked too, and last, so a profile that
+	// exists but was never recorded on our side is still found. Without it a
+	// create that succeeded at the panel while failing to store its identifier
+	// -- a crash, a lost response, two concurrent first requests -- leaves the
+	// account unreachable forever, and every later request retries the create
+	// and is told the name is taken. That is exactly what happened in
+	// production against a panel version that returns no `uuid`.
+	for _, name := range []string{
+		user.RemnawaveUsername,
+		panel.LegacyUsername(user.TelegramID),
+		panel.UsernameFor(user.ID),
+	} {
 		if name == "" {
 			continue
 		}
@@ -153,17 +164,24 @@ func (s *Service) EnsureProfile(ctx context.Context, user *store.User) (*panel.U
 // Failing to store it costs one extra lookup next time and nothing else, so
 // it is logged rather than returned.
 func (s *Service) rememberPanelIdentity(ctx context.Context, user *store.User, profile *panel.User) {
-	if profile == nil || profile.UUID == "" {
+	ref := profile.Ref()
+	if ref == "" {
+		// Nothing to remember means nothing can find this account again, and
+		// the next request will try to create it and be told the name is
+		// taken -- forever. Loud, because it is unrecoverable without a code
+		// change: the panel returned neither `uuid` nor `id`.
+		slog.Error("panel returned an account with no identifier",
+			"user", user.ID, "username", profile.Username)
 		return
 	}
-	if user.RemnawaveUUID != nil && *user.RemnawaveUUID == profile.UUID {
+	if user.RemnawaveUUID != nil && *user.RemnawaveUUID == ref {
 		return
 	}
-	if err := s.store.SetPanelIdentity(ctx, user.ID, profile.UUID, profile.Username); err != nil {
+	if err := s.store.SetPanelIdentity(ctx, user.ID, ref, profile.Username); err != nil {
 		slog.Warn("could not store panel identity", "user", user.ID, "err", err)
 		return
 	}
-	uuid := profile.UUID
+	uuid := ref
 	user.RemnawaveUUID, user.RemnawaveUsername = &uuid, profile.Username
 }
 
@@ -185,7 +203,7 @@ func (s *Service) ResetLink(ctx context.Context, user *store.User) (string, erro
 	if err != nil {
 		return "", err
 	}
-	revoked, err := s.panel.RevokeSubscription(ctx, profile.UUID)
+	revoked, err := s.panel.RevokeSubscription(ctx, profile.Ref())
 	if err != nil {
 		return "", err
 	}
@@ -218,7 +236,7 @@ func (s *Service) Devices(ctx context.Context, user *store.User) ([]Device, *int
 	if err != nil {
 		return nil, nil, err
 	}
-	raw, err := s.panel.Devices(ctx, profile.UUID)
+	raw, err := s.panel.Devices(ctx, profile.Ref())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -252,13 +270,13 @@ func (s *Service) DeleteDevice(ctx context.Context, user *store.User, deviceID s
 	if err != nil {
 		return err
 	}
-	raw, err := s.panel.Devices(ctx, profile.UUID)
+	raw, err := s.panel.Devices(ctx, profile.Ref())
 	if err != nil {
 		return err
 	}
 	for _, device := range raw {
 		if device.HWID != "" && DeviceID(device.HWID) == deviceID {
-			return s.panel.DeleteDevice(ctx, profile.UUID, device.HWID)
+			return s.panel.DeleteDevice(ctx, profile.Ref(), device.HWID)
 		}
 	}
 	return ErrDeviceNotFound
@@ -282,7 +300,7 @@ func (s *Service) ExtendSubscription(ctx context.Context, user *store.User, days
 	// By UUID, not by name: legacy accounts and new ones are named
 	// differently, and patching a name that does not exist would silently
 	// update nothing while reporting success.
-	if err := s.panel.SetExpiryByUUID(ctx, profile.UUID, s.panelExpiry(newEnds)); err != nil {
+	if err := s.panel.SetExpiryByRef(ctx, profile.Ref(), s.panelExpiry(newEnds)); err != nil {
 		return newEnds, err
 	}
 	return newEnds, nil

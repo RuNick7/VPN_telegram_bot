@@ -253,17 +253,62 @@ func unwrap(raw []byte) json.RawMessage {
 
 // -- users ------------------------------------------------------------------
 
+// User is a panel account.
+//
+// Two generations of the panel identify these differently: older ones give
+// every user a `uuid`, newer ones dropped it and address users by a numeric
+// `id`. Both fields are decoded and `Ref` picks whichever is present, so one
+// client works against either -- which matters because the production panel
+// and the one this is tested against are not the same version, and a flag day
+// between them is not something a VPN can afford.
 type User struct {
-	UUID            string `json:"uuid"`
-	Username        string `json:"username"`
-	SubscriptionURL string `json:"subscriptionUrl"`
-	ExpireAt        string `json:"expireAt"`
-	Status          string `json:"status"`
-	HWIDDeviceLimit *int   `json:"hwidDeviceLimit"`
+	UUID            string      `json:"uuid"`
+	ID              json.Number `json:"id"`
+	Username        string      `json:"username"`
+	SubscriptionURL string      `json:"subscriptionUrl"`
+	ExpireAt        string      `json:"expireAt"`
+	Status          string      `json:"status"`
+	HWIDDeviceLimit *int        `json:"hwidDeviceLimit"`
 }
 
-func (c *Client) UserByUUID(ctx context.Context, userUUID string) (*User, error) {
-	raw, err := c.do(ctx, http.MethodGet, "/users/"+url.PathEscape(userUUID), nil)
+// Ref is how this panel wants the account addressed: in a URL path, and as the
+// identifier in a PATCH body. Empty only if the panel returned neither field,
+// which means we cannot act on the account at all.
+func (u *User) Ref() string {
+	if u == nil {
+		return ""
+	}
+	if u.UUID != "" {
+		return u.UUID
+	}
+	return u.ID.String()
+}
+
+// numericRef reports whether a ref is a newer panel's numeric id.
+//
+// A UUID is never all digits, so the two forms cannot be confused. This is
+// what lets a ref stored in the database be used later without also having to
+// record which generation of panel produced it.
+func numericRef(ref string) (int64, bool) {
+	n, err := strconv.ParseInt(ref, 10, 64)
+	return n, err == nil && ref != ""
+}
+
+// identify names an account in a request body the way the panel expects:
+// `id` as a number on newer panels, `uuid` as a string on older ones.
+func identify(ref string) map[string]any {
+	if id, ok := numericRef(ref); ok {
+		return map[string]any{"id": id}
+	}
+	return map[string]any{"uuid": ref}
+}
+
+// UserByRef fetches an account by whichever identifier this panel uses.
+func (c *Client) UserByRef(ctx context.Context, ref string) (*User, error) {
+	if ref == "" {
+		return nil, ErrUserNotFound
+	}
+	raw, err := c.do(ctx, http.MethodGet, "/users/"+url.PathEscape(ref), nil)
 	if errors.Is(err, ErrNotFound) {
 		return nil, ErrUserNotFound
 	}
@@ -274,7 +319,7 @@ func (c *Client) UserByUUID(ctx context.Context, userUUID string) (*User, error)
 	if err := json.Unmarshal(raw, &user); err != nil {
 		return nil, fmt.Errorf("panel: decode user: %w", err)
 	}
-	if user.UUID == "" {
+	if user.Ref() == "" {
 		return nil, ErrUserNotFound
 	}
 	return &user, nil
@@ -293,7 +338,7 @@ func (c *Client) UserByUsername(ctx context.Context, username string) (*User, er
 	var nested struct {
 		User *User `json:"user"`
 	}
-	if err := json.Unmarshal(raw, &nested); err == nil && nested.User != nil && nested.User.UUID != "" {
+	if err := json.Unmarshal(raw, &nested); err == nil && nested.User != nil && nested.User.Ref() != "" {
 		return nested.User, nil
 	}
 	var user User
@@ -336,11 +381,10 @@ func (c *Client) CreateUser(ctx context.Context, username string, telegramID *in
 // Addressed by UUID rather than by name because the two kinds of account are
 // named differently -- legacy ones str(telegram_id), new ones u-<uuid> -- and
 // patching a name that does not exist updates nothing while returning success.
-func (c *Client) SetExpiryByUUID(ctx context.Context, userUUID string, expireAt time.Time) error {
-	_, err := c.do(ctx, http.MethodPatch, "/users", map[string]any{
-		"uuid":     userUUID,
-		"expireAt": expireAt.UTC().Format(time.RFC3339),
-	})
+func (c *Client) SetExpiryByRef(ctx context.Context, ref string, expireAt time.Time) error {
+	body := identify(ref)
+	body["expireAt"] = expireAt.UTC().Format(time.RFC3339)
+	_, err := c.do(ctx, http.MethodPatch, "/users", body)
 	return err
 }
 
@@ -350,8 +394,8 @@ func (c *Client) SetExpiryByUUID(ctx context.Context, userUUID string, expireAt 
 // its own documentation recommends over supplying one. Rotates the link only:
 // expiry, traffic counters and squad membership are untouched, and registered
 // devices survive -- they simply stop working until the new link is imported.
-func (c *Client) RevokeSubscription(ctx context.Context, userUUID string) (*User, error) {
-	raw, err := c.do(ctx, http.MethodPost, "/users/"+url.PathEscape(userUUID)+"/actions/revoke", nil)
+func (c *Client) RevokeSubscription(ctx context.Context, ref string) (*User, error) {
+	raw, err := c.do(ctx, http.MethodPost, "/users/"+url.PathEscape(ref)+"/actions/revoke", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -380,8 +424,8 @@ type Device struct {
 // way, and an empty list is the honest thing to show for them. DeleteDevice
 // below is strict for the mirror-image reason -- there a silent no-op would
 // tell a user their device was removed when it was not.
-func (c *Client) Devices(ctx context.Context, userUUID string) ([]Device, error) {
-	raw, err := c.do(ctx, http.MethodGet, "/hwid/devices/"+url.PathEscape(userUUID), nil)
+func (c *Client) Devices(ctx context.Context, ref string) ([]Device, error) {
+	raw, err := c.do(ctx, http.MethodGet, "/hwid/devices/"+url.PathEscape(ref), nil)
 	if errors.Is(err, ErrNotFound) {
 		return nil, nil
 	}
@@ -401,10 +445,13 @@ func (c *Client) Devices(ctx context.Context, userUUID string) ([]Device, error)
 	return devices, nil
 }
 
-func (c *Client) DeleteDevice(ctx context.Context, userUUID, hwid string) error {
-	_, err := c.do(ctx, http.MethodPost, "/hwid/devices/delete", map[string]string{
-		"userUuid": userUUID,
-		"hwid":     hwid,
-	})
+func (c *Client) DeleteDevice(ctx context.Context, ref, hwid string) error {
+	body := map[string]any{"hwid": hwid}
+	if id, ok := numericRef(ref); ok {
+		body["userId"] = id
+	} else {
+		body["userUuid"] = ref
+	}
+	_, err := c.do(ctx, http.MethodPost, "/hwid/devices/delete", body)
 	return err
 }
