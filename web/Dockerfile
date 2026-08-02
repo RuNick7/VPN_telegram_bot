@@ -1,7 +1,11 @@
 # Build context is the repo root (see docker-compose.yml), matching the other
 # images here -- they all need files from outside their own directory.
 
-FROM golang:1.24-alpine AS build
+# Must be >= the `go` directive in web/go.mod. The official images set
+# GOTOOLCHAIN=local, so a base older than that fails at `go mod download`
+# rather than quietly fetching a newer toolchain -- which is the behaviour you
+# want, but it does mean the two have to be bumped together.
+FROM golang:1.25-alpine AS build
 WORKDIR /src
 
 # Dependencies first: this layer is only invalidated when go.mod/go.sum change,
