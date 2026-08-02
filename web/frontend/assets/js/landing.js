@@ -84,24 +84,39 @@ function attachHeroVideo() {
  * fetching anyway, it becomes a button rather than nothing.
  */
 function setUpHeroBackground() {
-  if (!worthFetching()) return;
-
-  if (!prefersReducedMotion()) {
-    attachHeroVideo();
-    return;
-  }
-
   const button = $("[data-play-bg]");
-  if (!button) return;
-  button.hidden = false;
-  button.addEventListener(
-    "click",
-    () => {
-      button.hidden = true;
+  let settled = false;
+
+  const decide = () => {
+    if (settled || !worthFetching()) return;
+    settled = true;
+
+    if (!prefersReducedMotion()) {
       attachHeroVideo();
-    },
-    { once: true }
-  );
+      return;
+    }
+    if (!button) return;
+    button.hidden = false;
+    button.addEventListener(
+      "click",
+      () => {
+        button.hidden = true;
+        attachHeroVideo();
+      },
+      { once: true }
+    );
+  };
+
+  decide();
+
+  // Re-asked when the viewport crosses the threshold, because the first answer
+  // is only as good as the moment it was asked in: a window that starts narrow
+  // and is dragged wider, a phone turned sideways, or a tab that was in the
+  // background while the page loaded would otherwise keep the still image for
+  // as long as it stays open. `settled` means this only ever adds the video,
+  // never takes it away mid-visit.
+  const wide = window.matchMedia("(min-width: 64rem)");
+  wide.addEventListener("change", decide);
 }
 
 // -- content --------------------------------------------------------------
