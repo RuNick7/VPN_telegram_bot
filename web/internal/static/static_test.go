@@ -56,13 +56,13 @@ func TestCleanURLsResolveToTheirPage(t *testing.T) {
 	h := newTestHandler(t, Options{})
 
 	for target, want := range map[string]string{
-		"/":             "home",
-		"/login":        "login",
-		"/auth/verify":  "verify",
-		"/app":          "app",
-		"/app/plans":    "plans",
-		"/app/devices":  "devices",
-		"/app/profile":  "profile",
+		"/":            "home",
+		"/login":       "login",
+		"/auth/verify": "verify",
+		"/app":         "app",
+		"/app/plans":   "plans",
+		"/app/devices": "devices",
+		"/app/profile": "profile",
 	} {
 		response := get(t, h, target, nil)
 		if response.StatusCode != http.StatusOK {

@@ -23,18 +23,18 @@ func TestTheAPIOwnsItsPathsAndTheSiteOwnsTheRest(t *testing.T) {
 	handler := routes(apiHandler, site)
 
 	cases := map[string]string{
-		"/api/health":            "api",
-		"/api/me":                "api",
-		"/api/payments/abc":      "api",
-		"/auth/telegram":         "api",
-		"/":                      "site",
-		"/login":                 "site",
-		"/auth/verify":           "site",
-		"/app/devices":           "site",
-		"/gift/ABC":              "site",
-		"/assets/css/app.css":    "site",
-		"/apifoo":                "site", // not a prefix match on /api/
-		"/auth/telegram/extra":   "site",
+		"/api/health":          "api",
+		"/api/me":              "api",
+		"/api/payments/abc":    "api",
+		"/auth/telegram":       "api",
+		"/":                    "site",
+		"/login":               "site",
+		"/auth/verify":         "site",
+		"/app/devices":         "site",
+		"/gift/ABC":            "site",
+		"/assets/css/app.css":  "site",
+		"/apifoo":              "site", // not a prefix match on /api/
+		"/auth/telegram/extra": "site",
 	}
 	for target, want := range cases {
 		recorder := httptest.NewRecorder()

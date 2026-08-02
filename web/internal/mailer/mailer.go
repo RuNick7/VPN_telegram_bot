@@ -9,6 +9,7 @@ package mailer
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"mime"
@@ -31,6 +32,10 @@ type Mailer struct {
 	cfg Config
 	// send is swapped in tests. Production always uses sendSMTP.
 	send func(cfg Config, to, subject, body string) error
+	// rootCAs is set only by tests, so Verify can be exercised against a
+	// self-signed server. Unexported and never populated by New, so production
+	// always validates against the system roots.
+	rootCAs *x509.CertPool
 }
 
 func New(cfg Config) (*Mailer, error) {
@@ -89,6 +94,65 @@ func (m *Mailer) Describe() string {
 	}
 	return fmt.Sprintf("host %s:%d\n  %s\n  auth: %s\n  from: %s",
 		m.cfg.Host, m.cfg.Port, tlsMode, auth, m.cfg.From)
+}
+
+func (m *Mailer) tlsConfig() *tls.Config {
+	return &tls.Config{
+		ServerName: m.cfg.Host,
+		MinVersion: tls.VersionTLS12,
+		RootCAs:    m.rootCAs, // nil in production: use the system roots
+	}
+}
+
+// Verify opens a connection, negotiates TLS, authenticates and hangs up.
+//
+// Everything a send does except the send. That is the difference worth having:
+// it proves the port is open, that the TLS mode matches it and that the
+// credentials are accepted, without putting a message in anybody's inbox --
+// so it can be run as often as needed while a hosting provider is still
+// opening the port, and it does not spend an allowance or touch a reputation.
+func (m *Mailer) Verify() error {
+	addr := net.JoinHostPort(m.cfg.Host, fmt.Sprint(m.cfg.Port))
+
+	var client *smtp.Client
+	var err error
+
+	if m.cfg.StartTLS {
+		conn, dialErr := net.DialTimeout("tcp", addr, 15*time.Second)
+		if dialErr != nil {
+			return fmt.Errorf("mailer: dial %s: %w", addr, dialErr)
+		}
+		client, err = smtp.NewClient(conn, m.cfg.Host)
+		if err != nil {
+			return fmt.Errorf("mailer: smtp handshake: %w", err)
+		}
+		defer client.Close()
+		if ok, _ := client.Extension("STARTTLS"); !ok {
+			return errors.New("smtp: server doesn't support STARTTLS")
+		}
+		if err := client.StartTLS(m.tlsConfig()); err != nil {
+			return fmt.Errorf("mailer: starttls: %w", err)
+		}
+	} else {
+		dialer := &net.Dialer{Timeout: 15 * time.Second}
+		conn, dialErr := tls.DialWithDialer(dialer, "tcp", addr,
+			m.tlsConfig())
+		if dialErr != nil {
+			return fmt.Errorf("mailer: dial %s: %w", addr, dialErr)
+		}
+		client, err = smtp.NewClient(conn, m.cfg.Host)
+		if err != nil {
+			return fmt.Errorf("mailer: smtp handshake: %w", err)
+		}
+		defer client.Close()
+	}
+
+	if m.cfg.Username != "" {
+		if err := client.Auth(smtp.PlainAuth("", m.cfg.Username, m.cfg.Password, m.cfg.Host)); err != nil {
+			return fmt.Errorf("mailer: auth: %w", err)
+		}
+	}
+	return client.Quit()
 }
 
 func sendSMTP(cfg Config, to, subject, body string) error {

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -45,10 +46,20 @@ func main() {
 	// same config loader, as the thing whose behaviour it is predicting.
 	testMailTo := flag.String("check-smtp", "",
 		"send a test message to this address and exit, instead of serving")
+	// Separate from the above because it answers a different question and is
+	// safe to run repeatedly: while a hosting provider is still opening the
+	// outbound port, this can be retried as often as needed without spending a
+	// sending allowance or mailing anybody.
+	checkOnly := flag.Bool("check-smtp-auth", false,
+		"connect and authenticate without sending anything, then exit")
 	flag.Parse()
 
-	if *testMailTo != "" {
-		if err := checkSMTP(*testMailTo); err != nil {
+	if *testMailTo != "" || *checkOnly {
+		if err := checkSMTP(*testMailTo, *testMailTo != ""); err != nil {
+			// Printed here rather than swallowed: this command exists to
+			// explain a failure, so exiting non-zero in silence would defeat
+			// the whole point of it.
+			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
 		return

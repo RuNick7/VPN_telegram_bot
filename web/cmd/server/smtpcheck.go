@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/config"
@@ -22,7 +23,7 @@ import (
 //
 // Nothing else is started: no database connection, no panel client, no
 // listener. That way it is usable before the rest of the deployment exists.
-func checkSMTP(recipient string) error {
+func checkSMTP(recipient string, sendMessage bool) error {
 	// Validation errors are reported but not fatal: DATABASE_URL and the panel
 	// credentials have nothing to do with sending mail, and someone testing
 	// SMTP early may not have set them yet.
@@ -44,6 +45,23 @@ func checkSMTP(recipient string) error {
 	})
 	if err != nil {
 		return err
+	}
+
+	if !sendMessage {
+		fmt.Printf("Connecting and authenticating. No message will be sent.\n  %s\n\n", ml.Describe())
+		if err := ml.Verify(); err != nil {
+			fmt.Printf("FAILED\n\n%v\n\n%s\n", err, diagnose(err, cfg.SMTP))
+			return errors.New("smtp check failed")
+		}
+		// Named from os.Args so the suggestion is copy-pasteable whether this
+		// was `go run ./cmd/server` or a binary shipped to a host with no Go
+		// toolchain on it -- which is the normal case for the second half.
+		fmt.Printf("Port open, TLS negotiated, credentials accepted.\n\n"+
+			"Nothing was sent. What this does not prove is that the provider will accept\n"+
+			"mail from this From address -- that depends on the sending domain being\n"+
+			"verified in their panel. Run with an address to find out:\n\n"+
+			"    %s -check-smtp you@example.com\n", os.Args[0])
+		return nil
 	}
 
 	fmt.Printf("Sending a test message.\n  %s\n  to: %s\n\n", ml.Describe(), recipient)
