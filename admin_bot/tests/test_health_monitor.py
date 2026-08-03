@@ -123,3 +123,71 @@ def test_report_includes_the_failure_reason():
 def test_report_truncates_a_huge_error():
     message = format_stale_job(JOB, stale_state(minutes_ago=25, error="x" * 5000), 600)
     assert len(message) < 600
+
+
+# -- a job that has not run yet --------------------------------------------
+
+
+def never_ran() -> dict:
+    """
+    What `find_stale` returns for a job with no row at all.
+
+    Distinct from "attempted and never succeeded": there is no attempt either,
+    which right after a start means the job has not had its first tick.
+    """
+    return {
+        "job_name": JOB,
+        "last_attempt_at": None,
+        "last_success_at": None,
+        "last_error": None,
+        "consecutive_failures": 0,
+        "last_duration_ms": None,
+    }
+
+
+async def test_a_job_that_has_not_run_yet_is_not_reported_right_after_a_start(free_tier_on):
+    """
+    The false alarm this fixes.
+
+    Both monitors run on the same interval, so whichever fires first sees an
+    empty `job_runs` and calls the other dead. Switching LTE_ENABLED on
+    produced exactly that: an alert for a job that ran fine four minutes later.
+    """
+    from app.scheduler.jobs import service_health_monitor
+
+    service_health_monitor._started_at = time.time()
+    jobs = AsyncMock()
+    jobs.find_stale = AsyncMock(return_value=never_ran())
+
+    assert await _check_jobs(jobs) == []
+
+
+async def test_a_job_that_has_still_not_run_much_later_is_reported(free_tier_on, monkeypatch):
+    """
+    Past the threshold, silence really is a fault -- a job that was never
+    registered looks identical to one that is working until somebody checks.
+    """
+    from app.scheduler.jobs import service_health_monitor
+
+    monkeypatch.setattr(service_health_monitor, "_started_at", time.time() - 3600)
+    jobs = AsyncMock()
+    jobs.find_stale = AsyncMock(return_value=never_ran())
+
+    issues = await _check_jobs(jobs)
+    assert "ни одного успешного прохода" in issues[0]
+
+
+async def test_a_job_that_has_run_and_failed_is_reported_immediately(free_tier_on):
+    """
+    The grace period is only for jobs with no attempt at all. One that has run
+    and never succeeded is broken now, whatever the process uptime.
+    """
+    from app.scheduler.jobs import service_health_monitor
+
+    service_health_monitor._started_at = time.time()
+    jobs = AsyncMock()
+    jobs.find_stale = AsyncMock(return_value=stale_state(minutes_ago=None, error="boom"))
+
+    issues = await _check_jobs(jobs)
+    assert "ни одного успешного прохода" in issues[0]
+    assert "boom" in issues[0]

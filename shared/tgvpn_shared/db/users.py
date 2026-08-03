@@ -626,17 +626,20 @@ class UserRepository:
         is_referred: bool = False,
         nurture_stage: int = 0,
         reminded: bool = False,
+        email: str | None = None,
     ) -> None:
         pool = await get_pool()
         await pool.execute(
             """
             INSERT INTO users (
                 telegram_id, subscription_ends, reminded, telegram_tag,
-                gifted_subscriptions, referred_people, referrer_tag, is_referred, nurture_stage
-            ) VALUES ($1, to_timestamp($2), $3, $4, $5, $6, $7, $8, $9)
+                gifted_subscriptions, referred_people, referrer_tag, is_referred,
+                nurture_stage, email
+            ) VALUES ($1, to_timestamp($2), $3, $4, $5, $6, $7, $8, $9, $10)
             """,
             telegram_id, subscription_ends, bool(reminded), telegram_tag,
-            gifted_subscriptions, referred_people, referrer_tag or "", bool(is_referred), nurture_stage,
+            gifted_subscriptions, referred_people, referrer_tag or "", bool(is_referred),
+            nurture_stage, (email or "").strip().lower() or None,
         )
 
     async def upsert_subscription_expire(self, telegram_id: int, subscription_ends: int) -> None:
@@ -686,6 +689,18 @@ class UserRepository:
     async def delete_subscription_user(self, telegram_id: int) -> bool:
         pool = await get_pool()
         result = await pool.execute("DELETE FROM users WHERE telegram_id = $1", telegram_id)
+        return result != "DELETE 0"
+
+    async def delete_user_row(self, user_id: str) -> bool:
+        """
+        Delete by our own id, which every account has.
+
+        The two helpers below match on `telegram_tag` or `telegram_id`, and an
+        account that signed up on the website has neither -- so deleting one
+        matched nothing and reported success anyway.
+        """
+        pool = await get_pool()
+        result = await pool.execute("DELETE FROM users WHERE id = $1::uuid", user_id)
         return result != "DELETE 0"
 
     async def delete_subscription_user_by_username(self, username: str) -> bool:

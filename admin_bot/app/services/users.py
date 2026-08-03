@@ -46,6 +46,7 @@ class UserService:
         traffic_limit_bytes: Optional[int] = None,
         tag: Optional[str] = None,
         hwid_device_limit: Optional[int] = None,
+        email: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Create a new user with a default expiration."""
         if expire_at is None:
@@ -71,6 +72,10 @@ class UserService:
                 telegram_id=telegram_id,
                 subscription_ends=int(expire_at.timestamp()),
                 telegram_tag=username,
+                # Optional, and the reason it is worth asking for: an account
+                # with an address can sign in to the website. Without one it
+                # exists only in the bot.
+                email=email,
             )
         return user
 

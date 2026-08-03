@@ -47,6 +47,9 @@ class UserCreateState(StatesGroup):
     traffic_limit_bytes = State()
     tag = State()
     telegram_id = State()
+    # Optional, like every step after the username. An account created here can
+    # sign in on the website once it has one, and could not before.
+    email = State()
     hwid_device_limit = State()
 
 

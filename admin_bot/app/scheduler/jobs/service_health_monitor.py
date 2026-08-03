@@ -37,6 +37,17 @@ WEBHOOK_TIMEOUT_SECONDS = 5
 
 _last_alert_ts: float | None = None
 
+# When this process came up.
+#
+# A job that has never succeeded is normally a real fault -- it was never
+# registered, or it throws on every tick. Right after a start it means
+# something else entirely: the job simply has not had its first tick yet.
+# Both monitors run on the same interval, so whichever fires first sees an
+# empty `job_runs` and reports the other as dead. That is what happened the
+# moment LTE_ENABLED was switched on: an alert for a job that ran fine four
+# minutes later.
+_started_at = time.time()
+
 
 def _stale_after_seconds() -> int:
     """
@@ -127,11 +138,23 @@ async def _check_jobs(jobs: JobRunRepository) -> list[str]:
     if settings.lte_enabled:
         watched.append(lte_traffic_monitor.JOB_NAME)
 
+    # A job that has never run gets until the threshold to have its first tick.
+    # Beyond that, silence really is a fault -- but complaining inside that
+    # window turns every deploy that enables a feature into a false alarm.
+    young = (time.time() - _started_at) < threshold
+
     issues = []
     for job_name in watched:
         state = await jobs.find_stale(job_name, threshold)
-        if state is not None:
-            issues.append(format_stale_job(job_name, state, threshold))
+        if state is None:
+            continue
+        if young and not state.get("last_attempt_at"):
+            logger.info(
+                "%s has not run yet and this process is %.0fs old; not alerting",
+                job_name, time.time() - _started_at,
+            )
+            continue
+        issues.append(format_stale_job(job_name, state, threshold))
     return issues
 
 

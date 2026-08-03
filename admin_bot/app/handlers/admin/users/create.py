@@ -24,6 +24,7 @@ from app.handlers.admin.users.common import (
     DATE_FOREVER,
     create_expire_keyboard,
     skip_keyboard,
+    users_repo,
 )
 from app.services.users import user_service
 from app.states.admin import UserCreateState
@@ -32,6 +33,9 @@ router = Router(name="admin_users_create")
 
 # Panel usernames for bot-created accounts are the Telegram ID itself.
 USERNAME_RE = re.compile(r"^\d{6,20}$")
+# Deliberately loose: anything stricter rejects real addresses, and the point
+# here is to catch a typed-in name rather than to validate a mailbox.
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]{2,}$")
 BYTES_PER_GB = 1024**3
 
 
@@ -51,6 +55,17 @@ async def _ask_telegram_id(target: Message, state: FSMContext) -> None:
         UserCreateState.telegram_id,
         "Введите telegram_id (или пропустите):",
         "telegram_id",
+    )
+
+
+async def _ask_email(target: Message, state: FSMContext) -> None:
+    await _advance(
+        target,
+        state,
+        UserCreateState.email,
+        "Введите email (или пропустите).\n"
+        "С ним пользователь сможет войти в кабинет на сайте — без него только через бота:",
+        "email",
     )
 
 
@@ -150,11 +165,32 @@ async def receive_telegram_id(message: Message, state: FSMContext):
         await message.answer("❌ Введите числовой telegram_id или нажмите Пропустить.")
         return
     await state.update_data(telegram_id=int(text))
-    await _ask_hwid(message, state)
+    await _ask_email(message, state)
 
 
 @router.callback_query(F.data == "admin:new_user:skip:telegram_id")
 async def skip_telegram_id(callback: CallbackQuery, state: FSMContext):
+    await _ask_email(callback.message, state)
+    await callback.answer()
+
+
+@router.message(UserCreateState.email)
+async def receive_email(message: Message, state: FSMContext):
+    email = (message.text or "").strip().lower()
+    if not EMAIL_RE.fullmatch(email):
+        await message.answer("❌ Похоже, это не email. Введите адрес или нажмите Пропустить.")
+        return
+    # Refused rather than overwritten: the address is a sign-in route, and
+    # moving one onto a new account would take it off whoever holds it.
+    if await users_repo.get_user_by_email(email):
+        await message.answer("❌ Этот email уже занят другим аккаунтом. Введите другой или пропустите.")
+        return
+    await state.update_data(email=email)
+    await _ask_hwid(message, state)
+
+
+@router.callback_query(F.data == "admin:new_user:skip:email")
+async def skip_email(callback: CallbackQuery, state: FSMContext):
     await _ask_hwid(callback.message, state)
     await callback.answer()
 
@@ -188,12 +224,14 @@ async def _finalize(message: Message, state: FSMContext) -> None:
             # themselves, which is the only sensible default here.
             telegram_id=data.get("telegram_id") or message.from_user.id,
             hwid_device_limit=data.get("hwid_device_limit"),
+            email=data.get("email"),
         )
         await message.answer(
             "✅ Пользователь создан.\n"
             f"Username: {user.get('username')}\n"
             f"UUID: {user.get('uuid')}\n"
             f"Sub URL: {user.get('subscription_url') or user.get('subscriptionUrl')}"
+            + (f"\nEmail: {data['email']}" if data.get("email") else "")
         )
     except socket.gaierror:
         await message.answer(

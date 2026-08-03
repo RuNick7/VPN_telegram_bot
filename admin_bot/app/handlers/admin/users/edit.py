@@ -18,6 +18,7 @@ from app.handlers.admin.pagination import (
     register_view,
 )
 from app.handlers.admin.users.common import (
+    HANDLE_PROMPT,
     DATE_FOREVER,
     count_users,
     edit_again_keyboard,
@@ -27,6 +28,8 @@ from app.handlers.admin.users.common import (
     expire_at_of,
     fetch_users_page,
     parse_iso_datetime,
+    find_db_row,
+    find_panel_user,
     telegram_id_of,
     users_repo,
 )
@@ -145,7 +148,7 @@ async def start_edit(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "admin:edit_user:username")
 async def prompt_username(callback: CallbackQuery, state: FSMContext):
     await state.set_state(UserEditState.username)
-    await callback.message.answer("Введите username пользователя для редактирования:")
+    await callback.message.answer(HANDLE_PROMPT)
     await callback.answer()
 
 
@@ -190,13 +193,25 @@ async def select_from_list(callback: CallbackQuery, state: FSMContext):
 
 @router.message(UserEditState.username)
 async def select_by_username(message: Message, state: FSMContext):
-    username = (message.text or "").strip()
+    """
+    Open the edit menu for whoever the admin named.
+
+    Any handle: a Telegram ID, an email, a @tag, our UUID, or the panel
+    username. It used to accept the panel username alone, which an admin
+    rarely has and a website account is not named after.
+    """
+    needle = (message.text or "").strip()
     try:
-        user = await user_service.get_user_by_username(username)
-        if not user.get("uuid"):
-            await message.answer("❌ Пользователь не найден.")
+        row = await find_db_row(needle)
+        user, name = await find_panel_user(needle, row)
+        if not user:
+            await message.answer(
+                "❌ Аккаунт в Remnawave не найден."
+                + ("\nℹ️ В базе запись есть — панельный профиль удалён или ещё не создан."
+                   if row else "")
+            )
             return
-        await _open_field_menu(message, state, user, username)
+        await _open_field_menu(message, state, user, name)
     except Exception as exc:
         await message.answer(f"❌ Ошибка: {exc}")
 

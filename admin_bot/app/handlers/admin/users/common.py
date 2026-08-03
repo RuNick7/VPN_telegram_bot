@@ -72,7 +72,99 @@ async def count_users() -> int:
     return total
 
 
-async def delete_user_everywhere(user_uuid: str | None, username: str, telegram_id: int | None) -> str:
+# -- finding a user by whatever the admin typed ----------------------------
+
+# What every "type who you mean" prompt accepts. Written once because all
+# three flows -- search, edit, delete -- ask the same question and used to
+# accept three different answers.
+HANDLE_PROMPT = (
+    "Введите telegram_id, email, @ник, наш UUID или имя аккаунта в панели:"
+)
+
+
+async def find_db_row(needle: str) -> dict | None:
+    """
+    Find our own row for whatever the admin actually typed.
+
+    A Telegram ID alone stopped being enough once people could sign up on the
+    website: those accounts have none, so an admin searching for one was told
+    the user does not exist. Email and our internal id are the handles they do
+    have, and the panel username is what an operator sees in Remnawave and is
+    the most likely thing to be copied out of it.
+    """
+    needle = needle.strip()
+    if not needle:
+        return None
+
+    if needle.isdigit():
+        row = await users_repo.get_user_by_id(int(needle))
+        return dict(row) if row else None
+
+    if "@" in needle:
+        row = await users_repo.get_user_by_email(needle.lstrip("@"))
+        if row:
+            return dict(row)
+        # Not an address after all -- try it as a @tag.
+        row = await users_repo.get_user_by_tag(needle.lstrip("@"))
+        return dict(row) if row else None
+
+    for lookup in (
+        users_repo.get_user_by_uuid,
+        users_repo.get_user_by_panel_username,
+        users_repo.get_user_by_tag,
+    ):
+        row = await lookup(needle)
+        if row:
+            return dict(row)
+    return None
+
+
+def panel_names_for(needle: str, row: dict | None) -> list[str]:
+    """
+    Names to try in the panel, most authoritative first.
+
+    The stored panel username is what we recorded when the account was made.
+    `str(telegram_id)` is what accounts created before the identity rework are
+    called. Whatever was typed is the fallback, and is right when the admin
+    copied a username straight out of Remnawave.
+    """
+    candidates = [needle]
+    if row:
+        telegram_id = row.get("telegram_id")
+        candidates = [
+            name
+            for name in (
+                row.get("remnawave_username"),
+                str(telegram_id) if telegram_id else None,
+                needle,
+            )
+            if name
+        ]
+    # Preserve order, drop repeats.
+    return list(dict.fromkeys(candidates))
+
+
+async def find_panel_user(needle: str, row: dict | None) -> tuple[dict | None, str | None]:
+    """
+    The panel account for this person, and the name it answered to.
+
+    Returns `(None, None)` rather than raising when the panel has nothing:
+    an account can legitimately exist on our side only, and every caller has
+    something useful to say about that.
+    """
+    for name in panel_names_for(needle, row):
+        found = await user_service.get_user_by_username(name)
+        if found and found.get("uuid"):
+            return found, name
+    return None, None
+
+
+async def delete_user_everywhere(
+    user_uuid: str | None,
+    username: str,
+    telegram_id: int | None,
+    row_id: str | None = None,
+) -> str:
     """
     Remove a user from the panel and from our database.
 
@@ -85,7 +177,12 @@ async def delete_user_everywhere(user_uuid: str | None, username: str, telegram_
         await user_service.delete_user(user_uuid)
         deleted_in_panel = True
 
-    if telegram_id:
+    if row_id:
+        # By our own id when we have it. The fallbacks below match on
+        # telegram_tag or telegram_id, and a website account has neither -- so
+        # its row survived a deletion that reported success.
+        deleted_in_db = await users_repo.delete_user_row(row_id)
+    elif telegram_id:
         deleted_in_db = await users_repo.delete_subscription_user(int(telegram_id))
     else:
         deleted_in_db = await users_repo.delete_subscription_user_by_username(username)
@@ -142,13 +239,19 @@ def edit_expire_keyboard() -> InlineKeyboardMarkup:
 
 
 def _search_mode_keyboard(prefix: str) -> InlineKeyboardMarkup:
-    """"Pick from a list" vs "type the username" -- the entry point for
-    both the edit and delete flows."""
+    """
+    "Pick from a list" vs "type who you mean" -- the entry point for both the
+    edit and delete flows.
+
+    The second button no longer says "username": these prompts take a Telegram
+    ID, an email, a @tag, our UUID or the panel name, and naming only the one
+    handle an admin is least likely to have was hiding the other four.
+    """
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="📋 Показать список", callback_data=f"{prefix}:list"),
-                InlineKeyboardButton(text="✍️ Ввести username", callback_data=f"{prefix}:username"),
+                InlineKeyboardButton(text="✍️ Найти по ID / почте", callback_data=f"{prefix}:username"),
             ]
         ]
     )

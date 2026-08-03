@@ -9,13 +9,14 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from app.handlers.admin.users.common import (
+    HANDLE_PROMPT,
     days_left,
     escape,
     expire_at_of,
+    find_db_row,
+    find_panel_user,
     is_online,
-    users_repo,
 )
-from app.services.users import user_service
 from app.states.admin import UserSearchState
 
 router = Router(name="admin_users_search")
@@ -30,15 +31,49 @@ def _fmt_ts_utc(ts: int | None) -> str:
         return str(ts)
 
 
+def _days_from_epoch(subscription_ends: int | None) -> str:
+    """Whole days left on the subscription we recorded, `-` if there is none."""
+    if not subscription_ends:
+        return "-"
+    remaining = int(subscription_ends) - int(datetime.now(tz=timezone.utc).timestamp())
+    return str(max(0, remaining // 86400)) if remaining > 0 else "истекла"
+
+
+def build_summary(row: dict) -> list[str]:
+    """
+    The four things an admin actually opened this search to see.
+
+    Everything below in the report is a comparison between two systems, which
+    is what you read when something is wrong. This is what you read when
+    nothing is: who this is, how to reach them, and how long they have left.
+    """
+    ends = row.get("subscription_ends")
+    return [
+        "<b>Кратко</b>",
+        f"Telegram ID: <code>{escape(row.get('telegram_id') or '—')}</code>",
+        f"Ник: <code>{'@' + str(row['telegram_tag']) if row.get('telegram_tag') else '—'}</code>",
+        f"Почта: <code>{escape(row.get('email') or '—')}</code>",
+        f"Осталось дней: <b>{escape(_days_from_epoch(ends))}</b>"
+        + (f" (до {_fmt_ts_utc(ends)})" if ends else ""),
+    ]
+
+
 def build_report(needle: str, panel_user: dict | None, db_rows: list[dict]) -> str:
     """
-    Side-by-side view of what each system knows about one Telegram ID.
+    Side-by-side view of what each system knows about one account.
 
     Showing both is the point: the two drifting apart (a panel account with no
     subscription row, or the reverse) is exactly what an admin runs this
-    search to diagnose.
+    search to diagnose. The summary above it is for the other nine times out of
+    ten, when nothing has drifted and the question is simply who this is.
     """
-    lines = [f"🔎 Поиск пользователя: <code>{escape(needle)}</code>", "", "<b>Remnawave</b>"]
+    lines = [f"🔎 Поиск пользователя: <code>{escape(needle)}</code>", ""]
+
+    if db_rows:
+        lines.extend(build_summary(db_rows[0]))
+        lines.append("")
+
+    lines.append("<b>Remnawave</b>")
 
     if panel_user:
         expire_at = expire_at_of(panel_user) or "-"
@@ -80,44 +115,10 @@ def build_report(needle: str, panel_user: dict | None, db_rows: list[dict]) -> s
     return "\n".join(lines)
 
 
-async def find_db_rows(needle: str) -> list[dict]:
-    """
-    Find a user by whatever the admin actually typed.
-
-    Telegram ID alone stopped being enough once people could sign up on the
-    website: those accounts have no Telegram ID at all, so an admin searching
-    for one would be told the user does not exist. Email and our internal id
-    are the handles they do have; the panel username is what an operator sees
-    in Remnawave and is the most likely thing to be copied from there.
-    """
-    if needle.isdigit():
-        row = await users_repo.get_user_by_id(int(needle))
-        return [dict(row)] if row else []
-
-    if "@" in needle:
-        row = await users_repo.get_user_by_email(needle.lstrip("@"))
-        if row:
-            return [dict(row)]
-        # Not an address after all -- try it as a @tag.
-        row = await users_repo.get_user_by_tag(needle.lstrip("@"))
-        return [dict(row)] if row else []
-
-    row = await users_repo.get_user_by_uuid(needle)
-    if row:
-        return [dict(row)]
-    row = await users_repo.get_user_by_panel_username(needle)
-    if row:
-        return [dict(row)]
-    row = await users_repo.get_user_by_tag(needle)
-    return [dict(row)] if row else []
-
-
 @router.callback_query(F.data == "admin:user_search")
 async def start_search(callback: CallbackQuery, state: FSMContext):
     await state.set_state(UserSearchState.telegram_id)
-    await callback.message.answer(
-        "Введите telegram_id, email, @ник, наш UUID или имя аккаунта в панели:"
-    )
+    await callback.message.answer(HANDLE_PROMPT)
     await callback.answer()
 
 
@@ -129,32 +130,21 @@ async def handle_search_input(message: Message, state: FSMContext):
         return
 
     try:
-        db_rows = await find_db_rows(needle)
+        row = await find_db_row(needle)
     except Exception as exc:
         await message.answer(f"⚠️ Ошибка чтения базы данных: {exc}")
         await state.clear()
         return
 
-    # Ask the panel by the name it would actually know this user under: their
-    # recorded panel username first, then whatever was typed.
-    panel_names = [needle]
-    if db_rows:
-        stored = db_rows[0].get("remnawave_username")
-        telegram_id = db_rows[0].get("telegram_id")
-        panel_names = [n for n in (stored, str(telegram_id) if telegram_id else None, needle) if n]
-
     panel_user: dict | None = None
-    for name in panel_names:
-        try:
-            found = await user_service.get_user_by_username(name)
-        except Exception as exc:
-            # Report and keep going -- the database half of the report is
-            # still useful when the panel is unreachable.
-            await message.answer(f"⚠️ Ошибка запроса к Remnawave: {exc}")
-            break
-        if found:
-            panel_user = found
-            break
+    try:
+        panel_user, _ = await find_panel_user(needle, row)
+    except Exception as exc:
+        # Report and keep going -- the database half of the report is still
+        # useful when the panel is unreachable.
+        await message.answer(f"⚠️ Ошибка запроса к Remnawave: {exc}")
 
-    await message.answer(build_report(needle, panel_user, db_rows), parse_mode="HTML")
+    await message.answer(
+        build_report(needle, panel_user, [row] if row else []), parse_mode="HTML"
+    )
     await state.clear()

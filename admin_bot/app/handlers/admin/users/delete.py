@@ -14,10 +14,13 @@ from app.handlers.admin.pagination import (
     register_view,
 )
 from app.handlers.admin.users.common import (
+    HANDLE_PROMPT,
     count_users,
     delete_start_keyboard,
     delete_user_everywhere,
     fetch_users_page,
+    find_db_row,
+    find_panel_user,
     telegram_id_of,
 )
 from app.services.users import user_service
@@ -67,7 +70,7 @@ async def start_delete(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "admin:del:username")
 async def prompt_username(callback: CallbackQuery, state: FSMContext):
     await state.set_state(UserDeleteState.username)
-    await callback.message.answer("Введите username пользователя для удаления:")
+    await callback.message.answer(HANDLE_PROMPT)
     await callback.answer()
 
 
@@ -117,17 +120,30 @@ async def delete_from_list(callback: CallbackQuery):
 
 @router.message(UserDeleteState.username)
 async def delete_by_username(message: Message, state: FSMContext):
-    username = (message.text or "").strip()
-    try:
-        user = await user_service.get_user_by_username(username)
-        user_uuid = user.get("uuid")
-        note = "" if user_uuid else "\nℹ️ Пользователь не найден в Remnawave."
+    """
+    Delete whoever the admin named, by any handle they have.
 
-        where = await delete_user_everywhere(user_uuid, username, telegram_id_of(user, username))
+    A Telegram ID, an email, a @tag, our UUID or the panel username -- the
+    same set every other flow accepts. The row is deleted by our own id when
+    we found one, which is the only handle a website account has.
+    """
+    needle = (message.text or "").strip()
+    try:
+        row = await find_db_row(needle)
+        user, name = await find_panel_user(needle, row)
+        user_uuid = (user or {}).get("uuid")
+        note = "" if user_uuid else "\nℹ️ Аккаунт в Remnawave не найден."
+
+        where = await delete_user_everywhere(
+            user_uuid,
+            name or needle,
+            telegram_id_of(user or {}, name or needle),
+            row_id=str(row["id"]) if row else None,
+        )
         if not where:
             await message.answer("❌ Пользователь не найден ни в Remnawave, ни в БД.")
             return
-        await message.answer(f"✅ Пользователь {username} удален из: {where}.{note}")
+        await message.answer(f"✅ Пользователь {name or needle} удален из: {where}.{note}")
     except Exception as exc:
         await message.answer(f"❌ Ошибка при удалении: {exc}")
     finally:
