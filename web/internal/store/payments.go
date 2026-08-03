@@ -21,16 +21,24 @@ import (
 // payment's status at all. Postgres is the integration point; the rule is
 // enforced by absence.
 
-// InsertPendingPayment records a payment the site just created at YooKassa.
+// InsertPendingPayment records a payment the site just created at YooKassa,
+// along with whose it is and what it was for.
 //
-// ON CONFLICT DO NOTHING because the payment ID comes from YooKassa and is
-// already unique; a retry of our own request must not error, and must
-// especially not reset a status the webhook has since written.
-func (s *Store) InsertPendingPayment(ctx context.Context, paymentID string) error {
+// The status column is still untouchable -- ON CONFLICT leaves it exactly as
+// found, so a retry of our own request cannot reset something the webhook has
+// since written. The other three columns are new and are the reason this is
+// worth writing at all: a payment stuck in `processing_error` used to be a
+// bare id, and working out who had paid meant reading the YooKassa dashboard
+// and matching timestamps by hand.
+func (s *Store) InsertPendingPayment(ctx context.Context, paymentID, userID, purpose string, days int) error {
 	_, err := s.pool.Exec(ctx,
-		`INSERT INTO payments (payment_id, status) VALUES ($1, 'pending')
-		 ON CONFLICT (payment_id) DO NOTHING`,
-		paymentID)
+		`INSERT INTO payments (payment_id, status, user_id, purpose, days)
+		 VALUES ($1, 'pending', $2, $3, $4)
+		 ON CONFLICT (payment_id) DO UPDATE
+		 SET user_id = COALESCE(payments.user_id, EXCLUDED.user_id),
+		     purpose = CASE WHEN payments.purpose = '' THEN EXCLUDED.purpose ELSE payments.purpose END,
+		     days    = CASE WHEN payments.days = 0 THEN EXCLUDED.days ELSE payments.days END`,
+		paymentID, userID, purpose, days)
 	return err
 }
 

@@ -31,8 +31,14 @@ from app.states.admin import UserCreateState
 
 router = Router(name="admin_users_create")
 
-# Panel usernames for bot-created accounts are the Telegram ID itself.
-USERNAME_RE = re.compile(r"^\d{6,20}$")
+# What a panel account may be called.
+#
+# Two shapes, because the project has two. Accounts created before the identity
+# rework are named after the Telegram ID; everything created since is named
+# `u-<16 hex>` by `identity.panel_username_for`, and a website account has no
+# Telegram ID to be named after at all. Accepting only the first meant the
+# admin bot could not create the kind of account the website makes.
+USERNAME_RE = re.compile(r"^(?:\d{6,20}|u-[0-9a-f]{6,32})$")
 # Deliberately loose: anything stricter rejects real addresses, and the point
 # here is to catch a typed-in name rather than to validate a mailbox.
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]{2,}$")
@@ -83,18 +89,22 @@ async def _ask_hwid(target: Message, state: FSMContext) -> None:
 async def start_create(callback: CallbackQuery, state: FSMContext):
     await state.set_state(UserCreateState.username)
     await callback.message.answer(
-        "Введите username для нового пользователя.\n"
-        "Требования: только цифры (Telegram ID), минимум 6 символов."
+        "Введите username для нового пользователя.\n\n"
+        "• только цифры (Telegram ID), от 6 знаков — как у аккаунтов из бота\n"
+        "• или <code>u-</code> и 6–32 hex-символа — как у аккаунтов с сайта",
+        parse_mode="HTML",
     )
     await callback.answer()
 
 
 @router.message(UserCreateState.username)
 async def receive_username(message: Message, state: FSMContext):
-    username = (message.text or "").strip()
+    username = (message.text or "").strip().lower()
     if not USERNAME_RE.fullmatch(username):
         await message.answer(
-            "❌ Некорректный username. Нужны только цифры (Telegram ID), минимум 6 символов."
+            "❌ Некорректный username.\n"
+            "Нужны либо цифры (Telegram ID, от 6 знаков), либо <code>u-</code> и 6–32 hex-символа.",
+            parse_mode="HTML",
         )
         return
     await state.update_data(username=username)
@@ -214,24 +224,41 @@ async def skip_hwid(callback: CallbackQuery, state: FSMContext):
 async def _finalize(message: Message, state: FSMContext) -> None:
     """Create the user from everything collected, then reset the form."""
     data = await state.get_data()
+    telegram_id = data.get("telegram_id")
+    email = data.get("email")
+
+    # A skipped Telegram ID used to fall back to the *sender's* -- so an admin
+    # creating an account for somebody else, and skipping the step because they
+    # did not know it, attached that account to their own. With an email there
+    # is now a real alternative identity; with neither, the account exists in
+    # the panel alone and the reply says so rather than guessing.
+    if not telegram_id and not email:
+        # Derive the numeric case from the username, which for a bot-style name
+        # *is* the Telegram ID. Nothing is guessed for a `u-...` name.
+        if str(data.get("username", "")).isdigit():
+            telegram_id = int(data["username"])
+
     try:
         user = await user_service.create_user(
             username=data["username"],
             expire_at=data.get("expire_at"),
             traffic_limit_bytes=data.get("traffic_limit_bytes"),
             tag=data.get("tag"),
-            # No telegram_id given means the admin is creating an account for
-            # themselves, which is the only sensible default here.
-            telegram_id=data.get("telegram_id") or message.from_user.id,
+            telegram_id=telegram_id,
             hwid_device_limit=data.get("hwid_device_limit"),
-            email=data.get("email"),
+            email=email,
         )
+        identity = (
+            f"\nTelegram ID: {telegram_id}" if telegram_id else ""
+        ) + (f"\nEmail: {email}" if email else "")
+        if not identity:
+            identity = "\n⚠️ Ни telegram_id, ни email — аккаунт есть только в панели."
         await message.answer(
             "✅ Пользователь создан.\n"
             f"Username: {user.get('username')}\n"
             f"UUID: {user.get('uuid')}\n"
             f"Sub URL: {user.get('subscription_url') or user.get('subscriptionUrl')}"
-            + (f"\nEmail: {data['email']}" if data.get("email") else "")
+            + identity
         )
     except socket.gaierror:
         await message.answer(

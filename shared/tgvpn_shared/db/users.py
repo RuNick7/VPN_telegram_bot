@@ -691,6 +691,42 @@ class UserRepository:
         result = await pool.execute("DELETE FROM users WHERE telegram_id = $1", telegram_id)
         return result != "DELETE 0"
 
+    async def admin_set_email(self, user_id: str, email: str | None) -> bool:
+        """
+        Set or clear an account's address, by our own id.
+
+        Keyed on `id` rather than `telegram_id` on purpose: the accounts whose
+        address is most worth correcting are the ones that arrived through the
+        website, and those have no Telegram ID to be addressed by.
+        """
+        pool = await get_pool()
+        result = await pool.execute(
+            "UPDATE users SET email = $1 WHERE id = $2::uuid",
+            (email or "").strip().lower() or None, user_id,
+        )
+        return result != "UPDATE 0"
+
+    async def insert_web_user(self, email: str, subscription_ends: int) -> str:
+        """
+        Create an account that has no Telegram identity, and return its id.
+
+        The shape the website makes: an address and nothing else. The admin bot
+        could not produce one -- `insert_subscription_user` requires a Telegram
+        ID -- so an operator creating an account for somebody who does not use
+        Telegram had no way to do it.
+        """
+        pool = await get_pool()
+        return str(
+            await pool.fetchval(
+                """
+                INSERT INTO users (email, subscription_ends, created_at)
+                VALUES ($1, to_timestamp($2), now())
+                RETURNING id
+                """,
+                email.strip().lower(), subscription_ends,
+            )
+        )
+
     async def delete_user_row(self, user_id: str) -> bool:
         """
         Delete by our own id, which every account has.
@@ -745,7 +781,20 @@ class UserRepository:
                 )                                                     AS with_referrer,
                 COUNT(*) FILTER (WHERE is_referred)                   AS referrals_awarded,
                 COALESCE(SUM(referred_people), 0)                     AS referred_people,
-                COALESCE(SUM(gifted_subscriptions), 0)                AS gifted_subscriptions
+                COALESCE(SUM(gifted_subscriptions), 0)                AS gifted_subscriptions,
+                -- Where people come from, and how many end up with both
+                -- identities. These are the numbers that say whether the
+                -- 7+7 trial is doing anything: without them the split is
+                -- a guess.
+                COUNT(*) FILTER (WHERE telegram_id IS NOT NULL)       AS from_telegram,
+                COUNT(*) FILTER (
+                    WHERE telegram_id IS NULL AND email IS NOT NULL
+                )                                                     AS from_website,
+                COUNT(*) FILTER (
+                    WHERE telegram_id IS NOT NULL AND email IS NOT NULL
+                )                                                     AS both_identities,
+                COUNT(*) FILTER (WHERE trial_link_granted)            AS link_bonus_granted,
+                COUNT(*) FILTER (WHERE merged_into IS NOT NULL)       AS merged_away
             FROM users
             """,
             expiring_within_days,

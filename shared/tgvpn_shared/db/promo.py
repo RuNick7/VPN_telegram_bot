@@ -61,6 +61,62 @@ class PromoRepository:
             code, promo_type, value, bool(is_active), bool(one_time),
         )
 
+    async def recent_gifts(self, limit: int = 20) -> list[asyncpg.Record]:
+        """
+        The latest gifts, with who bought each and whether it has been used.
+
+        Redemption is read from `promo_usage` rather than stored on the code,
+        because that table is what the claim actually writes -- a second copy
+        of "has this been used" could disagree with the one the redemption
+        path enforces.
+        """
+        pool = await get_pool()
+        return await pool.fetch(
+            """
+            SELECT
+                p.code,
+                p.value                              AS days,
+                p.created_at,
+                p.creator_id,
+                buyer.email                          AS buyer_email,
+                buyer.telegram_tag                   AS buyer_tag,
+                buyer.telegram_id                    AS buyer_telegram_id,
+                usage.used_at                        AS redeemed_at,
+                taker.telegram_tag                   AS taker_tag,
+                taker.email                          AS taker_email
+            FROM promo_codes p
+            LEFT JOIN users buyer ON buyer.id = p.creator_user_id
+            LEFT JOIN LATERAL (
+                SELECT user_id, used_at FROM promo_usage
+                WHERE code = p.code ORDER BY used_at LIMIT 1
+            ) usage ON TRUE
+            LEFT JOIN users taker ON taker.id = usage.user_id
+            WHERE p.type = 'gift'
+            ORDER BY p.created_at DESC
+            LIMIT $1
+            """,
+            limit,
+        )
+
+    async def gift_stats(self) -> dict:
+        """How many gifts exist and how many have been used."""
+        pool = await get_pool()
+        row = await pool.fetchrow(
+            """
+            SELECT
+                COUNT(*)                                            AS total,
+                COUNT(*) FILTER (
+                    WHERE EXISTS (SELECT 1 FROM promo_usage u WHERE u.code = p.code)
+                )                                                   AS redeemed,
+                COUNT(*) FILTER (
+                    WHERE p.created_at >= now() - INTERVAL '30 days'
+                )                                                   AS last_month
+            FROM promo_codes p
+            WHERE p.type = 'gift'
+            """
+        )
+        return dict(row) if row else {}
+
     async def delete_promo_code(self, code: str) -> bool:
         pool = await get_pool()
         result = await pool.execute("DELETE FROM promo_codes WHERE code = $1", code)

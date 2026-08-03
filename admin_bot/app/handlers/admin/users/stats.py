@@ -84,6 +84,17 @@ def build_report(
         f"• За неделю: <b>{db.get('new_week', 0)}</b>",
         f"• За месяц: <b>{db.get('new_month', 0)}</b>",
         "",
+        # Where people arrive from and how many end up with both identities.
+        # These are the numbers that say whether the 7+7 trial is working:
+        # the bonus is only paid for connecting the second one, so
+        # "both identities" against "bonus granted" is the whole mechanic.
+        "<b>Откуда пришли</b>",
+        f"• Из Telegram: <b>{db.get('from_telegram', 0)}</b>",
+        f"• С сайта (только почта): <b>{db.get('from_website', 0)}</b>",
+        f"• Обе личности: <b>{db.get('both_identities', 0)}</b>",
+        f"• Бонус за привязку начислен: <b>{db.get('link_bonus_granted', 0)}</b>",
+        f"• Объединено аккаунтов: <b>{db.get('merged_away', 0)}</b>",
+        "",
         "<b>Рефералы и подарки</b>",
         f"• Указали пригласившего: <b>{db.get('with_referrer', 0)}</b>",
         f"• Бонусов начислено: <b>{db.get('referrals_awarded', 0)}</b>",

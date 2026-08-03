@@ -2,7 +2,7 @@
 
 from aiogram import Router
 
-from app.handlers.admin import broadcast, hosts_quick, menu, promo, users
+from app.handlers.admin import broadcast, gifts, hosts_quick, menu, payments, promo, users
 from app.middlewares import AdminAccessMiddleware
 
 router = Router(name="admin")
@@ -18,3 +18,5 @@ router.include_router(users.router)
 router.include_router(promo.router)
 router.include_router(broadcast.router)
 router.include_router(hosts_quick.router)
+router.include_router(gifts.router)
+router.include_router(payments.router)

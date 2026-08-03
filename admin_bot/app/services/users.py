@@ -67,15 +67,35 @@ class UserService:
         if user_uuid:
             await self._assign_internal_squad(str(user_uuid), username)
 
+        # Our own row, so the account exists to the rest of the system and not
+        # only to the panel.
+        #
+        # Which shape depends on what identity it has. A Telegram ID keys the
+        # row as it always did; an address alone makes the website kind, which
+        # this could not create before -- an admin who typed an email and
+        # skipped the Telegram ID got a row keyed to *their own* account,
+        # because the caller defaulted the missing ID to the sender's.
+        row_id: str | None = None
         if telegram_id is not None:
             await _users_repo.insert_subscription_user(
                 telegram_id=telegram_id,
                 subscription_ends=int(expire_at.timestamp()),
                 telegram_tag=username,
-                # Optional, and the reason it is worth asking for: an account
-                # with an address can sign in to the website. Without one it
-                # exists only in the bot.
                 email=email,
+            )
+            row = await _users_repo.get_user_by_id(telegram_id)
+            row_id = str(row["id"]) if row else None
+        elif email:
+            row_id = await _users_repo.insert_web_user(
+                email=email, subscription_ends=int(expire_at.timestamp())
+            )
+
+        # Record which panel account is theirs. Without it every later lookup
+        # falls back to guessing the name, and for a `u-...` account there is
+        # nothing to guess from.
+        if row_id and user_uuid:
+            await _users_repo.set_panel_identity(
+                row_id, remnawave_uuid=str(user_uuid), remnawave_username=username
             )
         return user
 

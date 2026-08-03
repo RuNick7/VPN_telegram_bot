@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 
 from aiogram import F, Router
@@ -75,10 +76,18 @@ VIEW = register_view(PagedView(name="edit", size=PAGE_SIZE, render=render, count
 
 async def _open_field_menu(target: Message, state: FSMContext, user: dict, username: str) -> None:
     """Remember which user is being edited and offer the field picker."""
+    telegram_id = telegram_id_of(user, username)
+    # Our own row id, resolved once here. It is the only handle a website
+    # account has, and the fields keyed on it -- the address, so far -- would
+    # otherwise have nothing to address.
+    row = await find_db_row(username) or (
+        await find_db_row(str(telegram_id)) if telegram_id else None
+    )
     await state.update_data(
         user_uuid=user.get("uuid"),
         username=username,
-        telegram_id=telegram_id_of(user, username),
+        telegram_id=telegram_id,
+        row_id=str(row["id"]) if row else None,
         expire_at=expire_at_of(user),
     )
     await state.set_state(UserEditState.field)
@@ -232,6 +241,11 @@ async def choose_field(callback: CallbackQuery, state: FSMContext):
             "Введите @ник пригласившего (или <code>-</code>, чтобы очистить).\n\n"
             "Бонус пригласившему начислится при следующей оплате этого пользователя."
         ),
+        "email": (
+            "Введите новый email (или <code>-</code>, чтобы удалить).\n\n"
+            "Это способ входа на сайт: после смены ссылка для входа будет "
+            "приходить на новый адрес, а по старому войти уже нельзя."
+        ),
     }
     if field == "expire_at":
         await callback.message.answer(
@@ -379,7 +393,11 @@ async def receive_value(message: Message, state: FSMContext):
 
 # Fields that live only in our database -- the panel has no concept of them, so
 # these skip `apply_update` (which would send them to Remnawave) entirely.
-DB_ONLY_FIELDS = {"referrer_tag", "referred_people", "lte_free_gb", "lte_balance_gb"}
+DB_ONLY_FIELDS = {"referrer_tag", "referred_people", "lte_free_gb", "lte_balance_gb", "email"}
+
+# Deliberately loose: anything stricter rejects real addresses, and what
+# actually decides whether an address works is whether mail reaches it.
+EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]{2,}$")
 
 # Typed instead of a nickname to clear the referrer.
 CLEAR_TOKENS = {"-", "—", "none", "нет", "очистить"}
@@ -409,6 +427,48 @@ def parse_count_input(text: str) -> tuple[int, bool] | None:
     return (-value if text[0] == "-" else value), relative
 
 
+async def _apply_email_update(message: Message, data: dict, text: str) -> None:
+    """
+    Change or clear the address an account signs in with.
+
+    Refused when somebody else holds it rather than moved: the address is a
+    way into an account, and reassigning one would take that way off whoever
+    has it. Clearing is allowed, but only for an account that has another
+    identity -- otherwise it would be left with no route in at all.
+    """
+    row_id = data.get("row_id")
+    if not row_id:
+        await message.answer(
+            "❌ У этого аккаунта нет записи в нашей базе — почту хранить негде."
+        )
+        return
+
+    if text.lower() in CLEAR_TOKENS:
+        if not data.get("telegram_id"):
+            await message.answer(
+                "❌ Нельзя удалить почту: это единственный способ войти в аккаунт. "
+                "Сначала привяжите Telegram."
+            )
+            return
+        await users_repo.admin_set_email(row_id, None)
+        await message.answer("✅ Почта удалена.", reply_markup=edit_again_keyboard())
+        return
+
+    email = text.strip().lower()
+    if not EMAIL_RE.fullmatch(email):
+        await message.answer("❌ Похоже, это не email. Введите адрес или <code>-</code>.",
+                             parse_mode="HTML")
+        return
+
+    existing = await users_repo.get_user_by_email(email)
+    if existing and str(existing["id"]) != str(row_id):
+        await message.answer("❌ Этот адрес уже привязан к другому аккаунту.")
+        return
+
+    await users_repo.admin_set_email(row_id, email)
+    await message.answer(f"✅ Почта: {email}", reply_markup=edit_again_keyboard())
+
+
 async def _apply_db_only_update(
     message: Message, state: FSMContext, field: str, text: str
 ) -> None:
@@ -420,6 +480,14 @@ async def _apply_db_only_update(
     """
     data = await state.get_data()
     telegram_id = data.get("telegram_id")
+
+    # The address is keyed on our own id, which every account has -- including
+    # the website ones, which are exactly the accounts whose email is worth
+    # editing and which have no Telegram ID to be addressed by.
+    if field == "email":
+        await _apply_email_update(message, data, text)
+        return
+
     if not telegram_id:
         await message.answer(
             "❌ У этого пользователя нет telegram_id — реферальные поля хранятся "

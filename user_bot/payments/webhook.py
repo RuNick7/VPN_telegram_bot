@@ -282,6 +282,22 @@ async def yookassa_webhook_handler(request: web.Request):
         logger.info("Платёж успешен. Пользователь: %s / tg=%s, дней: %s",
                     (payer or {}).get("id"), telegram_id, days_to_extend)
 
+        # Record whose payment this is and what it was for, from the *verified*
+        # metadata. Only these columns -- the status stays where the claim
+        # above put it. A payment created in the bot had no row until the
+        # webhook wrote one, so without this a bot purchase that failed to
+        # credit was an id and nothing else.
+        if payer is not None:
+            purpose = "gift" if is_gift else ("traffic" if is_lte_purchase else "subscription")
+            try:
+                await _payments.record_intent(
+                    payment_id, str(payer["id"]) if payer.get("id") else None,
+                    purpose, days_to_extend,
+                )
+            except Exception as exc:
+                # Bookkeeping for a screen, never a reason to fail a payment.
+                logger.warning("Не удалось записать назначение платежа %s: %s", payment_id, exc)
+
         # Branch on the payer, not on telegram_id. Gating on the Telegram ID
         # meant a website account -- which has none -- was charged, marked
         # processing_error and never credited, with no alert anywhere.

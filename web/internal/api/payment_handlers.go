@@ -43,6 +43,21 @@ func payerTelegramID(user *store.User) int64 {
 	return *user.TelegramID
 }
 
+// purposeOf names what a payment buys, for the admin bot's attention list.
+//
+// The same three words the Python side records, so a stuck payment reads the
+// same whichever service created it.
+func purposeOf(req yookassa.Request) string {
+	switch {
+	case req.IsGift:
+		return "gift"
+	case req.LTEGigabytes > 0:
+		return "traffic"
+	default:
+		return "subscription"
+	}
+}
+
 func (s *Server) createPayment(w http.ResponseWriter, r *http.Request, req yookassa.Request) {
 	if !s.cfg.PaymentsEnabled() {
 		writeError(w, http.StatusNotImplemented, "payments_disabled", "Оплата временно недоступна.")
@@ -65,7 +80,9 @@ func (s *Server) createPayment(w http.ResponseWriter, r *http.Request, req yooka
 	// not exist at YooKassa. A failure here is logged and not surfaced: the
 	// payment is real and the webhook will insert its own row on confirmation,
 	// so blocking the user from paying would be the worse outcome.
-	if err := s.store.InsertPendingPayment(ctx, payment.ID); err != nil {
+	if err := s.store.InsertPendingPayment(
+		ctx, payment.ID, req.UserID, purposeOf(req), req.DaysToExtend,
+	); err != nil {
 		s.log.Error("record pending payment", "payment_id", payment.ID, "err", err)
 	}
 

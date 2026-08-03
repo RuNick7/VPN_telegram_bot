@@ -284,7 +284,11 @@ def edit_field_keyboard() -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(
                     text="HWID лимит", callback_data="admin:edit_user:field:hwid_device_limit"
-                )
+                ),
+                # The one field here that decides whether the account can be
+                # signed into at all. "Я опечатался при регистрации" had no
+                # answer before this button.
+                InlineKeyboardButton(text="✉️ Почта", callback_data="admin:edit_user:field:email"),
             ],
             [
                 InlineKeyboardButton(

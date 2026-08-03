@@ -32,15 +32,16 @@ def make_state(**data) -> AsyncMock:
 
 def test_db_only_fields_never_reach_the_panel():
     """
-    Remnawave has no concept of referrals or LTE quotas, so these must not be
-    routed through `apply_update` -- doing so would send unknown fields to the
-    panel.
+    Remnawave has no concept of referrals, LTE quotas or our sign-in address,
+    so these must not be routed through `apply_update` -- doing so would send
+    unknown fields to the panel.
     """
     assert DB_ONLY_FIELDS == {
         "referrer_tag",
         "referred_people",
         "lte_free_gb",
         "lte_balance_gb",
+        "email",
     }
 
 

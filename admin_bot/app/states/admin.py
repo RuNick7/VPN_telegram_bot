@@ -105,3 +105,8 @@ class HostQuickCreateState(StatesGroup):
     nodes = State()
     squad = State()
     exclude_confirm = State()
+
+
+class GiftIssueState(StatesGroup):
+    """Issuing a gift by hand -- compensation, or a delivery that went wrong."""
+    days = State()
