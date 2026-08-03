@@ -408,14 +408,7 @@ main {
 }
 
 .app-main {
-  padding-bottom: calc(var(--header) + 1rem);
   min-height: 100vh;
-}
-
-@media (min-width: 64rem) {
-  .app-main {
-    padding-bottom: 0;
-  }
 }
 
 /* -- buttons ------------------------------------------------------------ */
@@ -1255,6 +1248,20 @@ main {
 
 .site-footer a:hover {
   color: var(--ember);
+}
+
+/* The cabinet's tab bar is fixed over the bottom of the viewport on phones, so
+   whatever is last on the page has to clear it. That used to be <main>, which
+   is why the padding lived there; the footer is last now.
+
+   It has to sit *after* `.site-footer` rather than up with the layout rules:
+   `padding-block` above sets both edges at the same specificity, so the later
+   rule wins and this one silently lost -- which put the support link under the
+   tab bar on every cabinet page. */
+@media (max-width: 63.999rem) {
+  .app-footer {
+    padding-bottom: calc(var(--header) + 1.5rem);
+  }
 }
 
 /* -- utility ------------------------------------------------------------ */

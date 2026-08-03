@@ -69,6 +69,53 @@ func fetch(t *testing.T, handler http.Handler, target string) (*http.Response, s
 	return response, string(body)
 }
 
+func TestEveryPageCarriesTheSharedFooter(t *testing.T) {
+	// Every page, including the ones somebody lands on when something has gone
+	// wrong: a 404 and the two token-redeeming pages are exactly where a
+	// visitor needs the documents and a way to reach support, and they are also
+	// the pages easiest to forget.
+	site := newRealSite(t)
+	targets := append(static.PageRoutes(), "/gift/X", "/no-such-page")
+
+	for _, target := range targets {
+		_, body := fetch(t, site, target)
+
+		if !strings.Contains(body, `<footer class="site-footer`) {
+			t.Errorf("%s has no footer", target)
+			continue
+		}
+		for _, doc := range []string{"offer", "refund", "terms", "privacy"} {
+			if !strings.Contains(body, `data-doc="`+doc+`"`) {
+				t.Errorf("%s: footer is missing the %s link", target, doc)
+			}
+		}
+		if !strings.Contains(body, "data-support") {
+			t.Errorf("%s: footer offers no way to reach support", target)
+		}
+		// Without the module the support link stays hidden and the document
+		// links stop following configuration.
+		if !strings.Contains(body, "/assets/js/footer.js") {
+			t.Errorf("%s does not load footer.js", target)
+		}
+	}
+}
+
+func TestACabinetPageGivesItsFooterRoomForTheTabBar(t *testing.T) {
+	// The tab bar is fixed over the bottom of the viewport on phones. A footer
+	// without the modifier that clears it is readable everywhere except the
+	// last two lines, on the only screen size where the bar exists.
+	site := newRealSite(t)
+	for _, target := range static.PageRoutes() {
+		_, body := fetch(t, site, target)
+		if !strings.Contains(body, `class="tabbar"`) {
+			continue
+		}
+		if !strings.Contains(body, `<footer class="site-footer app-footer"`) {
+			t.Errorf("%s has a tab bar but its footer does not clear it", target)
+		}
+	}
+}
+
 func TestEveryRouteOfTheRealSiteRenders(t *testing.T) {
 	site := newRealSite(t)
 

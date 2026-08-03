@@ -7,10 +7,9 @@
  * an edit that will be refused server-side.
  */
 
-import { boot, hydrateIcons, clientConfig } from "./app.js";
+import { boot, hydrateIcons } from "./app.js";
 import {
   $,
-  $$,
   api,
   ApiError,
   copyText,
@@ -158,31 +157,6 @@ async function saveReferrer(event) {
   });
 }
 
-// -- docs -----------------------------------------------------------------
-
-function renderDocs(config) {
-  let published = 0;
-  for (const link of $$("[data-doc]")) {
-    const url = config.docs?.[link.dataset.doc];
-    if (!url) {
-      link.closest("li")?.remove();
-      continue;
-    }
-    link.href = url;
-    link.rel = "noopener";
-    link.target = "_blank";
-    link.hidden = false;
-    published += 1;
-  }
-  $("[data-doc-empty]").hidden = published > 0;
-
-  const support = $("[data-support]");
-  if (config.support_url) {
-    support.href = config.support_url;
-    support.hidden = false;
-  }
-}
-
 // -- boot -----------------------------------------------------------------
 
 boot(async (user) => {
@@ -193,8 +167,6 @@ boot(async (user) => {
   $("[data-tg-copy]").addEventListener("click", (event) =>
     copyText($("[data-tg-link-url]").value, event.currentTarget)
   );
-
-  clientConfig().then(renderDocs);
 
   const [linkStatus, referrals] = await Promise.all([
     api("/api/link/telegram"),

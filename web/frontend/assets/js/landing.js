@@ -126,32 +126,12 @@ function renderPlans(plans) {
   }
 }
 
-function renderDocs(docs, supportURL) {
-  let published = 0;
-  for (const link of $$("[data-doc]")) {
-    const url = docs?.[link.dataset.doc];
-    if (!url) continue;
-    link.href = url;
-    link.rel = "noopener";
-    link.hidden = false;
-    published += 1;
-  }
-  const empty = $("[data-doc-empty]");
-  if (empty) empty.hidden = published > 0;
-
-  const support = $("[data-support]");
-  if (support && supportURL) {
-    support.href = supportURL;
-    support.rel = "noopener";
-    support.hidden = false;
-  }
-}
-
 async function load() {
   const config = await api("/api/config");
 
+  // The footer is not this module's business any more: every page carries the
+  // same one, and assets/js/footer.js fills it on all of them.
   renderPlans(config.plans);
-  renderDocs(config.docs, config.support_url);
 
   const cheapest = (config.plans || []).reduce(
     (min, plan) => (min === null || plan.price < min ? plan.price : min),

@@ -15,6 +15,7 @@
 <link rel="preload" href="/assets/fonts/jetbrains-mono-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/assets/css/app.css">
 <script type="module" src="/assets/js/login.js"></script>
+<script type="module" src="/assets/js/footer.js"></script>
 </head>
 <body>
 <!--icon-sprite-->
@@ -69,13 +70,32 @@
 
       <p class="mono-sm muted">
         Продолжая, вы соглашаетесь с
-        <a class="accent" href="#" data-doc="terms" hidden>пользовательским соглашением</a>
-        <span data-doc-empty hidden>условиями сервиса</span>.
+        <a class="accent" href="/docs/terms" data-doc="terms">пользовательским соглашением</a>.
       </p>
 
     </div>
   </div>
 </main>
+
+<footer class="site-footer">
+  <div class="wrap row between wrap-row">
+    <div class="stack">
+      <span class="mono accent">KairaVPN</span>
+      <p class="mono-sm muted">Доступ к сети без посредников и без журналов.</p>
+    </div>
+    <nav aria-label="Документы">
+      <span class="mono-sm strong">Документы</span>
+      <a class="mono-sm muted" href="/docs/offer" data-doc="offer">Публичная оферта</a>
+      <a class="mono-sm muted" href="/docs/refund" data-doc="refund">Политика возвратов</a>
+      <a class="mono-sm muted" href="/docs/terms" data-doc="terms">Пользовательское соглашение</a>
+      <a class="mono-sm muted" href="/docs/privacy" data-doc="privacy">Политика конфиденциальности</a>
+    </nav>
+    <nav aria-label="Связь">
+      <span class="mono-sm strong">Связь</span>
+      <a class="mono-sm muted" href="#" data-support hidden>Поддержка в Telegram</a>
+    </nav>
+  </div>
+</footer>
 
 </body>
 </html>

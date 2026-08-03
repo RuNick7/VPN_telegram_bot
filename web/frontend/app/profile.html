@@ -12,6 +12,7 @@
 <link rel="preload" href="/assets/fonts/jetbrains-mono-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/assets/css/app.css">
 <script type="module" src="/assets/js/profile.js"></script>
+<script type="module" src="/assets/js/footer.js"></script>
 </head>
 <body>
 <!--icon-sprite-->
@@ -132,14 +133,17 @@
   <section class="section">
     <div class="wrap stack">
       <span class="section-tag">03 // Документы</span>
+      <!-- Real links, not placeholders waiting on /api/config. They are pages
+           of this site, so hiding them until a config call succeeds meant this
+           section could say "готовятся к публикации" directly above a footer
+           linking to all four. -->
       <ul class="checklist">
-        <li><span data-icon="check"></span><a class="accent" href="#" data-doc="offer" hidden>Публичная оферта</a></li>
-        <li><span data-icon="check"></span><a class="accent" href="#" data-doc="refund" hidden>Политика возвратов</a></li>
-        <li><span data-icon="check"></span><a class="accent" href="#" data-doc="terms" hidden>Пользовательское соглашение</a></li>
-        <li><span data-icon="check"></span><a class="accent" href="#" data-doc="privacy" hidden>Политика конфиденциальности</a></li>
+        <li><span data-icon="check"></span><a class="accent" href="/docs/offer" data-doc="offer">Публичная оферта</a></li>
+        <li><span data-icon="check"></span><a class="accent" href="/docs/refund" data-doc="refund">Политика возвратов</a></li>
+        <li><span data-icon="check"></span><a class="accent" href="/docs/terms" data-doc="terms">Пользовательское соглашение</a></li>
+        <li><span data-icon="check"></span><a class="accent" href="/docs/privacy" data-doc="privacy">Политика конфиденциальности</a></li>
       </ul>
-      <p class="mono-sm muted" data-doc-empty hidden>Документы готовятся к публикации. Пока их можно запросить в поддержке.</p>
-      <a class="mono-sm accent" href="#" data-support hidden rel="noopener" target="_blank">Написать в поддержку →</a>
+      <a class="mono-sm accent" href="#" data-support hidden rel="noopener">Написать в поддержку →</a>
     </div>
   </section>
 
@@ -154,6 +158,26 @@
   </section>
 
 </main>
+
+<footer class="site-footer app-footer">
+  <div class="wrap row between wrap-row">
+    <div class="stack">
+      <span class="mono accent">KairaVPN</span>
+      <p class="mono-sm muted">Доступ к сети без посредников и без журналов.</p>
+    </div>
+    <nav aria-label="Документы">
+      <span class="mono-sm strong">Документы</span>
+      <a class="mono-sm muted" href="/docs/offer" data-doc="offer">Публичная оферта</a>
+      <a class="mono-sm muted" href="/docs/refund" data-doc="refund">Политика возвратов</a>
+      <a class="mono-sm muted" href="/docs/terms" data-doc="terms">Пользовательское соглашение</a>
+      <a class="mono-sm muted" href="/docs/privacy" data-doc="privacy">Политика конфиденциальности</a>
+    </nav>
+    <nav aria-label="Связь">
+      <span class="mono-sm strong">Связь</span>
+      <a class="mono-sm muted" href="#" data-support hidden>Поддержка в Telegram</a>
+    </nav>
+  </div>
+</footer>
 
 <nav class="tabbar" aria-label="Разделы кабинета">
   <a href="/app" data-tab><span data-icon="dashboard"></span>Обзор</a>

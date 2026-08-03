@@ -8,7 +8,7 @@
  * so does the copy below.
  */
 
-import { $, $$, api, ApiError, clientConfig, el, flash, clearFlash, safePath, withBusy } from "./core.js";
+import { $, api, ApiError, clientConfig, el, flash, clearFlash, safePath, withBusy } from "./core.js";
 
 const form = $("[data-email-form]");
 const sent = $("[data-sent]");
@@ -112,13 +112,9 @@ clientConfig().then((config) => {
   if (config.telegram_login && config.telegram_bot) {
     mountTelegram(config.telegram_bot);
   }
-  const terms = $('[data-doc="terms"]');
-  if (config.docs?.terms && terms) {
-    terms.href = config.docs.terms;
-    terms.rel = "noopener";
-    terms.hidden = false;
-    for (const node of $$("[data-doc-empty]")) node.hidden = true;
-  } else {
-    for (const node of $$("[data-doc-empty]")) node.hidden = false;
-  }
+  // The agreement link in the sentence above the form is markup now, with a
+  // real href, and assets/js/footer.js repoints it along with every other
+  // [data-doc] on the page. It used to be hidden until this ran and matched
+  // `[data-doc="terms"]` by position -- which the footer's own terms link
+  // would have made ambiguous.
 });
