@@ -142,15 +142,35 @@ export function show(node, visible = true) {
   if (node) node.hidden = !visible;
 }
 
-/** Shows a message in the page's notice slot, or falls back to an alert. */
+/**
+ * Shows a message in the page's notice slot, or falls back to an alert.
+ *
+ * The slot is pinned to the viewport (see `.notice[data-notice]`), so this no
+ * longer depends on the reader happening to be looking at the top of the page.
+ * It carries a dismiss button for the same reason: something fixed over the
+ * content has to be closable, or it sits on the footer until the next action.
+ */
 export function flash(message, kind = "error") {
   const slot = $("[data-notice]");
   if (!slot) {
     alert(message);
     return;
   }
+
+  const close = el("button", {
+    class: "notice-close",
+    type: "button",
+    "aria-label": "Закрыть уведомление",
+  });
+  close.append(icon("close"));
+  close.addEventListener("click", clearFlash);
+
   slot.textContent = "";
-  slot.append(icon(kind === "ok" ? "check-circle" : "warning"), el("span", { text: message }));
+  slot.append(
+    icon(kind === "ok" ? "check-circle" : "warning"),
+    el("span", { text: message }),
+    close
+  );
   slot.dataset.kind = kind;
   slot.hidden = false;
 }

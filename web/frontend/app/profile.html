@@ -69,9 +69,22 @@
             <span data-icon="telegram"></span>
           </div>
           <p class="mono-sm muted" data-tg-note>Проверяем…</p>
-          <div data-tg-linked hidden>
-            <span class="badge" data-kind="on">Привязан</span>
-            <p class="mono-sm strong" data-tg-tag></p>
+          <!-- Deliberately the same shape as the email field beside it: one
+               bordered box holding the handle, one action under it. The two
+               are the same kind of thing -- a way into this account -- and
+               reading as two different kinds made that harder to see. -->
+          <div class="stack" data-tg-linked hidden>
+            <div class="field">
+              <label for="tg-account">Аккаунт</label>
+              <input class="input" id="tg-account" type="text" readonly
+                     data-tg-tag spellcheck="false">
+            </div>
+            <div class="actions">
+              <button class="btn btn-danger btn-sm" type="button" data-tg-unlink>
+                <span data-icon="close"></span> Отвязать
+              </button>
+            </div>
+            <p class="mono-sm muted">После отвязки войти можно будет только по почте. Привязать другой Telegram — тут же.</p>
           </div>
           <div class="stack" data-tg-unlinked hidden>
             <p class="mono-sm muted">После привязки дни подписки с обоих аккаунтов сложатся.</p>

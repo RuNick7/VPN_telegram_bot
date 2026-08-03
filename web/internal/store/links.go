@@ -44,6 +44,59 @@ func (s *Store) UserByIDFollowingMerge(ctx context.Context, id string) (*User, e
 		id))
 }
 
+// DetachTelegram removes the Telegram identity from an account.
+//
+// The account keeps everything else -- subscription, traffic, referrals, panel
+// profile -- because none of it belonged to the Telegram side. What is freed
+// is the identity, so it can be attached somewhere else, or so the person can
+// attach a different one here.
+//
+// The unlink is remembered in `telegram_link_history`, and that is not
+// bookkeeping. The bot creates a fresh account the next time this Telegram ID
+// opens it, and a fresh account comes with a fresh signup trial: without a
+// record, unlink → /start → link back would add seven free days per round
+// trip, indefinitely. The bot asks that table before granting.
+//
+// Returns false when the account had no Telegram to begin with.
+func (s *Store) DetachTelegram(ctx context.Context, userID string) (bool, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback(ctx)
+
+	// Read the ID before clearing it, locked, rather than trying to recover it
+	// from RETURNING -- which reads the row after the update and would need a
+	// sub-select relying on snapshot timing to see the old value.
+	var telegramID *int64
+	err = tx.QueryRow(ctx,
+		`SELECT telegram_id FROM users WHERE id = $1 FOR UPDATE`, userID).Scan(&telegramID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, ErrNotFound
+	}
+	if err != nil {
+		return false, err
+	}
+	if telegramID == nil {
+		return false, nil
+	}
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE users SET telegram_id = NULL, telegram_tag = '' WHERE id = $1`,
+		userID); err != nil {
+		return false, err
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO telegram_link_history (telegram_id, user_id, unlinked_at)
+		 VALUES ($1, $2, now())
+		 ON CONFLICT (telegram_id) DO UPDATE
+		 SET user_id = EXCLUDED.user_id, unlinked_at = EXCLUDED.unlinked_at`,
+		*telegramID, userID); err != nil {
+		return false, err
+	}
+	return true, tx.Commit(ctx)
+}
+
 // PendingLinkToken reports whether a user already has a live, unredeemed link
 // token, so the UI can show the same link again instead of minting a new one
 // every time the page is opened.

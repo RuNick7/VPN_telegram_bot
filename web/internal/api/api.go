@@ -100,6 +100,7 @@ func (s *Server) Routes() http.Handler {
 
 	mux.Handle("GET /api/link/telegram", s.authenticated(s.handleLinkStatus))
 	mux.Handle("POST /api/link/telegram", s.authenticated(s.handleCreateTelegramLink))
+	mux.Handle("DELETE /api/link/telegram", s.authenticated(s.handleUnlinkTelegram))
 
 	return s.withRecovery(s.withSecurityHeaders(mux))
 }

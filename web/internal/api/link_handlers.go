@@ -64,13 +64,58 @@ func (s *Server) handleLinkStatus(w http.ResponseWriter, r *http.Request, user *
 		s.fail(w, r, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	writeJSON(w, http.StatusOK, s.linkStatus(user, pending))
+}
+
+// linkStatus is what the cabinet needs to draw either half of the Telegram
+// block, including whether detaching is offered at all.
+func (s *Server) linkStatus(user *store.User, pending bool) map[string]any {
+	return map[string]any{
 		"linked":       user.TelegramID != nil,
 		"telegram_tag": user.TelegramTag,
 		"link_pending": pending,
 		"can_link":     user.TelegramID == nil && s.cfg.TelegramLoginEnabled(),
+		// Detaching leaves the address as the only way in, so an account
+		// without one cannot be allowed to do it: there would be no route back.
+		"can_unlink":   user.TelegramID != nil && user.Email != "",
 		"telegram_bot": s.cfg.TelegramBotUsername,
-	})
+	}
+}
+
+// handleUnlinkTelegram detaches the Telegram identity from this account.
+//
+// Everything the account owns stays with it -- subscription, traffic,
+// referrals, panel profile -- because none of it belonged to the Telegram
+// side. What changes is who can sign in as this account, which is why it is
+// refused outright when no address has been confirmed: the customer would be
+// deleting their own last key.
+func (s *Server) handleUnlinkTelegram(w http.ResponseWriter, r *http.Request, user *store.User) {
+	if user.TelegramID == nil {
+		writeError(w, http.StatusConflict, "not_linked", "Telegram и так не привязан.")
+		return
+	}
+	if user.Email == "" {
+		writeError(w, http.StatusConflict, "no_other_login",
+			"Сначала добавьте почту — иначе войти в аккаунт будет нечем.")
+		return
+	}
+
+	detached, err := s.store.DetachTelegram(r.Context(), user.ID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if !detached {
+		writeError(w, http.StatusConflict, "not_linked", "Telegram и так не привязан.")
+		return
+	}
+
+	s.log.Info("telegram unlinked", "user", user.ID)
+	// Answered with the fresh state so the page redraws from the server's view
+	// rather than guessing what it now is.
+	user.TelegramID = nil
+	user.TelegramTag = ""
+	writeJSON(w, http.StatusOK, s.linkStatus(user, false))
 }
 
 // randomToken returns 256 bits of entropy, URL-safe. crypto/rand because this

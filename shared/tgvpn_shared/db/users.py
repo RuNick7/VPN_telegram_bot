@@ -347,6 +347,26 @@ class UserRepository:
             days, user_id,
         )
 
+    async def telegram_has_had_its_trial(self, telegram_id: int) -> bool:
+        """
+        Whether this Telegram account has already been through a signup trial.
+
+        Asked before granting one, because a Telegram identity can now be
+        detached from an account on the website. Detaching frees the ID, and
+        the next `/start` builds a fresh row -- which would come with a fresh
+        free week. Unlink, /start, link back, and the merge adds those days to
+        the original account; seven free days per round trip, repeatable.
+
+        `telegram_link_history` remembers every detachment for exactly this.
+        """
+        pool = await get_pool()
+        return bool(
+            await pool.fetchval(
+                "SELECT EXISTS (SELECT 1 FROM telegram_link_history WHERE telegram_id = $1)",
+                telegram_id,
+            )
+        )
+
     async def mark_bonus_offer_shown_in_bot(self, user_id: str) -> None:
         """Record that the bot has made its one offer, so it does not repeat."""
         pool = await get_pool()

@@ -130,9 +130,13 @@ function renderPlatform(platform) {
   panel.append(renderSteps(platform.steps(subscriptionURL)));
 
   if (platform.fallbackNeedsURL && !subscriptionURL) return;
+  // Shown outright rather than behind a disclosure. Somebody reading this
+  // section is already stuck, and asking them to find and open a second
+  // control before the answer appears is a step too many -- the whole page is
+  // instructions, and these are more of them.
   panel.append(
-    el("details", { class: "drop" }, [
-      el("summary", { class: "mono strong", text: "Не получилось подключиться?" }),
+    el("div", { class: "drop" }, [
+      el("h3", { class: "mono strong", text: "Не получилось подключиться?" }),
       renderSteps(platform.fallback(subscriptionURL)),
     ])
   );

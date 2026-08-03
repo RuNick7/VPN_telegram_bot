@@ -114,11 +114,16 @@ async def _render_main_menu(
         # recorded. The other order left the panel granting the days while our
         # row still said zero -- and nothing revisited it, because the next
         # /start sees the row and skips this branch entirely.
-        days = trial_days()
+        # A Telegram account that has been detached from some account on the
+        # website has already had its free week. The row it left behind is
+        # gone, so without this the trial would be renewable: unlink, /start,
+        # link back, and the merge adds the new row's days to the old account.
+        days = 0 if await _users.telegram_has_had_its_trial(user_id) else trial_days()
         await _users.create_user_record(user_id, username)
-        # Records the grant as well as the date, so the account cannot later
-        # collect the signup half of the trial a second time through the site.
-        await _users.grant_signup_trial_by_telegram_id(user_id, days)
+        if days:
+            # Records the grant as well as the date, so the account cannot later
+            # collect the signup half of the trial a second time through the site.
+            await _users.grant_signup_trial_by_telegram_id(user_id, days)
         await create_vpn_user(user_id, days)
         await ensure_vpn_profile_exists(user_id)
 
@@ -130,11 +135,17 @@ async def _render_main_menu(
         await asyncio.sleep(0.6)
         await msg.edit_text("🌐 Загружаем сервера…", parse_mode="HTML")
         await asyncio.sleep(0.6)
+        opening = (
+            f"🎉 Вам открыт <b>бесплатный доступ</b> на {days} дн.\n\n"
+            if days
+            else "🔓 Аккаунт создан. Пробный период уже был использован — "
+            "оформите подписку, чтобы открыть все серверы.\n\n"
+        )
         await msg.edit_text(
             (
                 "<b>👋 Привет!</b>\n\n"
-                f"🎉 Вам открыт <b>бесплатный доступ</b> на {days} дн.\n\n"
-                + await _traffic_line(user_id, subscription_active=True)
+                + opening
+                + await _traffic_line(user_id, subscription_active=bool(days))
                 + "Выберите своё устройство:"
             ),
             parse_mode="HTML",

@@ -407,9 +407,11 @@ main {
   padding-top: var(--header);
 }
 
-.app-main {
-  min-height: 100vh;
-}
+/* Deliberately no `min-height: 100vh`. It was here so a short cabinet page
+   still filled the screen, and once the footer went below it the rule did the
+   opposite of its job: it stretched <main> past its own content and left a
+   quarter-screen of nothing between the last section and the footer. The page
+   ends where the content ends. */
 
 /* -- buttons ------------------------------------------------------------ */
 
@@ -591,6 +593,46 @@ main {
 
 .notice[hidden] {
   display: none;
+}
+
+/* The flash message is pinned to the viewport rather than to wherever in the
+   document it happens to sit.
+   It was a block near the top of the page, so the answer to something done
+   further down -- naming a referrer, resetting a link, redeeming a code --
+   appeared off-screen, and the button looked like it had done nothing at all.
+   Only `[data-notice]` moves: that attribute marks the one notice `flash()`
+   writes to, and a notice used as ordinary page content stays where it is. */
+.notice[data-notice] {
+  position: fixed;
+  z-index: 60;
+  left: 50%;
+  transform: translateX(-50%);
+  /* Clear of the tab bar, which is fixed over the bottom on phones. */
+  bottom: calc(var(--header) + 1rem);
+  width: min(34rem, calc(100vw - 2rem));
+  background: var(--surface);
+  box-shadow: 0 1rem 2.5rem rgb(0 0 0 / 0.55);
+}
+
+@media (min-width: 64rem) {
+  .notice[data-notice] {
+    bottom: 1.5rem;
+  }
+}
+
+.notice-close {
+  flex: none;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.notice-close:hover {
+  opacity: 1;
 }
 
 /* -- panels ------------------------------------------------------------- */
@@ -1051,21 +1093,18 @@ main {
   overflow-wrap: anywhere;
 }
 
-/* The per-platform "it did not work" branch, closed until it is wanted. */
+/* The per-platform "it did not work" branch. Separated by a rule rather than
+   folded into a disclosure: somebody reading it is already stuck, and one more
+   control to find and open is one step too many. */
 .drop {
   margin-top: 2rem;
   border-top: 1px solid var(--line);
   padding-top: 1.5rem;
 }
 
-.drop > summary {
-  cursor: pointer;
-  color: var(--bone);
+.drop > h3 {
   margin-bottom: 1.5rem;
-}
-
-.drop > summary:hover {
-  color: var(--ember);
+  color: var(--bone);
 }
 
 /* -- copy field --------------------------------------------------------- */

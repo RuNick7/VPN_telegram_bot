@@ -14,6 +14,7 @@ import {
   ApiError,
   copyText,
   flash,
+  show,
   clearFlash,
   withBusy,
 } from "./core.js";
@@ -49,25 +50,56 @@ async function saveEmail(event) {
 
 function renderLinkState(status) {
   const note = $("[data-tg-note]");
+  const linked = $("[data-tg-linked]");
+  const unlinked = $("[data-tg-unlinked]");
 
   if (status.linked) {
-    $("[data-tg-linked]").hidden = false;
-    $("[data-tg-unlinked]").hidden = true;
-    $("[data-tg-tag]").textContent = status.telegram_tag ? "@" + status.telegram_tag : "Аккаунт привязан";
-    note.textContent = "Вход через Telegram работает наравне с почтой.";
+    linked.hidden = false;
+    unlinked.hidden = true;
+    $("[data-tg-tag]").value = status.telegram_tag
+      ? "@" + status.telegram_tag
+      : "Аккаунт привязан";
+    // Unlinking leaves the address as the only way in, so it is not offered
+    // to an account that has none. The server refuses it too; this is so the
+    // button is not there to be pressed rather than there to fail.
+    show($("[data-tg-unlink]"), Boolean(status.can_unlink));
+    note.textContent = status.can_unlink
+      ? "Вход через Telegram работает наравне с почтой."
+      : "Вход через Telegram работает наравне с почтой. Добавьте почту, чтобы можно было отвязать.";
     return;
   }
 
-  $("[data-tg-linked]").hidden = true;
+  linked.hidden = true;
   if (!status.can_link) {
     // Nothing to offer, so nothing is shown that would fail on click.
     note.textContent = "Привязка Telegram сейчас не настроена.";
     return;
   }
-  $("[data-tg-unlinked]").hidden = false;
+  unlinked.hidden = false;
   note.textContent = status.link_pending
     ? "Ссылка уже создана и ждёт подтверждения в боте."
     : "Telegram не привязан.";
+}
+
+async function unlinkTelegram(event) {
+  const confirmed = confirm(
+    "Отвязать Telegram?\n\n" +
+      "Войти на сайт можно будет только по почте, а в боте этот аккаунт станет новым — " +
+      "подписка, трафик и приглашённые останутся здесь.\n\n" +
+      "Привязать другой Telegram можно сразу после этого."
+  );
+  if (!confirmed) return;
+
+  await withBusy(event.currentTarget, async () => {
+    clearFlash();
+    try {
+      renderLinkState(await api("/api/link/telegram", { method: "DELETE" }));
+      $("[data-me-tag]").hidden = true;
+      flash("Telegram отвязан. Можно привязать другой.", "ok");
+    } catch (err) {
+      flash(err instanceof ApiError ? err.message : "Не удалось отвязать Telegram.");
+    }
+  });
 }
 
 async function createLink(event) {
@@ -164,6 +196,7 @@ boot(async (user) => {
   $("[data-email-form]").addEventListener("submit", saveEmail);
   $("[data-ref-form]").addEventListener("submit", saveReferrer);
   $("[data-tg-link]").addEventListener("click", createLink);
+  $("[data-tg-unlink]").addEventListener("click", unlinkTelegram);
   $("[data-tg-copy]").addEventListener("click", (event) =>
     copyText($("[data-tg-link-url]").value, event.currentTarget)
   );
