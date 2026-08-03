@@ -130,12 +130,12 @@ function renderPlatform(platform) {
   panel.append(renderSteps(platform.steps(subscriptionURL)));
 
   if (platform.fallbackNeedsURL && !subscriptionURL) return;
-  const details = el("details", { class: "drop" }, [
-    el("summary", { class: "mono strong", text: "Не получилось подключиться?" }),
-    renderSteps(platform.fallback(subscriptionURL)),
-  ]);
-  panel.append(details);
-  hydrateIcons(panel);
+  panel.append(
+    el("details", { class: "drop" }, [
+      el("summary", { class: "mono strong", text: "Не получилось подключиться?" }),
+      renderSteps(platform.fallback(subscriptionURL)),
+    ])
+  );
 }
 
 function selectPlatform(key) {
