@@ -96,6 +96,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("PUT /api/referrals/referrer", s.authenticated(s.handleSetReferrer))
 
 	mux.Handle("POST /api/promo/redeem", s.authenticated(s.handleRedeemPromo))
+	mux.Handle("GET /api/gifts", s.authenticated(s.handleListGifts))
 
 	mux.Handle("GET /api/link/telegram", s.authenticated(s.handleLinkStatus))
 	mux.Handle("POST /api/link/telegram", s.authenticated(s.handleCreateTelegramLink))

@@ -17,14 +17,17 @@ import {
   $,
   api,
   ApiError,
+  copyText,
   el,
   flash,
   clearFlash,
   formatRub,
   formatDate,
   daysLabel,
+  icon,
   plural,
   promoCodeFrom,
+  show,
   withBusy,
 } from "./core.js";
 
@@ -139,6 +142,73 @@ async function redeemPromo(event) {
   });
 }
 
+// -- gifts already bought -------------------------------------------------
+
+/** A read-only field with a copy button beside it. */
+function copyRow(label, value) {
+  const field = el("input", {
+    type: "text",
+    readonly: true,
+    value,
+    "aria-label": label,
+    spellcheck: "false",
+  });
+  const button = el("button", { type: "button", "aria-label": `Копировать ${label}` });
+  button.append(icon("copy"));
+  button.addEventListener("click", () => copyText(value, button));
+  return el("div", { class: "copy" }, [field, button]);
+}
+
+function giftRow(gift) {
+  const redeemed = Boolean(gift.redeemed_at);
+  const badge = el("span", {
+    class: "badge",
+    "data-kind": redeemed ? "off" : "on",
+    text: redeemed ? `Активирован ${formatDate(gift.redeemed_at)}` : "Ждёт активации",
+  });
+
+  return el("li", { class: "gift", "data-redeemed": redeemed }, [
+    el("div", { class: "row between wrap-row" }, [
+      el("span", { class: "mono strong", text: daysLabel(gift.days) }),
+      badge,
+    ]),
+    // A redeemed gift keeps its code on screen but loses the fields: the code
+    // is how you recognise which gift was used, and handing out a spent one
+    // helps nobody.
+    redeemed
+      ? el("span", { class: "mono-sm muted", text: gift.code })
+      : copyRow("код", gift.code),
+    !redeemed && gift.link ? copyRow("ссылку", gift.link) : null,
+  ]);
+}
+
+/**
+ * Draws the gifts this account has paid for.
+ *
+ * The only place a buyer without Telegram can reach them: the bot's message
+ * goes to an account they do not have, and until this existed the code was
+ * charged for and then shown nowhere.
+ */
+function renderGifts(gifts) {
+  const list = $("[data-gift-list]");
+  if (!list) return 0;
+  list.textContent = "";
+  for (const gift of gifts) list.append(giftRow(gift));
+  show($("[data-my-gifts]"), gifts.length > 0);
+  return gifts.length;
+}
+
+async function loadGifts() {
+  try {
+    const result = await api("/api/gifts");
+    return renderGifts(result.gifts || []);
+  } catch (err) {
+    // A failure here must not blank the page somebody came to buy on.
+    console.error("gifts", err);
+    return 0;
+  }
+}
+
 // -- returning from YooKassa ---------------------------------------------
 
 /**
@@ -149,22 +219,30 @@ async function redeemPromo(event) {
  * so the honest answer while that is in flight is "we are waiting", not
  * "paid". Nothing here changes any state; it only reads.
  */
-async function reportReturn() {
+async function reportReturn(giftsBefore) {
   const params = new URLSearchParams(location.search);
   if (!params.has("payment")) return;
   history.replaceState(null, "", location.pathname + location.hash);
 
-  flash("Платёж принят. Обновляем подписку — обычно это занимает несколько секунд.", "ok");
+  flash("Платёж принят. Начисляем — обычно это занимает несколько секунд.", "ok");
 
   for (let attempt = 0; attempt < 6; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 2500));
     try {
-      const subscription = await api("/api/subscription");
+      // Both, because a gift never moves the buyer's own subscription. Waiting
+      // only on that told a gift buyer their payment had not gone through, and
+      // then sent them to support -- for a purchase that had worked perfectly.
+      const [subscription, gifts] = await Promise.all([
+        api("/api/subscription"),
+        loadGifts(),
+      ]);
+      if (gifts > giftsBefore) {
+        flash("Подарок готов — код и ссылка ниже, в разделе «Подарок».", "ok");
+        $("[data-my-gifts]")?.scrollIntoView({ block: "center" });
+        return;
+      }
       if (subscription.active) {
-        flash(
-          `Подписка активна до ${formatDate(subscription.expires_at)}.`,
-          "ok"
-        );
+        flash(`Подписка активна до ${formatDate(subscription.expires_at)}.`, "ok");
         return;
       }
     } catch {
@@ -172,7 +250,7 @@ async function reportReturn() {
     }
   }
   flash(
-    "Платёж обрабатывается. Если подписка не обновится в течение получаса, напишите в поддержку.",
+    "Платёж обрабатывается. Если ничего не изменится в течение получаса, напишите в поддержку.",
     "ok"
   );
 }
@@ -214,5 +292,7 @@ boot(async () => {
   }
 
   hydrateIcons();
-  reportReturn();
+  // Counted before polling starts, so "a gift appeared" means this payment's
+  // gift rather than one bought last week.
+  reportReturn(await loadGifts());
 });

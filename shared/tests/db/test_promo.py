@@ -3,6 +3,7 @@ import asyncio
 import pytest
 
 from tgvpn_shared.db import PromoRepository, UserRepository
+from tgvpn_shared.db.pool import get_pool
 
 
 @pytest.fixture
@@ -58,3 +59,42 @@ async def test_release_promo_usage_allows_reclaim(promo: PromoRepository, users:
     reclaimed = await promo.try_claim_promo_usage("DAYS-2", 40, one_time=False)
 
     assert reclaimed is True
+
+
+# -- who bought a gift ------------------------------------------------------
+
+
+async def test_a_gift_records_the_buyer_by_internal_id(promo: PromoRepository, users: UserRepository):
+    """
+    The column the whole feature rests on. Without it a gift bought on the
+    website recorded no creator at all: the code was charged for, delivered as
+    a Telegram message to an account that does not exist, and reachable from
+    no screen anywhere.
+    """
+    pool = await get_pool()
+    buyer = str(
+        await pool.fetchval(
+            "INSERT INTO users (email, subscription_ends) VALUES ($1, to_timestamp(0)) RETURNING id",
+            "buyer@example.com",
+        )
+    )
+
+    await promo.create_gift_promo("GIFT-WEB", 30, creator_id=None, creator_user_id=buyer)
+
+    row = await promo.get_promo_by_code("GIFT-WEB")
+    assert str(row["creator_user_id"]) == buyer
+    assert row["creator_id"] is None
+    assert row["type"] == "gift"
+    assert row["one_time"] is True
+
+
+async def test_a_bot_purchase_still_records_the_telegram_id(promo: PromoRepository, users: UserRepository):
+    """Support reads this column; nothing about the old path changes."""
+    await _seed_user(users, 77)
+    row = await users.get_user_by_id(77)
+
+    await promo.create_gift_promo("GIFT-BOT", 30, creator_id=77, creator_user_id=str(row["id"]))
+
+    stored = await promo.get_promo_by_code("GIFT-BOT")
+    assert stored["creator_id"] == 77
+    assert str(stored["creator_user_id"]) == str(row["id"])

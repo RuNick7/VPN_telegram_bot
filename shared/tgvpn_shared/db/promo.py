@@ -17,14 +17,31 @@ def generate_gift_code(length: int = 6) -> str:
 
 
 class PromoRepository:
-    async def create_gift_promo(self, code: str, days: int, creator_id: int) -> None:
+    async def create_gift_promo(
+        self,
+        code: str,
+        days: int,
+        creator_id: int | None,
+        creator_user_id: str | None = None,
+    ) -> None:
+        """
+        Record a gift somebody has just paid for.
+
+        Both handles are stored. `creator_id` is a Telegram ID and is what an
+        operator recognises in support; `creator_user_id` is the internal id
+        every account has, and it is the one that matters -- it is how the
+        buyer's own gifts are found so the site can show them the code, and it
+        is what stops a buyer with no Telegram from redeeming their own gift.
+        Before it existed a website purchase recorded no creator at all.
+        """
         pool = await get_pool()
         await pool.execute(
             """
-            INSERT INTO promo_codes (code, type, value, is_active, one_time, creator_id)
-            VALUES ($1, 'gift', $2, TRUE, TRUE, $3)
+            INSERT INTO promo_codes
+                (code, type, value, is_active, one_time, creator_id, creator_user_id)
+            VALUES ($1, 'gift', $2, TRUE, TRUE, $3, $4::uuid)
             """,
-            code, days, creator_id,
+            code, days, creator_id, creator_user_id,
         )
 
     async def insert_promo_code(

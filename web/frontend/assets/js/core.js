@@ -84,7 +84,18 @@ export async function guarded(run) {
 export const $ = (selector, root = document) => root.querySelector(selector);
 export const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 
-/** Creates an element. Text is set as text, never parsed as markup. */
+/**
+ * Creates an element. Text is set as text, never parsed as markup.
+ *
+ * `false` drops the attribute entirely and `true` writes the string "true".
+ * The HTML convention for a boolean attribute is an empty value, and that is
+ * what this used to write — but every selector in the stylesheet reads
+ * `[data-x="true"]`, which an empty value does not match. Three things were
+ * silently inert because of it: the device pips on the overview never lit up,
+ * the best-value plan was never highlighted, and a spent gift was never dimmed.
+ * "true" is equally valid on real boolean attributes, where any value means
+ * true, so `readonly` and `muted` are unaffected.
+ */
 export function el(tag, props = {}, children = []) {
   const node = document.createElement(tag);
   for (const [key, value] of Object.entries(props)) {
@@ -93,7 +104,7 @@ export function el(tag, props = {}, children = []) {
     else if (key === "text") node.textContent = value;
     else if (key === "html") throw new Error("el(): refusing to set raw HTML");
     else if (key.startsWith("on")) node.addEventListener(key.slice(2), value);
-    else node.setAttribute(key, value === true ? "" : String(value));
+    else node.setAttribute(key, String(value));
   }
   for (const child of [].concat(children)) {
     if (child) node.append(child);

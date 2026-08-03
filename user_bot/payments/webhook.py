@@ -335,10 +335,18 @@ async def yookassa_webhook_handler(request: web.Request):
                 # 🎁 Генерация подарочного кода
                 gift_code = generate_gift_code()
                 escape_gift_code = escape_markdown_v2(gift_code)
-                # `creator_id` is a telegram_id column, and it is what stops
-                # someone activating their own gift. A buyer without one is
-                # recorded as having no creator rather than blocking the sale.
-                await _promo.create_gift_promo(gift_code, days_to_extend, telegram_id)
+                # Both handles. `creator_id` is a Telegram ID and support reads
+                # it; `creator_user_id` is the one that has to be there, because
+                # it is how the buyer's own gifts are found. A gift bought on
+                # the website used to record neither -- so the code was
+                # delivered as a Telegram message the buyer could not receive,
+                # and existed nowhere they could reach it.
+                await _promo.create_gift_promo(
+                    gift_code,
+                    days_to_extend,
+                    telegram_id,
+                    creator_user_id=str(payer["id"]) if payer.get("id") else None,
+                )
                 try:
                     await _increment_gifted(payer)
                     logger.info("[GIFT] %s подарил ещё одну подписку.", _payer_label(payer))

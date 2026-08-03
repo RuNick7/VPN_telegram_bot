@@ -71,6 +71,15 @@
       <p class="mono-sm muted">Оплатите подписку — придёт ссылка и промокод. Ссылка работает у того, кто не пользуется Telegram; промокод — в боте. Активировать можно только один раз, любым из двух способов.</p>
       <div class="grid-lines cols-4" data-gifts></div>
       <p class="mono-sm muted">Скидка за приглашённых на подарки не распространяется — цена всегда базовая.</p>
+
+      <!-- Hidden until there is a gift to show. This is the only place a
+           buyer without Telegram can reach their codes: the bot's message
+           goes to an account they do not have. -->
+      <div class="stack" data-my-gifts hidden>
+        <h3 class="mono strong">Купленные подарки</h3>
+        <p class="mono-sm muted">Код и ссылку можно передать кому угодно. Активировать подарок можно один раз — любым из двух способов.</p>
+        <ul class="gift-list" data-gift-list></ul>
+      </div>
     </div>
   </section>
 

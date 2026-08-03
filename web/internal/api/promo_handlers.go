@@ -39,12 +39,11 @@ func (s *Server) handleRedeemPromo(w http.ResponseWriter, r *http.Request, user 
 		writeError(w, http.StatusBadRequest, "unsupported_code", "Этот тип промокода пока не поддерживается.")
 		return
 	}
-	// A gift's creator is recorded as a telegram_id, so this check only has
-	// anything to compare when both sides have one. A website buyer's gift
-	// carries no creator, and there is nothing to guard against there: they
-	// cannot be the same account.
-	if promo.Type == "gift" && promo.CreatorID != nil &&
-		user.TelegramID != nil && *promo.CreatorID == *user.TelegramID {
+	// Either handle identifies the buyer. Comparing Telegram IDs alone was a
+	// hole rather than a limitation: a gift bought on the site recorded no
+	// Telegram ID at all, so its buyer failed this check and could activate
+	// the gift they had just paid for.
+	if promo.Type == "gift" && boughtBy(promo, user) {
 		writeError(w, http.StatusBadRequest, "own_gift", "Нельзя активировать собственный подарочный промокод.")
 		return
 	}

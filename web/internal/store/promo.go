@@ -4,30 +4,80 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
 
 type Promo struct {
-	Code      string
-	Type      string // "days" | "gift"
-	Value     int
-	IsActive  bool
-	OneTime   bool
-	CreatorID *int64
+	Code     string
+	Type     string // "days" | "gift"
+	Value    int
+	IsActive bool
+	OneTime  bool
+	// Who bought it, by both handles. CreatorID is a Telegram ID and is absent
+	// for anything bought on the site; CreatorUserID is the internal id every
+	// account has, and is what the "you cannot redeem your own gift" check has
+	// to compare -- on Telegram IDs alone, a website buyer could activate the
+	// gift they had just paid for.
+	CreatorID     *int64
+	CreatorUserID *string
 }
 
 func (s *Store) PromoByCode(ctx context.Context, code string) (*Promo, error) {
 	var p Promo
 	err := s.pool.QueryRow(ctx,
-		`SELECT code, type, value, is_active, one_time, creator_id
+		`SELECT code, type, value, is_active, one_time, creator_id, creator_user_id
 		 FROM promo_codes WHERE code = $1`,
 		strings.ToUpper(strings.TrimSpace(code)),
-	).Scan(&p.Code, &p.Type, &p.Value, &p.IsActive, &p.OneTime, &p.CreatorID)
+	).Scan(&p.Code, &p.Type, &p.Value, &p.IsActive, &p.OneTime, &p.CreatorID, &p.CreatorUserID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
 	return &p, err
+}
+
+// Gift is one code a customer bought, and whether anyone has used it yet.
+type Gift struct {
+	Code       string
+	Days       int
+	CreatedAt  time.Time
+	RedeemedAt *time.Time
+}
+
+// GiftsCreatedBy lists the gifts this account has paid for, newest first.
+//
+// This is the whole reason `creator_user_id` exists. A gift is handed over as
+// a Telegram message, and a buyer who has no Telegram account received
+// nothing at all: the code was generated, charged for, and reachable from
+// nowhere. Now it is on the page they are returned to after paying.
+//
+// Redemption is read from `promo_usage` rather than stored on the code,
+// because that table is what the claim actually writes -- a second copy of
+// "has this been used" could disagree with the one the redemption path
+// enforces.
+func (s *Store) GiftsCreatedBy(ctx context.Context, userID string) ([]Gift, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT p.code, p.value, p.created_at,
+		        (SELECT min(u.used_at) FROM promo_usage u WHERE u.code = p.code)
+		 FROM promo_codes p
+		 WHERE p.creator_user_id = $1 AND p.type = 'gift'
+		 ORDER BY p.created_at DESC`,
+		userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	gifts := []Gift{}
+	for rows.Next() {
+		var g Gift
+		if err := rows.Scan(&g.Code, &g.Days, &g.CreatedAt, &g.RedeemedAt); err != nil {
+			return nil, err
+		}
+		gifts = append(gifts, g)
+	}
+	return gifts, rows.Err()
 }
 
 // ClaimPromo reserves a code for a user before anything is credited.

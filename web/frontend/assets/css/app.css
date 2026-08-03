@@ -1106,6 +1106,35 @@ main {
   color: var(--void);
 }
 
+/* -- bought gifts ------------------------------------------------------- */
+
+.gift-list {
+  display: grid;
+  gap: 1rem;
+}
+
+@media (min-width: 48rem) {
+  .gift-list {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.gift {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: var(--pad);
+  border: 1px solid var(--line);
+}
+
+/* A spent gift is history: still listed, because that is how you tell which
+   one was used, but it should not compete with the one still waiting to be
+   handed over. */
+.gift[data-redeemed="true"] {
+  border-color: var(--carbon);
+  color: var(--steel);
+}
+
 /* -- qr ----------------------------------------------------------------- */
 
 /* The generated SVG carries no width of its own, so it grew to whatever
