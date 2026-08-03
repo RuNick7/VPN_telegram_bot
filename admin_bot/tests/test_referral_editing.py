@@ -13,6 +13,7 @@ from app.handlers.admin.users.edit import (
 )
 
 ADMIN = User(id=111, is_bot=False, first_name="Admin")
+WEB_ROW_ID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
 
 
 def make_message() -> tuple[Message, AsyncMock]:
@@ -190,3 +191,78 @@ async def test_zero_is_a_valid_count_not_a_missing_user():
 )
 def test_parse_count_input(text, expected):
     assert parse_count_input(text) == expected
+
+
+# -- expiry has to reach both systems ---------------------------------------
+
+
+async def test_extending_a_website_account_writes_our_row_too():
+    """
+    The bug this closes.
+
+    `subscription_expire_monitor` decides who is expired from *our* column,
+    not from the panel. A change that reached Remnawave alone was undone by
+    the next monitor pass, which read the old date and demoted the user to the
+    free squad -- and the write was keyed on telegram_id, which a website
+    account does not have.
+    """
+    from datetime import datetime, timezone
+    from unittest.mock import AsyncMock, patch
+
+    from app.handlers.admin.users.edit import apply_update
+
+    message, answer = make_message()
+    state = make_state(user_uuid="panel-uuid", telegram_id=None, row_id=WEB_ROW_ID)
+    repo = AsyncMock()
+    expire_at = datetime(2026, 12, 31, tzinfo=timezone.utc)
+
+    with patch("app.handlers.admin.users.edit.users_repo", repo), patch(
+        "app.handlers.admin.users.edit.user_service", AsyncMock()
+    ):
+        await apply_update(message, state, {"expire_at": expire_at})
+
+    repo.set_subscription_expire_by_user_id.assert_awaited_once_with(
+        WEB_ROW_ID, int(expire_at.timestamp())
+    )
+    assert "и в базе" in answer.await_args.args[0]
+
+
+async def test_extending_a_telegram_account_still_uses_the_telegram_path():
+    from datetime import datetime, timezone
+    from unittest.mock import AsyncMock, patch
+
+    from app.handlers.admin.users.edit import apply_update
+
+    message, _ = make_message()
+    state = make_state(user_uuid="panel-uuid", telegram_id=555, row_id=WEB_ROW_ID)
+    repo = AsyncMock()
+    expire_at = datetime(2026, 12, 31, tzinfo=timezone.utc)
+
+    with patch("app.handlers.admin.users.edit.users_repo", repo), patch(
+        "app.handlers.admin.users.edit.user_service", AsyncMock()
+    ):
+        await apply_update(message, state, {"expire_at": expire_at})
+
+    repo.upsert_subscription_expire.assert_awaited_once()
+    repo.set_subscription_expire_by_user_id.assert_not_awaited()
+
+
+async def test_a_panel_only_account_is_told_the_change_did_not_mirror():
+    """
+    Nothing of ours to write. Saying so is the point: silence here reads as
+    success, and the site would keep showing the old date.
+    """
+    from datetime import datetime, timezone
+    from unittest.mock import AsyncMock, patch
+
+    from app.handlers.admin.users.edit import apply_update
+
+    message, answer = make_message()
+    state = make_state(user_uuid="panel-uuid", telegram_id=None, row_id=None)
+
+    with patch("app.handlers.admin.users.edit.users_repo", AsyncMock()), patch(
+        "app.handlers.admin.users.edit.user_service", AsyncMock()
+    ):
+        await apply_update(message, state, {"expire_at": datetime(2026, 12, 31, tzinfo=timezone.utc)})
+
+    assert "только в Remnawave" in answer.await_args.args[0]

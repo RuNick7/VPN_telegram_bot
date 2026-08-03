@@ -108,23 +108,40 @@ async def apply_update(
 
     Expiry and telegram_id are the two fields we also store, so they are
     written through to the subscription row; everything else is panel-only.
+
+    The mirror is not optional for expiry. `subscription_expire_monitor`
+    decides who is expired from *our* column, not from the panel -- so a
+    change that reached Remnawave alone is undone by the next monitor pass,
+    which reads the old date and demotes the user to the free squad. That is
+    what happened to every website account: the write was keyed on
+    telegram_id, which they do not have.
     """
     data = await state.get_data()
     user_uuid = data.get("user_uuid")
     telegram_id = data.get("telegram_id")
+    row_id = data.get("row_id")
     if not user_uuid:
         await message.answer("❌ Не выбран пользователь.")
         await state.clear()
         return
 
+    mirrored = True
     try:
         await user_service.update_user(user_uuid, payload)
 
-        if "expire_at" in payload and telegram_id:
-            await users_repo.upsert_subscription_expire(
-                telegram_id=telegram_id,
-                subscription_ends=int(payload["expire_at"].timestamp()),
-            )
+        if "expire_at" in payload:
+            ends = int(payload["expire_at"].timestamp())
+            if telegram_id:
+                await users_repo.upsert_subscription_expire(
+                    telegram_id=telegram_id, subscription_ends=ends
+                )
+            elif row_id:
+                await users_repo.set_subscription_expire_by_user_id(row_id, ends)
+            else:
+                # No row of ours at all: a panel account nothing else knows
+                # about. Said out loud rather than left to be discovered when
+                # the site shows a different date.
+                mirrored = False
         if new_telegram_id and telegram_id:
             expire_at = data.get("expire_at")
             parsed = parse_iso_datetime(expire_at) if isinstance(expire_at, str) else None
@@ -135,7 +152,17 @@ async def apply_update(
             )
             await state.update_data(telegram_id=new_telegram_id)
 
-        await message.answer("✅ Пользователь обновлен.", reply_markup=edit_again_keyboard())
+        # Says where it landed. "Обновлен" alone left an operator with no way
+        # to tell a change that reached both systems from one that reached
+        # only the panel and would be reverted by the next monitor pass.
+        text = (
+            "✅ Обновлено в Remnawave и в базе."
+            if mirrored
+            else "⚠️ Обновлено только в Remnawave.\n"
+            "У этого аккаунта нет записи в нашей базе, поэтому срок на сайте "
+            "и в боте не изменится."
+        )
+        await message.answer(text, reply_markup=edit_again_keyboard())
         await state.set_state(UserEditState.field)
     except Exception as exc:
         await message.answer(f"❌ Ошибка при обновлении: {exc}")

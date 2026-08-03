@@ -642,6 +642,26 @@ class UserRepository:
             nurture_stage, (email or "").strip().lower() or None,
         )
 
+    async def set_subscription_expire_by_user_id(self, user_id: str, subscription_ends: int) -> bool:
+        """
+        Set the expiry by our own id, which every account has.
+
+        The telegram_id form below cannot reach an account that arrived
+        through the website, and that mattered more than it looks: the
+        demotion monitor decides who is expired from *this* column, not from
+        the panel. An admin extending such an account updated Remnawave and
+        nothing else, so the next monitor pass read the old date and moved
+        them back to the free squad -- the extension undone by a job, with no
+        error anywhere.
+        """
+        pool = await get_pool()
+        result = await pool.execute(
+            "UPDATE users SET subscription_ends = to_timestamp($1), reminded = FALSE "
+            "WHERE id = $2::uuid",
+            subscription_ends, user_id,
+        )
+        return result != "UPDATE 0"
+
     async def upsert_subscription_expire(self, telegram_id: int, subscription_ends: int) -> None:
         """Update subscription expiry only; never resets referrals/gifts/created_at."""
         pool = await get_pool()
