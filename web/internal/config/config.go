@@ -41,7 +41,12 @@ type Config struct {
 	LTEEnabled        bool
 	LTEFreeGBPerCycle int
 	LTECycleDays      int
-	TrialDays         int
+	TrialDays int
+	// TrialLinkBonusDays is what connecting the second identity is worth --
+	// Telegram onto an account that arrived by email, or a confirmed address
+	// onto one that arrived through the bot. Granted at most once per account,
+	// so the free period tops out at TrialDays + this.
+	TrialLinkBonusDays int
 	// WebTrialDays is the trial granted to someone who signs up on the site
 	// and has no panel account yet. Falls back to TRIAL_DAYS so the bot and
 	// the site offer the same thing; set to 0 to switch it off.
@@ -119,10 +124,16 @@ func Load(envFiles ...string) (*Config, error) {
 			Timeout:  time.Duration(getInt("REMNAWAVE_TIMEOUT_SECONDS", 10)) * time.Second,
 		},
 		Links: Links{
-			Offer:   getString("OFFER_URL", ""),
-			Refund:  getString("REFUND_POLICY_URL", ""),
-			Terms:   getString("TERMS_URL", ""),
-			Privacy: getString("PRIVACY_POLICY_URL", ""),
+			// The agreements are pages on this site now, so these default to
+			// them rather than to nothing. The keys stay because the bot reads
+			// the same ones: pointing them at an absolute URL is what keeps the
+			// document the bot links to and the document the site links to the
+			// same document, and it is still how a Google Doc would be used if
+			// one ever had to be.
+			Offer:   getString("OFFER_URL", "/docs/offer"),
+			Refund:  getString("REFUND_POLICY_URL", "/docs/refund"),
+			Terms:   getString("TERMS_URL", "/docs/terms"),
+			Privacy: getString("PRIVACY_POLICY_URL", "/docs/privacy"),
 			Support: getString("SUPPORT_URL", ""),
 			FAQ:     getString("FAQ_URL", ""),
 		},
@@ -131,11 +142,15 @@ func Load(envFiles ...string) (*Config, error) {
 		LTEEnabled:        getBool("LTE_ENABLED", false),
 		LTEFreeGBPerCycle: getInt("LTE_FREE_GB_PER_CYCLE", 10),
 		LTECycleDays:      getInt("LTE_CYCLE_DAYS", 30),
-		TrialDays:         getInt("TRIAL_DAYS", 30),
+		TrialDays:         getInt("TRIAL_DAYS", 7),
 	}
 	cfg.WebTrialDays = getInt("WEB_TRIAL_DAYS", cfg.TrialDays)
 	if cfg.WebTrialDays < 0 {
 		cfg.WebTrialDays = 0
+	}
+	cfg.TrialLinkBonusDays = getInt("TRIAL_LINK_BONUS_DAYS", 7)
+	if cfg.TrialLinkBonusDays < 0 {
+		cfg.TrialLinkBonusDays = 0
 	}
 	return cfg, cfg.Validate()
 }

@@ -183,8 +183,20 @@ func sweepExpired(ctx context.Context, st *store.Store, log *slog.Logger) {
 				log.Error("sweep magic links", "err", err)
 				continue
 			}
-			if sessions > 0 || links > 0 {
-				log.Info("swept expired auth rows", "sessions", sessions, "magic_links", links)
+			bindings, err := st.DeleteExpiredEmailVerifications(ctx)
+			if err != nil {
+				log.Error("sweep email verifications", "err", err)
+				continue
+			}
+			telegram, err := st.DeleteExpiredLinkTokens(ctx)
+			if err != nil {
+				log.Error("sweep telegram link tokens", "err", err)
+				continue
+			}
+			if sessions > 0 || links > 0 || bindings > 0 || telegram > 0 {
+				log.Info("swept expired auth rows",
+					"sessions", sessions, "magic_links", links,
+					"email_verifications", bindings, "link_tokens", telegram)
 			}
 		}
 	}

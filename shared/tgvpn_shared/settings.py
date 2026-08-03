@@ -117,7 +117,17 @@ class Settings(BaseSettings):
     )
 
     # -- Subscription / UX -------------------------------------------------
-    trial_days: int = Field(30, validation_alias="TRIAL_DAYS")
+    # The free period is two halves. `trial_days` is what signing up is worth,
+    # on whichever side the person arrives; `trial_link_bonus_days` is what
+    # connecting the *second* identity is worth -- Telegram onto a website
+    # account, or a confirmed address onto a Telegram one. Each is granted at
+    # most once per account, so nobody can hold more than their sum.
+    #
+    # The bot used to carry its own hardcoded 30 in handlers/constants.py and
+    # ignored this setting entirely, so the site and the bot were handing out
+    # different trials from the same .env.
+    trial_days: int = Field(7, validation_alias="TRIAL_DAYS")
+    trial_link_bonus_days: int = Field(7, validation_alias="TRIAL_LINK_BONUS_DAYS")
     show_video_instructions: bool = Field(True, validation_alias="SHOW_VIDEO_INSTRUCTIONS")
     faq_url: str = Field("https://nitratex-company.gitbook.io/kairavpn/", validation_alias="FAQ_URL")
     status_channel_url: str = Field("https://t.me/nitratex1", validation_alias="STATUS_CHANNEL_URL")
@@ -129,6 +139,26 @@ class Settings(BaseSettings):
     # Public origin of the website. The bot needs it to build gift links --
     # the same value the Go service validates its own redirects against.
     web_base_url: str = Field("", validation_alias="WEB_BASE_URL")
+
+    # -- Outgoing mail -----------------------------------------------------
+    # The same SMTP account the website uses, read from the same keys, because
+    # both now send to customers: the site sends sign-in links, the bot sends
+    # the confirmation for attaching an address to a Telegram account.
+    #
+    # Every one of these is optional here. The website asserts them at start-up
+    # and refuses to run without them; the bot degrades instead -- it stops
+    # offering the email bonus rather than failing to start over a feature that
+    # is not why anyone opened it.
+    smtp_host: str = Field("", validation_alias="SMTP_HOST")
+    smtp_port: int = Field(587, validation_alias="SMTP_PORT")
+    smtp_username: str = Field("", validation_alias="SMTP_USERNAME")
+    smtp_password: str = Field("", validation_alias="SMTP_PASSWORD")
+    smtp_from: str = Field("", validation_alias="SMTP_FROM")
+    smtp_starttls: bool = Field(True, validation_alias="SMTP_STARTTLS")
+
+    @property
+    def mail_configured(self) -> bool:
+        return bool(self.smtp_host.strip() and self.smtp_from.strip())
 
     # Legal documents, shown by /docs. Empty means the bot says the document
     # is not published yet rather than offering a dead link.

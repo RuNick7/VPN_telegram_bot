@@ -97,6 +97,15 @@ class MergePlan:
     # constraint violation, and that is precisely what it was: every link of a
     # website account to a Telegram account died on `users_email_key`.
     absorbed_releases_email: bool
+    # Whether the merged account has collected the signup half of the free
+    # period. True if either side did -- their days have just been summed.
+    trial_signup_granted: bool
+    # Always true after a merge, and that is the rule rather than an accident:
+    # the bonus is paid for *connecting* a second identity, and merging is that
+    # connection happening. Two accounts that each collected their own signup
+    # trial arrive at 7 + 7 by addition; paying the bonus on top would make
+    # 21 days reachable by registering twice on purpose.
+    trial_link_granted: bool
     # Set when the survivor had no panel account and should adopt the absorbed
     # one instead of leaving it orphaned.
     adopt_panel_uuid: str | None
@@ -172,6 +181,10 @@ def plan_merge(*, survivor: dict, absorbed: dict, now: int) -> MergePlan:
         email=survivor.get("email") or absorbed.get("email") or None,
         referrer_tag=survivor.get("referrer_tag") or absorbed.get("referrer_tag") or None,
         absorbed_releases_email=bool(absorbed.get("email")) and not survivor.get("email"),
+        trial_signup_granted=bool(
+            survivor.get("trial_signup_granted") or absorbed.get("trial_signup_granted")
+        ),
+        trial_link_granted=True,
         adopt_panel_uuid=str(adopt) if adopt else None,
         adopt_panel_username=absorbed.get("remnawave_username") if adopt else None,
         expire_panel_uuid=str(expire) if expire else None,

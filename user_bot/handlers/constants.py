@@ -14,8 +14,28 @@ PRICES = {
     5: {1: 9,  3: 25,  6: 40,  12: 59},
 }
 
-TRIAL_DAYS = 30
 SECONDS_IN_DAY = 86_400
+
+
+def trial_days() -> int:
+    """
+    The free period a new bot account gets, from TRIAL_DAYS.
+
+    A function rather than a constant because this used to be a hardcoded 30
+    that ignored the setting entirely: the site handed out what .env said and
+    the bot handed out 30, from the same deployment. Reading it at call time
+    also keeps the value out of import order, which matters for the tests.
+    """
+    from tgvpn_shared.settings import get_settings
+
+    return max(0, get_settings().trial_days)
+
+
+def trial_link_bonus_days() -> int:
+    """What connecting the second identity is worth. See TRIAL_LINK_BONUS_DAYS."""
+    from tgvpn_shared.settings import get_settings
+
+    return max(0, get_settings().trial_link_bonus_days)
 
 # Paid LTE traffic packs, in gigabytes -> rubles.
 #

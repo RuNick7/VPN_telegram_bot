@@ -13,8 +13,9 @@ from app.services.remnawave.vpn_service import create_vpn_user, ensure_vpn_profi
 from tgvpn_shared.settings import get_settings
 from tgvpn_shared.db import LteRepository, UserRepository
 from tgvpn_shared.lte_quota import TRAFFIC_LABEL, format_traffic, remaining_now
+from handlers.email_link import offer_keyboard, offer_text, send_confirmation, should_offer
 from handlers.email_state import EmailCaptureState
-from handlers.constants import SECONDS_IN_DAY, TRIAL_DAYS
+from handlers.constants import SECONDS_IN_DAY, trial_days
 from handlers.keyboards import help_menu_keyboard, os_keyboard, pay_keyboard
 
 
@@ -110,13 +111,15 @@ async def _render_main_menu(
         # Our database first, the panel second. If the panel call fails the
         # user holds their trial with no profile yet, and
         # `ensure_vpn_profile_exists` builds it from the days already
-        # recorded. The other order left the panel granting 30 days while our
+        # recorded. The other order left the panel granting the days while our
         # row still said zero -- and nothing revisited it, because the next
         # /start sees the row and skips this branch entirely.
-        expire_ts = now_ts + TRIAL_DAYS * SECONDS_IN_DAY
+        days = trial_days()
         await _users.create_user_record(user_id, username)
-        await _users.update_subscription_expire(user_id, expire_ts)
-        await create_vpn_user(user_id, TRIAL_DAYS)
+        # Records the grant as well as the date, so the account cannot later
+        # collect the signup half of the trial a second time through the site.
+        await _users.grant_signup_trial_by_telegram_id(user_id, days)
+        await create_vpn_user(user_id, days)
         await ensure_vpn_profile_exists(user_id)
 
         msg = await bot.send_message(
@@ -130,7 +133,7 @@ async def _render_main_menu(
         await msg.edit_text(
             (
                 "<b>👋 Привет!</b>\n\n"
-                f"🎉 Вам открыт <b>бесплатный доступ</b> на {TRIAL_DAYS} дней.\n\n"
+                f"🎉 Вам открыт <b>бесплатный доступ</b> на {days} дн.\n\n"
                 + await _traffic_line(user_id, subscription_active=True)
                 + "Выберите своё устройство:"
             ),
@@ -182,6 +185,29 @@ async def _render_main_menu(
         parse_mode="HTML",
         reply_markup=os_keyboard(),
     )
+
+    await _offer_email_bonus_once(chat_id, row)
+
+
+async def _offer_email_bonus_once(chat_id: int, row) -> None:
+    """
+    Offer the email bonus, at most once per account, ever.
+
+    Sent as its own message after the menu rather than folded into it: the menu
+    is what the customer came for, and burying an offer in it would push the
+    device buttons below the fold for everyone. The flag is written before the
+    message is sent, so a send that fails costs the offer rather than repeating
+    it on every /start.
+    """
+    if not await should_offer(row):
+        return
+    try:
+        await _users.mark_bonus_offer_shown_in_bot(str(row["id"]))
+        await bot.send_message(
+            chat_id, offer_text(), parse_mode="HTML", reply_markup=offer_keyboard()
+        )
+    except Exception as exc:
+        logging.warning("Could not offer the email bonus to %s: %s", row["id"], exc)
 
 
 async def _send_help_menu(
@@ -239,6 +265,28 @@ async def change_email_cancel_cb(cb: types.CallbackQuery, state: FSMContext) -> 
     await cb.message.answer("✅ Изменение email отменено.")
 
 
+@router.callback_query(F.data == "bonus_offer_dismiss")
+async def bonus_offer_dismiss_cb(cb: types.CallbackQuery) -> None:
+    """
+    "Не сейчас" on the email offer.
+
+    Recorded rather than only acknowledged, so the same answer holds on the
+    website: it is one offer about one account, and being asked again in a
+    different window is the thing that makes it feel like nagging.
+    """
+    await cb.answer()
+    row = await _users.get_user_by_id(cb.from_user.id)
+    if row is not None:
+        await _users.dismiss_bonus_offer(str(row["id"]))
+    try:
+        await cb.message.edit_text(
+            "Хорошо. Привязать почту можно в любой момент — /help → «Изменить email».",
+            parse_mode="HTML",
+        )
+    except Exception:
+        pass
+
+
 @router.message(Command("channel"))
 async def channel_cmd(message: types.Message) -> None:
     await message.answer(
@@ -269,9 +317,17 @@ async def capture_email(message: types.Message, state: FSMContext) -> None:
         )
         return
 
-    await _users.update_user_email(message.from_user.id, email.lower())
+    row = await _users.get_user_by_id(message.from_user.id)
+    if row is None:
+        await state.clear()
+        await message.answer("❌ Аккаунт не найден. Откройте /start и попробуйте снова.")
+        return
+
     await state.clear()
+    # Nothing is written yet. The address becomes a sign-in route on the
+    # website, so it is only saved once a letter sent to it has been opened --
+    # this used to save whatever was typed, which meant one typo handed a
+    # stranger's mailbox the ability to request a login link for this account.
     await message.answer(
-        "✅ Email сохранён.\n"
-        "Теперь вы сможете зайти на сайт и управлять подпиской даже при блокировке Telegram."
+        await send_confirmation(str(row["id"]), email.lower()), parse_mode="HTML"
     )

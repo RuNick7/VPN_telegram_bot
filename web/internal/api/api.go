@@ -70,6 +70,13 @@ func (s *Server) Routes() http.Handler {
 	// Everything below requires a session.
 	mux.Handle("GET /api/me", s.authenticated(s.handleMe))
 	mux.Handle("PATCH /api/me/email", s.authenticated(s.handleUpdateEmail))
+	mux.Handle("POST /api/me/email/confirm-request", s.authenticated(s.handleRequestEmailConfirmation))
+	// Unauthenticated on purpose: the token names the account, and the letter
+	// is routinely opened on a device that has never signed in.
+	mux.HandleFunc("POST /api/auth/confirm-email", s.handleConfirmEmail)
+
+	mux.Handle("GET /api/bonus/offer", s.authenticated(s.handleBonusOffer))
+	mux.Handle("POST /api/bonus/dismiss", s.authenticated(s.handleDismissBonusOffer))
 
 	mux.Handle("GET /api/subscription", s.authenticated(s.handleSubscription))
 	mux.Handle("POST /api/subscription/reset-link", s.authenticated(s.handleResetLink))

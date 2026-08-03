@@ -65,6 +65,31 @@ func (m *Mailer) SendLoginLink(to, link string, ttl time.Duration) error {
 	return m.send(m.cfg, to, "Вход в личный кабинет", body)
 }
 
+// SendEmailConfirmation asks somebody to prove they hold an address before it
+// becomes a way into their account.
+//
+// Deliberately worded so that a person who did not ask for it is told plainly
+// that nothing has happened: this letter goes to an address typed by whoever
+// is driving an account, which is not necessarily its owner. Kept in step with
+// send_email_confirmation in shared/tgvpn_shared/mailer.py, which the bot uses
+// for the same step.
+func (m *Mailer) SendEmailConfirmation(to, link string, bonusDays int, ttl time.Duration) error {
+	minutes := int(ttl.Minutes())
+	bonus := ""
+	if bonusDays > 0 {
+		bonus = fmt.Sprintf(" и получить %d дн. подписки", bonusDays)
+	}
+	body := fmt.Sprintf(
+		"Здравствуйте!\n\n"+
+			"Этот адрес указали в личном кабинете KairaVPN. Чтобы привязать его к аккаунту%s, "+
+			"откройте ссылку:\n\n%s\n\n"+
+			"Ссылка действует %d мин. и срабатывает один раз.\n\n"+
+			"Если вы этого не делали — просто проигнорируйте письмо. Ничего с вашим адресом "+
+			"не произошло, и он ни к чему не привязан.\n",
+		bonus, link, minutes)
+	return m.send(m.cfg, to, "Подтверждение почты — KairaVPN", body)
+}
+
 // SendTest sends a configuration check.
 //
 // Deliberately not a login link: a test that put a real-looking "sign in"

@@ -7,11 +7,13 @@ from .admin_operators import AdminOperatorRepository
 from .lte import LteRepository
 from .jobs import JobRunRepository
 from .account_links import AccountLinkRepository
+from .email_verifications import EmailVerificationRepository
 
 __all__ = [
     "close_pool",
     "get_pool",
     "AccountLinkRepository",
+    "EmailVerificationRepository",
     "UserRepository",
     "PaymentRepository",
     "PromoRepository",

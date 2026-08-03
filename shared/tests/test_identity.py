@@ -38,6 +38,8 @@ def account(**kwargs) -> dict:
         referrer_tag=None,
         remnawave_uuid=None,
         remnawave_username=None,
+        trial_signup_granted=False,
+        trial_link_granted=False,
     )
     return {**base, **kwargs}
 
@@ -216,6 +218,32 @@ def test_an_address_the_survivor_does_not_take_stays_where_it_is():
         now=NOW,
     )
     assert plan.absorbed_releases_email is False
+
+
+def test_a_merge_carries_the_signup_grant_from_either_side():
+    """
+    Their days have already been added together. Clearing the flag would let
+    the merged account be handed a third free period by whichever side had not
+    collected one.
+    """
+    for survivor_had, absorbed_had in [(True, False), (False, True), (True, True)]:
+        plan = plan_merge(
+            survivor=account(trial_signup_granted=survivor_had),
+            absorbed=account(id=WEB_ID, trial_signup_granted=absorbed_had),
+            now=NOW,
+        )
+        assert plan.trial_signup_granted is True
+
+
+def test_a_merge_always_spends_the_link_bonus():
+    """
+    The bonus is paid for connecting a second identity, and a merge *is* that
+    connection. Two accounts that each collected their own signup trial reach
+    7 + 7 by addition; paying on top would make 21 free days reachable by
+    registering twice on purpose.
+    """
+    plan = plan_merge(survivor=account(), absorbed=account(id=WEB_ID), now=NOW)
+    assert plan.trial_link_granted is True
 
 
 def test_nothing_is_released_when_the_absorbed_account_had_no_address():

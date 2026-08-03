@@ -33,6 +33,13 @@ type User struct {
 	LTEFreeGBOverride   *int
 	SquadTier           string
 
+	// The two halves of the free period, each granted at most once. See
+	// migration 0009: one bit could not describe two grants, and the second one
+	// has to be collectable after the first has already moved the expiry date.
+	TrialSignupGranted  bool
+	TrialLinkGranted    bool
+	BonusOfferDismissed bool
+
 	// Which panel account is this user's. Recorded so the panel is addressed
 	// by a stable UUID rather than by a name derived from a Telegram ID --
 	// which a website-only account does not have.
@@ -47,7 +54,8 @@ const userColumns = `
 	id, telegram_id, telegram_tag, COALESCE(email, ''), subscription_ends,
 	COALESCE(referrer_tag, ''), referred_people, gifted_subscriptions, created_at,
 	lte_paid_balance_bytes, lte_cycle_start, lte_last_usage_bytes,
-	lte_free_gb_override, squad_tier, remnawave_uuid, COALESCE(remnawave_username, '')
+	lte_free_gb_override, squad_tier, remnawave_uuid, COALESCE(remnawave_username, ''),
+	trial_signup_granted, trial_link_granted, bonus_offer_dismissed
 `
 
 func scanUser(row pgx.Row) (*User, error) {
@@ -57,6 +65,7 @@ func scanUser(row pgx.Row) (*User, error) {
 		&u.ReferrerTag, &u.ReferredPeople, &u.GiftedSubs, &u.CreatedAt,
 		&u.LTEPaidBalanceBytes, &u.LTECycleStart, &u.LTELastUsageBytes,
 		&u.LTEFreeGBOverride, &u.SquadTier, &u.RemnawaveUUID, &u.RemnawaveUsername,
+		&u.TrialSignupGranted, &u.TrialLinkGranted, &u.BonusOfferDismissed,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -265,8 +274,10 @@ func (s *Store) GrantTrial(ctx context.Context, userID string, days int) (time.T
 	err := s.pool.QueryRow(ctx,
 		`UPDATE users
 		 SET subscription_ends = now() + make_interval(days => $1),
+		     trial_signup_granted = TRUE,
 		     reminded = FALSE
 		 WHERE id = $2
+		   AND NOT trial_signup_granted
 		   AND (subscription_ends IS NULL OR subscription_ends <= to_timestamp(0))
 		 RETURNING subscription_ends`,
 		days, userID,
@@ -280,6 +291,47 @@ func (s *Store) GrantTrial(ctx context.Context, userID string, days int) (time.T
 		return time.Time{}, false, err
 	}
 	return ends, true, nil
+}
+
+// GrantLinkBonus pays the second half of the free period: the days earned by
+// connecting a second identity to an account that had one.
+//
+// Deliberately not conditional on the subscription being empty -- that is the
+// difference from GrantTrial. This lands *on top* of the signup trial, which
+// is the whole point, so `GREATEST(subscription_ends, now())` is what stops it
+// being back-dated into a period a lapsed account never had.
+//
+// Kept identical to UserRepository.grant_link_bonus on the Python side, which
+// pays the same bonus for the mirror-image case (Telegram attached to a
+// website account). Both are guarded by the same flag, so whichever fires
+// first is the only one that pays.
+func (s *Store) GrantLinkBonus(ctx context.Context, userID string, days int) (time.Time, bool, error) {
+	var ends time.Time
+	err := s.pool.QueryRow(ctx,
+		`UPDATE users
+		 SET subscription_ends = GREATEST(subscription_ends, now()) + make_interval(days => $1),
+		     trial_link_granted = TRUE,
+		     reminded = FALSE
+		 WHERE id = $2 AND NOT trial_link_granted
+		 RETURNING subscription_ends`,
+		days, userID,
+	).Scan(&ends)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	return ends, true, nil
+}
+
+// DismissBonusOffer records that the customer asked not to be shown the offer
+// again. Stored on the account rather than in the browser, so the answer holds
+// in the bot too -- it is one offer about one account.
+func (s *Store) DismissBonusOffer(ctx context.Context, userID string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE users SET bonus_offer_dismissed = TRUE WHERE id = $1`, userID)
+	return err
 }
 
 func (s *Store) ExtendSubscription(ctx context.Context, userID string, days int) (time.Time, error) {

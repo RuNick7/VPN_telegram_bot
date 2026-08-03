@@ -39,6 +39,10 @@ _EPOCH_SELECT = """
     -- read it; leaving it out here meant a test asserting `clear_panel_identity`
     -- resets it could only ever raise KeyError.
     squad_tier,
+    trial_signup_granted,
+    trial_link_granted,
+    bonus_offer_dismissed,
+    bonus_offer_shown_in_bot,
     EXTRACT(EPOCH FROM created_at)::bigint AS created_at
 """
 
@@ -53,6 +57,21 @@ _EPOCH_SELECT = """
 _REFERRER_MATCHES = """
     $1 <> ''
     AND (lower(telegram_tag) = lower($1) OR lower(email) = lower($1))
+"""
+
+# The signup half of the free period, addressed either by our own id or by
+# Telegram ID. One statement with the key substituted rather than two copies:
+# the conditions are what make the grant once-only, and two copies of them
+# would eventually stop agreeing about who is eligible.
+_SIGNUP_TRIAL_SQL = """
+    UPDATE users SET
+        subscription_ends    = now() + make_interval(days => $1),
+        trial_signup_granted = TRUE,
+        reminded             = FALSE
+    WHERE {key}
+      AND NOT trial_signup_granted
+      AND subscription_ends <= to_timestamp(0)
+    RETURNING EXTRACT(EPOCH FROM subscription_ends)::bigint
 """
 
 
@@ -281,6 +300,94 @@ class UserRepository:
         )
         return result != "UPDATE 0"
 
+    async def grant_signup_trial(self, user_id: str, days: int) -> Optional[int]:
+        """
+        Give an account its free days for signing up, once and only once.
+
+        The "only once" lives in the WHERE clause rather than in a check the
+        caller makes first, because more than one request can resolve a brand
+        new account at the same moment; Postgres serialises the update on the
+        row, so exactly one of them matches. Returns the new expiry, or None
+        when this call was not the one that granted.
+
+        Both conditions are deliberate. The flag is the record; the date is the
+        older test, kept so an account that somehow holds a subscription
+        without the flag -- a row restored from a backup taken before migration
+        0009 -- cannot be handed a second free period.
+        """
+        pool = await get_pool()
+        return await pool.fetchval(_SIGNUP_TRIAL_SQL.format(key="id = $2::uuid"), days, user_id)
+
+    async def grant_signup_trial_by_telegram_id(self, telegram_id: int, days: int) -> Optional[int]:
+        """The same grant, for the bot, which knows people by Telegram ID."""
+        pool = await get_pool()
+        return await pool.fetchval(_SIGNUP_TRIAL_SQL.format(key="telegram_id = $2"), days, telegram_id)
+
+    async def grant_link_bonus(self, user_id: str, days: int) -> Optional[int]:
+        """
+        Give an account the free days for connecting its second identity.
+
+        Deliberately *not* conditional on the subscription being empty: this is
+        granted after the signup trial, on top of whatever is already there,
+        which is the whole point. `GREATEST(subscription_ends, now())` is what
+        stops the bonus being back-dated into a period a lapsed user never had.
+
+        Returns the new expiry, or None when the bonus was already collected.
+        """
+        pool = await get_pool()
+        return await pool.fetchval(
+            """
+            UPDATE users SET
+                subscription_ends  = GREATEST(subscription_ends, now()) + make_interval(days => $1),
+                trial_link_granted = TRUE,
+                reminded           = FALSE
+            WHERE id = $2::uuid AND NOT trial_link_granted
+            RETURNING EXTRACT(EPOCH FROM subscription_ends)::bigint
+            """,
+            days, user_id,
+        )
+
+    async def mark_bonus_offer_shown_in_bot(self, user_id: str) -> None:
+        """Record that the bot has made its one offer, so it does not repeat."""
+        pool = await get_pool()
+        await pool.execute(
+            "UPDATE users SET bonus_offer_shown_in_bot = TRUE WHERE id = $1::uuid",
+            user_id,
+        )
+
+    async def dismiss_bonus_offer(self, user_id: str) -> None:
+        """The customer pressed "больше не показывать"."""
+        pool = await get_pool()
+        await pool.execute(
+            "UPDATE users SET bonus_offer_dismissed = TRUE WHERE id = $1::uuid",
+            user_id,
+        )
+
+    async def bind_email(self, user_id: str, email: str) -> bool:
+        """
+        Attach a confirmed address to an account.
+
+        Refuses when the address already belongs to somebody else rather than
+        stealing it, and refuses when this account already has one -- binding
+        is for accounts that arrived without an address, and changing an
+        existing one is what the cabinet's own email field is for.
+
+        Never merges. Two real accounts turning out to be one person is what
+        the Telegram link handshake exists for, and it is a decision the
+        customer makes deliberately, not a side effect of confirming a letter.
+        """
+        pool = await get_pool()
+        result = await pool.execute(
+            """
+            UPDATE users SET email = $1
+            WHERE id = $2::uuid
+              AND email IS NULL
+              AND NOT EXISTS (SELECT 1 FROM users WHERE lower(email) = lower($1))
+            """,
+            email.strip().lower(), user_id,
+        )
+        return result != "UPDATE 0"
+
     async def apply_merge(self, plan) -> None:
         """
         Fold one account into another, in one transaction.
@@ -327,7 +434,9 @@ class UserRepository:
                         email                  = COALESCE(email, $5),
                         referrer_tag           = COALESCE(NULLIF(referrer_tag, ''), $6),
                         remnawave_uuid         = COALESCE(remnawave_uuid, $7),
-                        remnawave_username     = COALESCE(remnawave_username, $8)
+                        remnawave_username     = COALESCE(remnawave_username, $8),
+                        trial_signup_granted   = $10,
+                        trial_link_granted     = $11
                     WHERE id = $9::uuid
                     """,
                     plan.subscription_ends,
@@ -339,6 +448,8 @@ class UserRepository:
                     plan.adopt_panel_uuid,
                     plan.adopt_panel_username,
                     plan.survivor_id,
+                    plan.trial_signup_granted,
+                    plan.trial_link_granted,
                 )
 
     async def get_subscription_info(self, telegram_id: int) -> Optional[dict]:

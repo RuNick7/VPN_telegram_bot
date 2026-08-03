@@ -34,6 +34,8 @@ def row(**kwargs) -> dict:
         referrer_tag=None,
         remnawave_uuid=None,
         remnawave_username=None,
+        trial_signup_granted=False,
+        trial_link_granted=False,
     )
     return {**base, **kwargs}
 
@@ -43,6 +45,11 @@ def repos(monkeypatch):
     users = AsyncMock()
     links = AsyncMock()
     expired = []
+
+    # None means "already collected", which is the quiet case: most of these
+    # tests are about the merge and should not have to say anything about the
+    # bonus. The ones that are about it set a real expiry.
+    users.grant_link_bonus = AsyncMock(return_value=None)
 
     monkeypatch.setattr(link, "_users", users)
     monkeypatch.setattr(link, "_links", links)
@@ -121,6 +128,81 @@ async def test_relinking_the_same_account_is_a_no_op(repos):
 
     repos.users.apply_merge.assert_not_awaited()
     assert "уже привязан" in message
+
+
+# -- the bonus for connecting a second identity ----------------------------
+
+
+async def test_a_brand_new_telegram_account_earns_the_bonus(repos):
+    """
+    The one path it is paid on. This Telegram user had no row at all, so they
+    have never collected a signup trial and nothing has been summed -- the
+    website account genuinely gains days it did not have.
+    """
+    now = int(time.time())
+    repos.links.consume = AsyncMock(return_value=WEB_ID)
+    repos.users.get_user_by_uuid = AsyncMock(return_value=row(id=WEB_ID, telegram_id=None))
+    repos.users.get_user_by_id = AsyncMock(return_value=None)
+    repos.users.attach_telegram = AsyncMock(return_value=True)
+    repos.users.grant_link_bonus = AsyncMock(return_value=now + 11 * DAY)
+
+    message = await link.link_account("token", 555, "someone")
+
+    repos.users.grant_link_bonus.assert_awaited_once()
+    assert repos.users.grant_link_bonus.await_args.args[0] == WEB_ID
+    assert "Начислено" in message
+    assert "11 дн." in message
+
+
+async def test_merging_two_real_accounts_pays_no_bonus(repos):
+    """
+    Their days have just been added together, which is the same 7 + 7 the
+    bonus exists to hand out. Paying on top would put 21 free days within
+    reach of anyone who registered twice on purpose.
+    """
+    now = int(time.time())
+    repos.links.consume = AsyncMock(return_value=WEB_ID)
+    repos.users.get_user_by_uuid = AsyncMock(
+        return_value=row(id=WEB_ID, telegram_id=None, subscription_ends=now + 7 * DAY)
+    )
+    repos.users.get_user_by_id = AsyncMock(
+        return_value=row(id=TG_ID, subscription_ends=now + 7 * DAY)
+    )
+
+    await link.link_account("token", 555, "someone")
+
+    repos.users.grant_link_bonus.assert_not_awaited()
+    plan = repos.users.apply_merge.await_args.args[0]
+    assert (plan.subscription_ends - now) // DAY == 14
+
+
+async def test_a_merge_spends_the_bonus_even_when_it_paid_nothing(repos):
+    """
+    The second identity has been connected, which is what the bonus is for.
+    Leaving the flag clear would let the same account collect it afterwards by
+    confirming an email as well.
+    """
+    repos.links.consume = AsyncMock(return_value=WEB_ID)
+    repos.users.get_user_by_uuid = AsyncMock(return_value=row(id=WEB_ID, telegram_id=None))
+    repos.users.get_user_by_id = AsyncMock(return_value=row(id=TG_ID))
+
+    await link.link_account("token", 555, "someone")
+
+    assert repos.users.apply_merge.await_args.args[0].trial_link_granted is True
+
+
+async def test_an_already_collected_bonus_is_not_announced_twice(repos):
+    """`grant_link_bonus` returning None means the flag was already set."""
+    repos.links.consume = AsyncMock(return_value=WEB_ID)
+    repos.users.get_user_by_uuid = AsyncMock(return_value=row(id=WEB_ID, telegram_id=None))
+    repos.users.get_user_by_id = AsyncMock(return_value=None)
+    repos.users.attach_telegram = AsyncMock(return_value=True)
+    repos.users.grant_link_bonus = AsyncMock(return_value=None)
+
+    message = await link.link_account("token", 555, "someone")
+
+    assert "привязан" in message
+    assert "Начислено" not in message
 
 
 # -- merging ---------------------------------------------------------------

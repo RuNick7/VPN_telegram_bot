@@ -173,6 +173,77 @@ func (s *Service) LoginWithTelegram(ctx context.Context, payload TelegramAuth, i
 	return session, user, err
 }
 
+// -- binding an address to an account that already exists -------------------
+
+// EmailConfirmTTL is how long a confirmation link stays usable.
+//
+// Longer than a magic link because the two are answered at different speeds: a
+// sign-in link is opened while you are waiting for it, and this one is often
+// opened later, on the phone, after the letter has been noticed. Short enough
+// that an address typed by mistake stops being bindable the same afternoon.
+const EmailConfirmTTL = 30 * time.Minute
+
+// Sending mail to an address the caller names is a spam cannon if it is not
+// held down. Per address as well as per account, because one account naming a
+// hundred addresses and a hundred accounts naming one are different abuses.
+const (
+	confirmPerUser  = 5
+	confirmPerEmail = 3
+	confirmWindow   = time.Hour
+)
+
+// RequestEmailConfirmation posts the letter that proves an address.
+//
+// Nothing is written to the account here. The address only lands on it when
+// the link comes back, which is the whole difference from what the bot used to
+// do -- it saved whatever was typed, and that address is a sign-in route.
+func (s *Service) RequestEmailConfirmation(ctx context.Context, userID, email string, bonusDays int) (string, error) {
+	normalized, err := NormalizeEmail(email)
+	if err != nil {
+		return "", ErrInvalidEmail
+	}
+
+	okUser, err := s.store.AllowAttempt(ctx, "confirm-user:"+userID, confirmPerUser, confirmWindow)
+	if err != nil {
+		return "", err
+	}
+	okEmail, err := s.store.AllowAttempt(ctx, "confirm-mail:"+normalized, confirmPerEmail, confirmWindow)
+	if err != nil {
+		return "", err
+	}
+	if !okUser || !okEmail {
+		return "", ErrRateLimited
+	}
+
+	token, err := randomToken()
+	if err != nil {
+		return "", err
+	}
+	if err := s.store.CreateEmailVerification(ctx, token, userID, normalized, EmailConfirmTTL); err != nil {
+		return "", err
+	}
+
+	link := s.baseURL + "/auth/confirm-email?token=" + url.QueryEscape(token)
+	if err := s.mailer.SendEmailConfirmation(normalized, link, bonusDays, EmailConfirmTTL); err != nil {
+		return "", err
+	}
+	return normalized, nil
+}
+
+// ConfirmEmail redeems a confirmation token and reports what it was for.
+//
+// No session is required, deliberately: the token is the credential and it is
+// bound to one account, exactly like a magic link. Requiring a session as well
+// would break the ordinary case of opening the letter on a phone that has
+// never signed in.
+func (s *Service) ConfirmEmail(ctx context.Context, token string) (*store.EmailVerification, error) {
+	verification, err := s.store.ConsumeEmailVerification(ctx, token)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, ErrBadToken
+	}
+	return verification, err
+}
+
 func (s *Service) NewSession(ctx context.Context, userID, userAgent, ip string) (string, error) {
 	token, err := randomToken()
 	if err != nil {

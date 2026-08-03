@@ -109,6 +109,12 @@ async def test_get_inactive_telegram_ids_for_cleanup(users: UserRepository):
 # -- merging a website account into a Telegram one --------------------------
 
 
+async def get_pool_execute(sql: str, *args):
+    """Small escape hatch for setting up state no repository method writes."""
+    pool = await get_pool()
+    return await pool.execute(sql, *args)
+
+
 async def _website_account(email: str, subscription_ends: int) -> str:
     """A row as the site creates one: an address, no Telegram identity."""
     pool = await get_pool()
@@ -185,3 +191,119 @@ async def test_days_from_both_accounts_survive_the_merge(users: UserRepository):
 
     survivor = await users.get_user_by_id(903)
     assert abs(survivor["subscription_ends"] - (now + 44 * 86400)) <= 1
+
+
+# -- the two halves of the free period --------------------------------------
+
+
+async def test_the_signup_trial_is_granted_once_and_only_once(users: UserRepository):
+    await users.create_user_record(910, "newcomer")
+
+    first = await users.grant_signup_trial_by_telegram_id(910, 7)
+    second = await users.grant_signup_trial_by_telegram_id(910, 7)
+
+    assert first is not None
+    assert second is None, "a second call must not extend the subscription"
+    row = await users.get_user_by_id(910)
+    assert row["trial_signup_granted"] is True
+    assert abs(row["subscription_ends"] - (int(time.time()) + 7 * 86400)) <= 2
+
+
+async def test_a_returning_user_does_not_get_a_second_signup_trial(users: UserRepository):
+    """
+    The date is the older of the two guards and still load-bearing: the nightly
+    cleanup deletes a lapsed user's panel account, and without this a trial
+    would be renewable by waiting a month.
+    """
+    await users.insert_subscription_user(telegram_id=911, subscription_ends=int(time.time()) - 86400)
+
+    assert await users.grant_signup_trial_by_telegram_id(911, 7) is None
+
+
+async def test_the_link_bonus_lands_on_top_of_the_signup_trial(users: UserRepository):
+    """The whole point: it is collected *after* the first grant moved the date."""
+    now = int(time.time())
+    await users.create_user_record(912, "linker")
+    await users.grant_signup_trial_by_telegram_id(912, 7)
+    row = await users.get_user_by_id(912)
+
+    ends = await users.grant_link_bonus(str(row["id"]), 7)
+
+    assert abs(ends - (now + 14 * 86400)) <= 2
+
+
+async def test_the_link_bonus_is_granted_once_and_only_once(users: UserRepository):
+    await users.create_user_record(913, "linker")
+    row = await users.get_user_by_id(913)
+
+    first = await users.grant_link_bonus(str(row["id"]), 7)
+    second = await users.grant_link_bonus(str(row["id"]), 7)
+
+    assert first is not None
+    assert second is None
+
+
+async def test_the_link_bonus_is_not_back_dated_for_a_lapsed_account(users: UserRepository):
+    """
+    GREATEST(subscription_ends, now()). Added to a date three weeks in the past
+    it would produce a subscription that has already expired -- days paid for
+    and never received.
+    """
+    now = int(time.time())
+    await users.insert_subscription_user(telegram_id=914, subscription_ends=now - 21 * 86400)
+    row = await users.get_user_by_id(914)
+
+    ends = await users.grant_link_bonus(str(row["id"]), 7)
+
+    assert abs(ends - (now + 7 * 86400)) <= 2
+
+
+async def test_a_merge_leaves_no_room_for_a_third_free_period(users: UserRepository):
+    """
+    The cap, asserted end to end. Two accounts that each collected a signup
+    trial merge to 14 days -- and the bonus is spent, so nothing can add a
+    third 7 afterwards.
+    """
+    now = int(time.time())
+    await users.create_user_record(915, "tg_user")
+    await users.grant_signup_trial_by_telegram_id(915, 7)
+    telegram_row = await users.get_user_by_id(915)
+
+    web_id = await _website_account("cap@example.com", now + 7 * 86400)
+    await get_pool_execute(
+        "UPDATE users SET trial_signup_granted = TRUE WHERE id = $1::uuid", web_id
+    )
+    web_row = await users.get_user_by_uuid(web_id)
+
+    plan = plan_merge(survivor=dict(telegram_row), absorbed=dict(web_row), now=now)
+    await users.apply_merge(plan)
+
+    survivor = await users.get_user_by_id(915)
+    assert abs(survivor["subscription_ends"] - (now + 14 * 86400)) <= 2
+    assert await users.grant_link_bonus(str(survivor["id"]), 7) is None
+
+
+# -- binding a confirmed address --------------------------------------------
+
+
+async def test_a_confirmed_address_lands_on_an_account_that_had_none(users: UserRepository):
+    await users.create_user_record(920, "bot_user")
+    row = await users.get_user_by_id(920)
+
+    assert await users.bind_email(str(row["id"]), "Fresh@Example.COM") is True
+    assert (await users.get_user_by_id(920))["email"] == "fresh@example.com"
+
+
+async def test_an_address_somebody_else_holds_is_refused(users: UserRepository):
+    """
+    The address is a sign-in route. Moving one between accounts on the strength
+    of a confirmation would let whoever controls a mailbox pull an account
+    somebody else built onto it.
+    """
+    now = int(time.time())
+    await _website_account("taken@example.com", now)
+    await users.create_user_record(921, "bot_user")
+    row = await users.get_user_by_id(921)
+
+    assert await users.bind_email(str(row["id"]), "taken@example.com") is False
+    assert (await users.get_user_by_id(921))["email"] is None

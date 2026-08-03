@@ -8,7 +8,7 @@ from aiogram.types import CallbackQuery, Message
 
 from tgvpn_shared.db import PromoRepository, UserRepository
 from handlers.keyboards import back_to_menu_keyboard, referral_intro_keyboard
-from handlers.constants import TRIAL_DAYS, SECONDS_IN_DAY
+from handlers.constants import SECONDS_IN_DAY, trial_days
 from handlers.utils import escape_markdown_v2
 
 
@@ -53,7 +53,7 @@ def _has_paid_before(user_row) -> bool:
         return False
     if created_at <= 0 or subscription_ends <= 0:
         return False
-    trial_end = created_at + TRIAL_DAYS * SECONDS_IN_DAY
+    trial_end = created_at + trial_days() * SECONDS_IN_DAY
     return subscription_ends > trial_end
 
 

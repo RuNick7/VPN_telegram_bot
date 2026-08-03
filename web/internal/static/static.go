@@ -62,13 +62,23 @@ type Handler struct {
 // path": the set of reachable URLs is then written down in one place, and a
 // file appearing in the embedded tree cannot become a route by accident.
 var pageRoutes = map[string]string{
-	"/":            "index.html",
-	"/login":       "login.html",
-	"/auth/verify": "auth-verify.html",
-	"/app":         "app/index.html",
-	"/app/plans":   "app/plans.html",
-	"/app/devices": "app/devices.html",
-	"/app/profile": "app/profile.html",
+	"/":                   "index.html",
+	"/login":              "login.html",
+	"/auth/verify":        "auth-verify.html",
+	"/auth/confirm-email": "auth-confirm-email.html",
+	"/app":                "app/index.html",
+	"/app/plans":          "app/plans.html",
+	"/app/devices":        "app/devices.html",
+	"/app/profile":        "app/profile.html",
+
+	// The agreements, hosted here rather than in a Google Doc. One URL per
+	// document because that is how they are cited -- the offer references the
+	// refund policy, and a payment provider asks for a link to each one, not
+	// for an anchor into a page of all four.
+	"/docs/offer":   "docs/offer.html",
+	"/docs/refund":  "docs/refund.html",
+	"/docs/terms":   "docs/terms.html",
+	"/docs/privacy": "docs/privacy.html",
 }
 
 // New loads the site out of `files` and returns a handler for it.

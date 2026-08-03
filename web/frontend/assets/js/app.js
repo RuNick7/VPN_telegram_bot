@@ -7,6 +7,7 @@
  */
 
 import { $, $$, api, guarded, icon, markCurrentTab, setText, clientConfig } from "./core.js";
+import { maybeOfferBonus } from "./bonus-offer.js";
 
 /** The signed-in user, fetched once and shared by the page's modules. */
 let mePromise;
@@ -65,6 +66,10 @@ export function boot(run) {
   guarded(async () => {
     const user = await fillIdentity();
     await run(user);
+    // After the page it interrupts has finished drawing. A dialog that opens
+    // over a half-rendered cabinet reads as an error, and this one is only
+    // ever an offer.
+    await maybeOfferBonus();
   });
 }
 

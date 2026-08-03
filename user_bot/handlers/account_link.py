@@ -22,6 +22,7 @@ from aiogram.filters import CommandObject, CommandStart
 from tgvpn_shared.db import AccountLinkRepository, UserRepository
 from tgvpn_shared.identity import choose_survivor, days_from, plan_merge
 
+from handlers.constants import trial_link_bonus_days
 from handlers.keyboards import back_to_menu_keyboard
 
 router = Router()
@@ -102,11 +103,26 @@ async def link_account(token: str, telegram_id: int, telegram_tag: str) -> str:
             logger.error("[LINK] Account %s already had a telegram_id", web_account["id"])
             return "❌ Этот аккаунт уже привязан к другому Telegram. Напишите в поддержку."
         logger.info("[LINK] Web account %s attached to telegram %s", web_account["id"], telegram_id)
-        return (
+
+        # This, and only this, is the path the bonus is paid on. The Telegram
+        # account is new -- it had no row of its own, so it has never collected
+        # a signup trial and nothing has been summed. Where both sides already
+        # existed the merge below adds their days together instead, which is
+        # why paying here as well would put 21 free days within reach of anyone
+        # who registered twice deliberately.
+        bonus = trial_link_bonus_days()
+        granted = await _users.grant_link_bonus(str(web_account["id"]), bonus) if bonus else None
+
+        text = (
             "✅ <b>Telegram привязан</b>\n\n"
             "Теперь подписка, трафик и оплата работают и в боте, и на сайте.\n\n"
-            "Откройте /start."
         )
+        if granted is not None:
+            text += (
+                f"🎁 Начислено <b>{bonus} дн.</b> за привязку — "
+                f"осталось <b>{days_from(granted, int(time.time()))} дн.</b>\n\n"
+            )
+        return text + "Откройте /start."
 
     # Both sides exist: fold them into one.
     now = int(time.time())
