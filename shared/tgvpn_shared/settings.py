@@ -162,9 +162,11 @@ class Settings(BaseSettings):
 
     # Legal documents, shown by /docs. Empty means the bot says the document
     # is not published yet rather than offering a dead link.
-    offer_url: str = Field("", validation_alias="OFFER_URL")
-    refund_policy_url: str = Field("", validation_alias="REFUND_POLICY_URL")
-    terms_url: str = Field("", validation_alias="TERMS_URL")
+    #
+    # Two of them. The public offer and the refund policy were separate
+    # documents and are now sections of the licence agreement -- which is
+    # itself the offer, so there is nothing left for OFFER_URL to point at.
+    license_url: str = Field("", validation_alias="LICENSE_URL")
     privacy_policy_url: str = Field("", validation_alias="PRIVACY_POLICY_URL")
 
     def gift_link(self, code: str) -> str:

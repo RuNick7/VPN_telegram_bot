@@ -84,7 +84,7 @@ func TestEveryPageCarriesTheSharedFooter(t *testing.T) {
 			t.Errorf("%s has no footer", target)
 			continue
 		}
-		for _, doc := range []string{"offer", "refund", "terms", "privacy"} {
+		for _, doc := range []string{"license", "privacy"} {
 			if !strings.Contains(body, `data-doc="`+doc+`"`) {
 				t.Errorf("%s: footer is missing the %s link", target, doc)
 			}

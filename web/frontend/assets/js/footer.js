@@ -2,10 +2,10 @@
  * The footer every page carries: what we have published, and how to reach us.
  *
  * The document links are already right in the markup — they are pages of this
- * site now — so a visitor with JavaScript blocked still gets all four, and a
- * legal document remains readable with no script at all. This only *overrides*
- * them when .env names something else, which is what keeps the offer the site
- * links to and the offer the bot links to the same document.
+ * site now — so a visitor with JavaScript blocked still gets both, and a legal
+ * document remains readable with no script at all. This only *overrides* them
+ * when .env names something else, which is what keeps the agreement the site
+ * links to and the agreement the bot links to the same document.
  *
  * Support is the one entry markup cannot know: it is a Telegram URL that lives
  * only in configuration.

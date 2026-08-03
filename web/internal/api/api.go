@@ -259,9 +259,7 @@ func (s *Server) handleClientConfig(w http.ResponseWriter, r *http.Request) {
 		"trial_days":       s.cfg.WebTrialDays,
 		"plans":            pricing.PlansFor(0),
 		"docs": map[string]string{
-			"offer":   s.cfg.Links.Offer,
-			"refund":  s.cfg.Links.Refund,
-			"terms":   s.cfg.Links.Terms,
+			"license": s.cfg.Links.License,
 			"privacy": s.cfg.Links.Privacy,
 		},
 		"support_url": s.cfg.Links.Support,

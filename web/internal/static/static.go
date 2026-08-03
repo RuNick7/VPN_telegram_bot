@@ -72,13 +72,13 @@ var pageRoutes = map[string]string{
 	"/app/devices":        "app/devices.html",
 	"/app/profile":        "app/profile.html",
 
-	// The agreements, hosted here rather than in a Google Doc. One URL per
-	// document because that is how they are cited -- the offer references the
-	// refund policy, and a payment provider asks for a link to each one, not
-	// for an anchor into a page of all four.
-	"/docs/offer":   "docs/offer.html",
-	"/docs/refund":  "docs/refund.html",
-	"/docs/terms":   "docs/terms.html",
+	// The agreements, hosted here rather than in a Google Doc. Two documents,
+	// each at its own URL because that is how they are cited -- a payment
+	// provider asks for a link to one of them, not for an anchor into a page
+	// holding both. The offer and the refund policy used to be separate pages;
+	// both are now sections of the licence agreement, which is itself the
+	// offer.
+	"/docs/license": "docs/license.html",
 	"/docs/privacy": "docs/privacy.html",
 }
 

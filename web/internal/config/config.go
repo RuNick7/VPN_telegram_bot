@@ -76,12 +76,10 @@ type Remnawave struct {
 
 // Links are optional by design. An unset document URL renders as "готовится к
 // публикации" rather than as a button to a 404 -- someone looking for the
-// refund policy should learn it is not published yet, not be sent to a dead
-// page and conclude there isn't one.
+// agreement should learn it is not published yet, not be sent to a dead page
+// and conclude there isn't one.
 type Links struct {
-	Offer   string
-	Refund  string
-	Terms   string
+	License string
 	Privacy string
 	Support string
 	FAQ     string
@@ -130,9 +128,7 @@ func Load(envFiles ...string) (*Config, error) {
 			// document the bot links to and the document the site links to the
 			// same document, and it is still how a Google Doc would be used if
 			// one ever had to be.
-			Offer:   getString("OFFER_URL", "/docs/offer"),
-			Refund:  getString("REFUND_POLICY_URL", "/docs/refund"),
-			Terms:   getString("TERMS_URL", "/docs/terms"),
+			License: getString("LICENSE_URL", "/docs/license"),
 			Privacy: getString("PRIVACY_POLICY_URL", "/docs/privacy"),
 			Support: getString("SUPPORT_URL", ""),
 			FAQ:     getString("FAQ_URL", ""),

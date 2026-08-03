@@ -115,6 +115,6 @@ clientConfig().then((config) => {
   // The agreement link in the sentence above the form is markup now, with a
   // real href, and assets/js/footer.js repoints it along with every other
   // [data-doc] on the page. It used to be hidden until this ran and matched
-  // `[data-doc="terms"]` by position -- which the footer's own terms link
-  // would have made ambiguous.
+  // `[data-doc="license"]` by position -- which the footer's own agreement
+  // link would have made ambiguous.
 });

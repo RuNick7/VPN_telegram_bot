@@ -1,10 +1,14 @@
 """
-Legal documents: the offer, the refund policy, the terms of use.
+Legal documents: the licence agreement and the privacy policy.
 
 A payment service has to be able to show these on demand, and "somewhere on
 the site" is not good enough when the customer is standing in a Telegram chat
 about to pay. `/docs` puts them one command away, and the same list is linked
 from the help menu.
+
+There were four. The public offer and the refund policy are now sections of
+the licence agreement -- which is itself the offer -- rather than documents of
+their own, so a customer looking for the refund terms finds them inside it.
 
 Every URL comes from configuration. An unset one is reported as not yet
 published rather than rendered as a dead button -- a legal document that 404s
@@ -29,9 +33,7 @@ class Document:
 
 
 DOCUMENTS: tuple[Document, ...] = (
-    Document("📄 Публичная оферта", "offer_url"),
-    Document("↩️ Политика возвратов", "refund_policy_url"),
-    Document("📜 Пользовательское соглашение", "terms_url"),
+    Document("📜 Лицензионное соглашение", "license_url"),
     Document("🔒 Политика конфиденциальности", "privacy_policy_url"),
 )
 
@@ -73,8 +75,8 @@ def documents_text() -> str:
     missing = missing_documents()
     if missing:
         # Named rather than silently omitted: a customer looking for the
-        # refund policy should learn it is not published yet, not conclude
-        # there isn't one.
+        # agreement should learn it is not published yet, not conclude there
+        # isn't one.
         names = ", ".join(document.title.split(" ", 1)[1].lower() for document in missing)
         text += f"\n\nПока не опубликованы: {names}. Напишите в поддержку — пришлём."
     return text
