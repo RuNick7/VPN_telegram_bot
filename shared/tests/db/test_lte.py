@@ -292,3 +292,42 @@ async def test_tier_counts_for_the_stats_screen():
     await lte.set_squad_tiers([1, 2], "paid")
     await lte.set_squad_tiers([3], "free")
     assert await lte.get_tier_counts() == {"paid": 2, "free": 1}
+
+
+# -- quota writes addressed by our own id ----------------------------------
+#
+# A website account has no telegram_id, so the admin panel could not set its
+# free allowance or correct its balance at all.
+
+MISSING_ID = "00000000-0000-0000-0000-000000000000"
+
+
+async def test_free_gb_override_can_be_set_by_user_id():
+    user_id = await users.insert_web_user("quota@example.com", 0)
+
+    assert await lte.set_free_gb_override_by_user_id(user_id, 25) is True
+    assert (await lte.get_state_by_user_id(user_id))["lte_free_gb_override"] == 25
+
+
+async def test_zero_free_gb_is_an_override_not_a_cleared_one():
+    """`0` means "no free traffic"; `None` means "use the global setting"."""
+    user_id = await users.insert_web_user("zeroquota@example.com", 0)
+
+    await lte.set_free_gb_override_by_user_id(user_id, 0)
+    assert (await lte.get_state_by_user_id(user_id))["lte_free_gb_override"] == 0
+
+    await lte.set_free_gb_override_by_user_id(user_id, None)
+    assert (await lte.get_state_by_user_id(user_id))["lte_free_gb_override"] is None
+
+
+async def test_balance_can_be_corrected_by_user_id():
+    user_id = await users.insert_web_user("balance@example.com", 0)
+    await lte.credit_balance_by_user_id(user_id, 10 * GB)
+
+    assert await lte.set_balance_by_user_id(user_id, 3 * GB) == 3 * GB
+    assert await lte.set_balance_by_user_id(user_id, -5 * GB) == 0
+
+
+async def test_quota_writes_to_a_missing_row_report_failure():
+    assert await lte.set_free_gb_override_by_user_id(MISSING_ID, 5) is False
+    assert await lte.set_balance_by_user_id(MISSING_ID, GB) is None

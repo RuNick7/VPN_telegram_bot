@@ -258,6 +258,18 @@ class LteRepository:
             int(total_bytes), telegram_id,
         )
 
+    async def set_balance_by_user_id(self, user_id: str, total_bytes: int) -> Optional[int]:
+        """`set_balance`, addressed by our own id -- see that docstring."""
+        pool = await get_pool()
+        return await pool.fetchval(
+            """
+            UPDATE users SET lte_paid_balance_bytes = GREATEST(0::bigint, $1::bigint)
+            WHERE id = $2::uuid
+            RETURNING lte_paid_balance_bytes
+            """,
+            int(total_bytes), user_id,
+        )
+
     async def set_free_gb_override(self, telegram_id: int, gigabytes: int | None) -> bool:
         """
         Give one user a different monthly free allowance, or clear the override.
@@ -271,6 +283,16 @@ class LteRepository:
             "UPDATE users SET lte_free_gb_override = $1 WHERE telegram_id = $2",
             None if gigabytes is None else max(0, int(gigabytes)),
             telegram_id,
+        )
+        return result != "UPDATE 0"
+
+    async def set_free_gb_override_by_user_id(self, user_id: str, gigabytes: int | None) -> bool:
+        """`set_free_gb_override`, addressed by our own id."""
+        pool = await get_pool()
+        result = await pool.execute(
+            "UPDATE users SET lte_free_gb_override = $1 WHERE id = $2::uuid",
+            None if gigabytes is None else max(0, int(gigabytes)),
+            user_id,
         )
         return result != "UPDATE 0"
 

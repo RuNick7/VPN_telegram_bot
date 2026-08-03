@@ -49,12 +49,12 @@ def test_db_only_fields_never_reach_the_panel():
 async def test_setting_a_referrer_strips_the_at_sign():
     message, answer = make_message()
     repo = AsyncMock()
-    repo.admin_set_referrer = AsyncMock(return_value=True)
+    repo.admin_set_referrer_by_user_id = AsyncMock(return_value=True)
 
     with patch("app.handlers.admin.users.edit.users_repo", repo):
-        await _apply_db_only_update(message, make_state(telegram_id=555), "referrer_tag", "@bob")
+        await _apply_db_only_update(message, make_state(row_id=WEB_ROW_ID), "referrer_tag", "@bob")
 
-    repo.admin_set_referrer.assert_awaited_once_with(555, "bob")
+    repo.admin_set_referrer_by_user_id.assert_awaited_once_with(WEB_ROW_ID, "bob")
     assert "✅" in answer.await_args.args[0]
 
 
@@ -62,12 +62,12 @@ async def test_setting_a_referrer_strips_the_at_sign():
 async def test_clear_tokens_null_the_referrer(token):
     message, answer = make_message()
     repo = AsyncMock()
-    repo.admin_set_referrer = AsyncMock(return_value=True)
+    repo.admin_set_referrer_by_user_id = AsyncMock(return_value=True)
 
     with patch("app.handlers.admin.users.edit.users_repo", repo):
-        await _apply_db_only_update(message, make_state(telegram_id=555), "referrer_tag", token)
+        await _apply_db_only_update(message, make_state(row_id=WEB_ROW_ID), "referrer_tag", token)
 
-    repo.admin_set_referrer.assert_awaited_once_with(555, None)
+    repo.admin_set_referrer_by_user_id.assert_awaited_once_with(WEB_ROW_ID, None)
     assert "очищен" in answer.await_args.args[0]
 
 
@@ -77,23 +77,23 @@ async def test_referred_people_rejects_non_numbers(bad):
     repo = AsyncMock()
 
     with patch("app.handlers.admin.users.edit.users_repo", repo):
-        await _apply_db_only_update(message, make_state(telegram_id=555), "referred_people", bad)
+        await _apply_db_only_update(message, make_state(row_id=WEB_ROW_ID), "referred_people", bad)
 
-    repo.set_referred_people.assert_not_awaited()
-    repo.adjust_referred_people.assert_not_awaited()
+    repo.set_referred_people_by_user_id.assert_not_awaited()
+    repo.adjust_referred_people_by_user_id.assert_not_awaited()
     assert "❌" in answer.await_args.args[0]
 
 
 async def test_plain_number_sets_the_count():
     message, _ = make_message()
     repo = AsyncMock()
-    repo.set_referred_people = AsyncMock(return_value=7)
+    repo.set_referred_people_by_user_id = AsyncMock(return_value=7)
 
     with patch("app.handlers.admin.users.edit.users_repo", repo):
-        await _apply_db_only_update(message, make_state(telegram_id=555), "referred_people", "7")
+        await _apply_db_only_update(message, make_state(row_id=WEB_ROW_ID), "referred_people", "7")
 
-    repo.set_referred_people.assert_awaited_once_with(555, 7)
-    repo.adjust_referred_people.assert_not_awaited()
+    repo.set_referred_people_by_user_id.assert_awaited_once_with(WEB_ROW_ID, 7)
+    repo.adjust_referred_people_by_user_id.assert_not_awaited()
 
 
 @pytest.mark.parametrize("text, delta", [("+3", 3), ("-2", -2), ("+ 3", 3)])
@@ -101,23 +101,23 @@ async def test_signed_number_adjusts_relatively(text, delta):
     """`+3` must add, not set to 3 -- the two differ for any non-zero start."""
     message, _ = make_message()
     repo = AsyncMock()
-    repo.adjust_referred_people = AsyncMock(return_value=10)
+    repo.adjust_referred_people_by_user_id = AsyncMock(return_value=10)
 
     with patch("app.handlers.admin.users.edit.users_repo", repo):
-        await _apply_db_only_update(message, make_state(telegram_id=555), "referred_people", text)
+        await _apply_db_only_update(message, make_state(row_id=WEB_ROW_ID), "referred_people", text)
 
-    repo.adjust_referred_people.assert_awaited_once_with(555, delta)
-    repo.set_referred_people.assert_not_awaited()
+    repo.adjust_referred_people_by_user_id.assert_awaited_once_with(WEB_ROW_ID, delta)
+    repo.set_referred_people_by_user_id.assert_not_awaited()
 
 
 async def test_result_reports_the_resulting_discount_tier():
     """The count picks a price tier, so the admin is told what they granted."""
     message, answer = make_message()
     repo = AsyncMock()
-    repo.set_referred_people = AsyncMock(return_value=9)
+    repo.set_referred_people_by_user_id = AsyncMock(return_value=9)
 
     with patch("app.handlers.admin.users.edit.users_repo", repo):
-        await _apply_db_only_update(message, make_state(telegram_id=555), "referred_people", "9")
+        await _apply_db_only_update(message, make_state(row_id=WEB_ROW_ID), "referred_people", "9")
 
     reply = answer.await_args.args[0]
     assert "9" in reply
@@ -125,53 +125,137 @@ async def test_result_reports_the_resulting_discount_tier():
     assert "5/5" in reply
 
 
-async def test_user_without_telegram_id_is_reported_not_silently_skipped():
+@pytest.mark.parametrize(
+    "field, value", [("referrer_tag", "@bob"), ("referred_people", "3")]
+)
+async def test_an_account_with_no_telegram_is_edited_not_refused(field, value):
     """
-    Referral rows are keyed by telegram_id. A panel-only account has none, so
-    there is nothing to update -- say so rather than reporting success.
+    The asymmetry this closes.
+
+    These fields were addressed by telegram_id, so an account that signed up
+    with an email -- which has none -- was told "нет telegram_id" and nothing
+    was written, even though its row and its columns were right there. Identity
+    is `users.id`; that is what they address now.
     """
     message, answer = make_message()
     repo = AsyncMock()
+    repo.admin_set_referrer_by_user_id = AsyncMock(return_value=True)
+    repo.set_referred_people_by_user_id = AsyncMock(return_value=3)
 
     with patch("app.handlers.admin.users.edit.users_repo", repo):
-        await _apply_db_only_update(message, make_state(telegram_id=None), "referrer_tag", "@bob")
+        await _apply_db_only_update(
+            message, make_state(telegram_id=None, row_id=WEB_ROW_ID), field, value
+        )
 
-    repo.admin_set_referrer.assert_not_awaited()
-    assert "telegram_id" in answer.await_args.args[0]
+    assert "✅" in answer.await_args.args[0]
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [
+        ("referrer_tag", "@bob"),
+        ("referred_people", "3"),
+        ("lte_free_gb", "10"),
+        ("lte_balance_gb", "+5"),
+    ],
+)
+async def test_an_account_with_no_row_of_ours_is_reported(field, value):
+    """
+    A panel profile nothing else knows about. There is genuinely nothing to
+    write -- say so rather than reporting success.
+    """
+    message, answer = make_message()
+    repo = AsyncMock()
+    lte = AsyncMock()
+
+    with patch("app.handlers.admin.users.edit.users_repo", repo), patch(
+        "app.handlers.admin.users.edit.lte_repo", lte
+    ):
+        await _apply_db_only_update(message, make_state(row_id=None), field, value)
+
+    repo.admin_set_referrer_by_user_id.assert_not_awaited()
+    repo.set_referred_people_by_user_id.assert_not_awaited()
+    lte.set_free_gb_override_by_user_id.assert_not_awaited()
+    lte.credit_balance_by_user_id.assert_not_awaited()
+    assert "нет записи в нашей базе" in answer.await_args.args[0]
 
 
 async def test_missing_database_row_is_reported():
     message, answer = make_message()
     repo = AsyncMock()
-    repo.admin_set_referrer = AsyncMock(return_value=False)
+    repo.admin_set_referrer_by_user_id = AsyncMock(return_value=False)
 
     with patch("app.handlers.admin.users.edit.users_repo", repo):
-        await _apply_db_only_update(message, make_state(telegram_id=555), "referrer_tag", "@bob")
+        await _apply_db_only_update(message, make_state(row_id=WEB_ROW_ID), "referrer_tag", "@bob")
 
-    assert "не найден" in answer.await_args.args[0]
+    assert "не найдена" in answer.await_args.args[0]
 
 
 async def test_missing_row_on_a_count_update_is_reported_not_treated_as_zero():
     """`None` means no such user; `0` is a legitimate new count."""
     message, answer = make_message()
     repo = AsyncMock()
-    repo.set_referred_people = AsyncMock(return_value=None)
+    repo.set_referred_people_by_user_id = AsyncMock(return_value=None)
 
     with patch("app.handlers.admin.users.edit.users_repo", repo):
-        await _apply_db_only_update(message, make_state(telegram_id=555), "referred_people", "3")
+        await _apply_db_only_update(message, make_state(row_id=WEB_ROW_ID), "referred_people", "3")
 
-    assert "не найден" in answer.await_args.args[0]
+    assert "не найдена" in answer.await_args.args[0]
 
 
 async def test_zero_is_a_valid_count_not_a_missing_user():
     message, answer = make_message()
     repo = AsyncMock()
-    repo.set_referred_people = AsyncMock(return_value=0)
+    repo.set_referred_people_by_user_id = AsyncMock(return_value=0)
 
     with patch("app.handlers.admin.users.edit.users_repo", repo):
-        await _apply_db_only_update(message, make_state(telegram_id=555), "referred_people", "0")
+        await _apply_db_only_update(message, make_state(row_id=WEB_ROW_ID), "referred_people", "0")
 
     assert "✅" in answer.await_args.args[0]
+
+
+# -- LTE quotas, the other half of the asymmetry ----------------------------
+
+
+@pytest.mark.parametrize(
+    "text, gigabytes", [("10", 10), ("0", 0), ("-", None)]
+)
+async def test_free_gb_override_is_written_by_our_id(text, gigabytes):
+    """`0` is a real override meaning no free traffic; `-` clears it."""
+    message, answer = make_message()
+    lte = AsyncMock()
+    lte.set_free_gb_override_by_user_id = AsyncMock(return_value=True)
+
+    with patch("app.handlers.admin.users.edit.lte_repo", lte):
+        await _apply_db_only_update(message, make_state(row_id=WEB_ROW_ID), "lte_free_gb", text)
+
+    lte.set_free_gb_override_by_user_id.assert_awaited_once_with(WEB_ROW_ID, gigabytes)
+    assert "✅" in answer.await_args.args[0]
+
+
+async def test_crediting_traffic_adds_rather_than_sets():
+    """`+5` tops up; an absolute write here would erase a purchase."""
+    message, _ = make_message()
+    lte = AsyncMock()
+    lte.credit_balance_by_user_id = AsyncMock(return_value=5 * 1024**3)
+
+    with patch("app.handlers.admin.users.edit.lte_repo", lte):
+        await _apply_db_only_update(message, make_state(row_id=WEB_ROW_ID), "lte_balance_gb", "+5")
+
+    lte.credit_balance_by_user_id.assert_awaited_once_with(WEB_ROW_ID, 5 * 1024**3)
+    lte.set_balance_by_user_id.assert_not_awaited()
+
+
+async def test_a_bare_number_sets_the_traffic_balance():
+    message, _ = make_message()
+    lte = AsyncMock()
+    lte.set_balance_by_user_id = AsyncMock(return_value=0)
+
+    with patch("app.handlers.admin.users.edit.lte_repo", lte):
+        await _apply_db_only_update(message, make_state(row_id=WEB_ROW_ID), "lte_balance_gb", "0")
+
+    lte.set_balance_by_user_id.assert_awaited_once_with(WEB_ROW_ID, 0)
+    lte.credit_balance_by_user_id.assert_not_awaited()
 
 
 @pytest.mark.parametrize(

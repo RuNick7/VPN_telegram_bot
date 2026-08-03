@@ -78,8 +78,9 @@ async def _open_field_menu(target: Message, state: FSMContext, user: dict, usern
     """Remember which user is being edited and offer the field picker."""
     telegram_id = telegram_id_of(user, username)
     # Our own row id, resolved once here. It is the only handle a website
-    # account has, and the fields keyed on it -- the address, so far -- would
-    # otherwise have nothing to address.
+    # account has, and every field we store rather than the panel -- the
+    # address, the referrer, the invite count, both LTE quotas -- is addressed
+    # by it. Resolving it once means none of them has to ask again.
     row = await find_db_row(username) or (
         await find_db_row(str(telegram_id)) if telegram_id else None
     )
@@ -299,9 +300,9 @@ async def _referred_people_prompt(data: dict) -> str:
     setting it is really granting a discount and should see which one.
     """
     current = "?"
-    telegram_id = data.get("telegram_id")
-    if telegram_id:
-        row = await users_repo.get_user_by_id(int(telegram_id))
+    row_id = data.get("row_id")
+    if row_id:
+        row = await users_repo.get_user_by_uuid(row_id)
         if row is not None:
             current = int(row["referred_people"] or 0)
 
@@ -317,8 +318,8 @@ async def _referred_people_prompt(data: dict) -> str:
 
 async def _lte_prompt(data: dict, field: str) -> str:
     """Ask for an LTE value, showing what it is now and what it controls."""
-    telegram_id = data.get("telegram_id")
-    state = await lte_repo.get_state(int(telegram_id)) if telegram_id else None
+    row_id = data.get("row_id")
+    state = await lte_repo.get_state_by_user_id(row_id) if row_id else None
 
     if field == "lte_free_gb":
         override = state.get("lte_free_gb_override") if state else None
@@ -429,6 +430,10 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]{2,}$")
 # Typed instead of a nickname to clear the referrer.
 CLEAR_TOKENS = {"-", "—", "none", "нет", "очистить"}
 
+# The row was there when the edit menu opened and is not there now -- deleted
+# under us, or merged into another account.
+NO_ROW = "❌ Запись в базе не найдена — возможно, аккаунт удалён или объединён."
+
 # `get_subscription_price` caps the discount tier at this many referrals, so
 # setting a higher number buys nothing extra. Kept here rather than imported
 # because it lives in user_bot, which admin_bot cannot import.
@@ -500,25 +505,28 @@ async def _apply_db_only_update(
     message: Message, state: FSMContext, field: str, text: str
 ) -> None:
     """
-    Write a database-only field, addressed by telegram_id rather than uuid.
+    Write a database-only field, addressed by our own id.
 
-    A panel account with no Telegram ID has no row of ours to edit, which is
-    why this reports that case instead of silently doing nothing.
+    Every one of these used to be keyed on telegram_id, which meant they were
+    unusable for exactly the accounts the website creates: the row existed, the
+    column existed, and the edit reported "нет telegram_id" and did nothing.
+    `id` is the identity (see `shared/tgvpn_shared/identity.py`) and every
+    account has one, so that is what these address.
+
+    An account with no row of ours at all -- a panel profile nothing else knows
+    about -- is still reported rather than silently skipped.
     """
     data = await state.get_data()
-    telegram_id = data.get("telegram_id")
+    row_id = data.get("row_id")
 
-    # The address is keyed on our own id, which every account has -- including
-    # the website ones, which are exactly the accounts whose email is worth
-    # editing and which have no Telegram ID to be addressed by.
     if field == "email":
         await _apply_email_update(message, data, text)
         return
 
-    if not telegram_id:
+    if not row_id:
         await message.answer(
-            "❌ У этого пользователя нет telegram_id — реферальные поля хранятся "
-            "только в нашей базе и привязаны к нему."
+            "❌ У этого аккаунта нет записи в нашей базе — эти поля хранятся "
+            "только у нас, поэтому менять нечего."
         )
         return
 
@@ -528,8 +536,8 @@ async def _apply_db_only_update(
             if tag == "":
                 await message.answer("❌ Введите @ник или <code>-</code> для очистки.")
                 return
-            if not await users_repo.admin_set_referrer(int(telegram_id), tag):
-                await message.answer(f"❌ Пользователь {telegram_id} не найден в базе.")
+            if not await users_repo.admin_set_referrer_by_user_id(row_id, tag):
+                await message.answer(NO_ROW)
                 return
             result = f"пригласивший: @{tag}" if tag else "пригласивший очищен"
         elif field == "lte_free_gb":
@@ -538,10 +546,10 @@ async def _apply_db_only_update(
             if gigabytes is not None and not gigabytes.isdigit():
                 await message.answer("❌ Введите число ГБ или <code>-</code> для общей настройки.")
                 return
-            if not await lte_repo.set_free_gb_override(
-                int(telegram_id), None if gigabytes is None else int(gigabytes)
+            if not await lte_repo.set_free_gb_override_by_user_id(
+                row_id, None if gigabytes is None else int(gigabytes)
             ):
-                await message.answer(f"❌ Пользователь {telegram_id} не найден в базе.")
+                await message.answer(NO_ROW)
                 return
             result = (
                 f"бесплатно {gigabytes} ГБ/мес"
@@ -558,11 +566,11 @@ async def _apply_db_only_update(
                 return
             value, relative = parsed
             if relative:
-                new_bytes = await lte_repo.credit_balance(int(telegram_id), value * 1024**3)
+                new_bytes = await lte_repo.credit_balance_by_user_id(row_id, value * 1024**3)
             else:
-                new_bytes = await lte_repo.set_balance(int(telegram_id), value * 1024**3)
+                new_bytes = await lte_repo.set_balance_by_user_id(row_id, value * 1024**3)
             if new_bytes is None:
-                await message.answer(f"❌ Пользователь {telegram_id} не найден в базе.")
+                await message.answer(NO_ROW)
                 return
             result = f"трафик белых списков: {new_bytes / 1024**3:.2f} ГБ"
 
@@ -575,12 +583,12 @@ async def _apply_db_only_update(
                 return
             value, relative = parsed
             if relative:
-                new_count = await users_repo.adjust_referred_people(int(telegram_id), value)
+                new_count = await users_repo.adjust_referred_people_by_user_id(row_id, value)
             else:
-                new_count = await users_repo.set_referred_people(int(telegram_id), value)
+                new_count = await users_repo.set_referred_people_by_user_id(row_id, value)
 
             if new_count is None:
-                await message.answer(f"❌ Пользователь {telegram_id} не найден в базе.")
+                await message.answer(NO_ROW)
                 return
             tier = min(new_count, MAX_DISCOUNT_TIER)
             result = f"приглашено: {new_count} (скидочный тариф {tier}/{MAX_DISCOUNT_TIER})"

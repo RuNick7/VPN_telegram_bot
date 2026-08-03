@@ -539,6 +539,30 @@ class UserRepository:
             )
         return result != "UPDATE 0"
 
+    async def admin_set_referrer_by_user_id(
+        self, user_id: str, tag: str | None, *, reset_awarded: bool = True
+    ) -> bool:
+        """
+        Same as `admin_set_referrer`, addressed by our own id.
+
+        Which is the only handle a website account has. Addressed by
+        telegram_id, this field -- along with the invite count and both LTE
+        quotas below -- simply refused to edit for every account that signed
+        up with an email, even though the row and the column were right there.
+        """
+        pool = await get_pool()
+        if reset_awarded:
+            result = await pool.execute(
+                "UPDATE users SET referrer_tag = $1, is_referred = FALSE WHERE id = $2::uuid",
+                tag, user_id,
+            )
+        else:
+            result = await pool.execute(
+                "UPDATE users SET referrer_tag = $1 WHERE id = $2::uuid",
+                tag, user_id,
+            )
+        return result != "UPDATE 0"
+
     async def set_referred_people(self, telegram_id: int, count: int) -> int | None:
         """
         Set the "people this user invited" counter. Returns the new value, or
@@ -571,6 +595,27 @@ class UserRepository:
             RETURNING referred_people
             """,
             int(delta), telegram_id,
+        )
+
+    async def set_referred_people_by_user_id(self, user_id: str, count: int) -> int | None:
+        """`set_referred_people`, addressed by our own id."""
+        pool = await get_pool()
+        return await pool.fetchval(
+            "UPDATE users SET referred_people = $1 WHERE id = $2::uuid RETURNING referred_people",
+            max(0, int(count)), user_id,
+        )
+
+    async def adjust_referred_people_by_user_id(self, user_id: str, delta: int) -> int | None:
+        """`adjust_referred_people`, addressed by our own id."""
+        pool = await get_pool()
+        return await pool.fetchval(
+            """
+            UPDATE users
+            SET referred_people = GREATEST(0, referred_people + $1)
+            WHERE id = $2::uuid
+            RETURNING referred_people
+            """,
+            int(delta), user_id,
         )
 
     async def award_referral(self, referrer_tag: str, telegram_id: int) -> bool:

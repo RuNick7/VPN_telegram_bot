@@ -129,3 +129,69 @@ async def test_writes_to_a_missing_user_report_failure():
     assert await repo.admin_set_referrer(999_999_999, "x") is False
     assert await repo.set_referred_people(999_999_999, 1) is None
     assert await repo.adjust_referred_people(999_999_999, 1) is None
+
+
+# -- the same writes, addressed by our own id ------------------------------
+#
+# Which is the only handle an account created on the website has. Every method
+# above is keyed on telegram_id and so could not touch one of those at all --
+# the row was there, the columns were there, and the admin panel reported "нет
+# telegram_id" and did nothing.
+
+MISSING_ID = "00000000-0000-0000-0000-000000000000"
+
+
+async def test_a_website_account_can_be_given_a_referrer():
+    user_id = await repo.insert_web_user("referred@example.com", 0)
+
+    assert await repo.admin_set_referrer_by_user_id(user_id, "inviter") is True
+    assert (await repo.get_user_by_uuid(user_id))["referrer_tag"] == "inviter"
+
+
+async def test_a_website_account_referrer_can_be_cleared():
+    user_id = await repo.insert_web_user("clearme@example.com", 0)
+    await repo.admin_set_referrer_by_user_id(user_id, "inviter")
+
+    assert await repo.admin_set_referrer_by_user_id(user_id, None) is True
+    assert (await repo.get_user_by_uuid(user_id))["referrer_tag"] is None
+
+
+async def test_correcting_a_website_referrer_reopens_the_bonus():
+    await _make_user(2001, tag="referrer_a")
+    user_id = await repo.insert_web_user("reopen@example.com", 0)
+    assert await repo.award_referral_by_user_id("referrer_a", user_id) is True
+    assert (await repo.get_user_by_uuid(user_id))["is_referred"] is True
+
+    await repo.admin_set_referrer_by_user_id(user_id, "referrer_b")
+    assert (await repo.get_user_by_uuid(user_id))["is_referred"] is False
+
+
+async def test_reset_awarded_can_be_disabled_by_user_id():
+    await _make_user(2002, tag="referrer_a")
+    user_id = await repo.insert_web_user("keepflag@example.com", 0)
+    assert await repo.award_referral_by_user_id("referrer_a", user_id) is True
+
+    await repo.admin_set_referrer_by_user_id(user_id, "referrer_b", reset_awarded=False)
+    assert (await repo.get_user_by_uuid(user_id))["is_referred"] is True
+
+
+async def test_a_website_account_count_can_be_set_and_adjusted():
+    user_id = await repo.insert_web_user("counter@example.com", 0)
+
+    assert await repo.set_referred_people_by_user_id(user_id, 4) == 4
+    assert await repo.adjust_referred_people_by_user_id(user_id, 3) == 7
+    assert await repo.adjust_referred_people_by_user_id(user_id, -2) == 5
+
+
+async def test_a_website_account_count_clamps_at_zero():
+    user_id = await repo.insert_web_user("clamp@example.com", 0)
+    await repo.set_referred_people_by_user_id(user_id, 2)
+
+    assert await repo.adjust_referred_people_by_user_id(user_id, -10) == 0
+    assert await repo.set_referred_people_by_user_id(user_id, -5) == 0
+
+
+async def test_by_user_id_writes_to_a_missing_row_report_failure():
+    assert await repo.admin_set_referrer_by_user_id(MISSING_ID, "x") is False
+    assert await repo.set_referred_people_by_user_id(MISSING_ID, 1) is None
+    assert await repo.adjust_referred_people_by_user_id(MISSING_ID, 1) is None
