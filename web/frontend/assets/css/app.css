@@ -769,11 +769,21 @@ main {
   overflow: hidden;
 }
 
+/* The <picture> has to come out of flow, not just the <img> inside it.
+   Left in, it was a grid item: on a two-column band it took the first column
+   and pushed the panel that should have been beside the status onto a second
+   row, at twice its width. The background looked right, so the symptom was a
+   layout that seemed arbitrary rather than broken. */
+.tex > picture {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+}
+
 /* Not `> img`: these sit inside a <picture>, so the image is a grandchild. */
 .tex img {
   position: absolute;
   inset: 0;
-  z-index: -2;
   width: 100%;
   height: 100%;
   object-fit: cover;

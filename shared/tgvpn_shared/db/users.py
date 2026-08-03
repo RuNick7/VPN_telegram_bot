@@ -34,6 +34,11 @@ _EPOCH_SELECT = """
     reminded,
     nurture_stage,
     lte_paid_balance_bytes,
+    -- Which squad the account actually sits in, which is what decides what it
+    -- can reach. The column has existed since 0002 and the website has always
+    -- read it; leaving it out here meant a test asserting `clear_panel_identity`
+    -- resets it could only ever raise KeyError.
+    squad_tier,
     EXTRACT(EPOCH FROM created_at)::bigint AS created_at
 """
 
