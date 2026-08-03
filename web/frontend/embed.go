@@ -7,10 +7,13 @@
 // that expects them.
 //
 // The patterns are explicit so this source file is not itself embedded and
-// served.
+// served. A directory missing from the list is a silent 404 at run time and
+// nothing at build time, so `TestEveryRouteOfTheRealSiteRenders` in
+// cmd/server is what actually holds this line honest -- adding `docs/` was
+// forgotten once and the agreements 404'd on a deployed site.
 package frontend
 
 import "embed"
 
-//go:embed *.html app assets
+//go:embed *.html app assets docs
 var Files embed.FS

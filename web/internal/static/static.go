@@ -20,6 +20,7 @@ import (
 	"mime"
 	"net/http"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -79,6 +80,23 @@ var pageRoutes = map[string]string{
 	"/docs/refund":  "docs/refund.html",
 	"/docs/terms":   "docs/terms.html",
 	"/docs/privacy": "docs/privacy.html",
+}
+
+// PageRoutes lists every clean URL the site answers, sorted.
+//
+// Exported for the tests, which used to carry a hand-written copy of this
+// list. That is how four document pages shipped 404ing: they were added to the
+// table above and to the embed patterns separately, one of the two was
+// forgotten, and nothing failed -- a route whose file is missing is simply not
+// registered. Iterating the real table means a new page is covered the moment
+// it is added.
+func PageRoutes() []string {
+	routes := make([]string, 0, len(pageRoutes))
+	for route := range pageRoutes {
+		routes = append(routes, route)
+	}
+	sort.Strings(routes)
+	return routes
 }
 
 // New loads the site out of `files` and returns a handler for it.

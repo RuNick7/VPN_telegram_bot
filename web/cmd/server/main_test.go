@@ -72,10 +72,11 @@ func fetch(t *testing.T, handler http.Handler, target string) (*http.Response, s
 func TestEveryRouteOfTheRealSiteRenders(t *testing.T) {
 	site := newRealSite(t)
 
-	for _, target := range []string{
-		"/", "/login", "/auth/verify", "/app", "/app/plans",
-		"/app/devices", "/app/profile", "/gift/TESTCODE",
-	} {
+	// The real route table, not a copy of it. A hand-written list here is how
+	// four document pages shipped 404ing: they were added to pageRoutes and to
+	// the embed patterns separately, one was forgotten, and a route with no
+	// file behind it is simply never registered.
+	for _, target := range append(static.PageRoutes(), "/gift/TESTCODE") {
 		response, body := fetch(t, site, target)
 		if response.StatusCode != http.StatusOK {
 			t.Errorf("%s: status %d", target, response.StatusCode)
@@ -94,10 +95,7 @@ func TestEveryAssetThePagesReferenceExists(t *testing.T) {
 	// A missing stylesheet or module is invisible in Go's tests otherwise: the
 	// page still returns 200 and the site is simply broken in the browser.
 	site := newRealSite(t)
-	pages := []string{
-		"/", "/login", "/auth/verify", "/app", "/app/plans",
-		"/app/devices", "/app/profile", "/gift/X",
-	}
+	pages := append(static.PageRoutes(), "/gift/X")
 
 	seen := map[string]bool{}
 	for _, page := range pages {
@@ -331,10 +329,7 @@ func TestEveryIconTheSiteAsksForIsInTheSprite(t *testing.T) {
 	site := newRealSite(t)
 
 	_, sprite := fetch(t, site, "/assets/img/icons.svg")
-	pages := []string{
-		"/", "/login", "/auth/verify", "/app", "/app/plans",
-		"/app/devices", "/app/profile", "/gift/X",
-	}
+	pages := append(static.PageRoutes(), "/gift/X")
 
 	checked := 0
 	for _, page := range pages {
