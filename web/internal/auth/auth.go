@@ -143,18 +143,29 @@ func (s *Service) RedeemMagicLink(ctx context.Context, token, ip, userAgent stri
 	return session, user, err
 }
 
-// LoginWithTelegram verifies a login-widget payload and returns a session.
+// LoginWithTelegram verifies a login-widget payload and returns a session,
+// registering the account if this is a first-time sign-in.
 //
-// Only an existing account is accepted. A Telegram user who has never spoken
-// to the bot has no row, and creating one here would mean creating a panel
-// profile and a trial from an unauthenticated endpoint -- the bot's /start
-// owns that.
+// It used to accept only an existing account, which meant "sign in with
+// Telegram" worked solely for people who had already opened the bot -- for
+// everybody else the button led to "аккаунт не найден, откройте бота". That is
+// a dead end on the one route a customer picked precisely because it needs no
+// typing.
+//
+// Registering here is the same trade the magic link already makes. The payload
+// is HMAC-signed with the bot's own token and checked for freshness before
+// this line, so the identity is proven exactly as an emailed link proves a
+// mailbox. It is not an unauthenticated endpoint, whatever the old comment
+// here said -- verification happens first, and nothing is created if it fails.
 func (s *Service) LoginWithTelegram(ctx context.Context, payload TelegramAuth, ip, userAgent string) (string, *store.User, error) {
 	if err := VerifyTelegramAuth(payload, s.telegramToken, time.Now()); err != nil {
 		return "", nil, err
 	}
 
 	user, err := s.store.UserByTelegramID(ctx, payload.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		user, err = s.store.CreateTelegramUser(ctx, payload.ID, payload.Username)
+	}
 	if err != nil {
 		return "", nil, err
 	}

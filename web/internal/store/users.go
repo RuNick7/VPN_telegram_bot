@@ -72,14 +72,29 @@ func (s *Store) UserByID(ctx context.Context, id string) (*User, error) {
 		`SELECT `+userColumns+` FROM users WHERE id = $1`, id))
 }
 
-// UserByEmail looks a user up case-insensitively.
+// UserByEmail looks a user up case-insensitively, following a merge.
 //
 // Addresses are stored as the user typed them, but nobody expects
 // Bob@example.com and bob@example.com to be different accounts -- and treating
 // them as different would let one person hold two accounts on one mailbox.
+//
+// The merge walk matters because an address can outlive the row it was
+// registered on. Someone who signed up by email and then linked their Telegram
+// account has their website row folded into the Telegram one; the address
+// stays where it was, and a sign-in with it has to land on the account that is
+// actually live rather than on a row with no subscription and no panel profile.
 func (s *Store) UserByEmail(ctx context.Context, email string) (*User, error) {
 	return scanUser(s.pool.QueryRow(ctx,
-		`SELECT `+userColumns+` FROM users WHERE lower(email) = lower($1)`, strings.TrimSpace(email)))
+		`WITH RECURSIVE chain AS (
+			SELECT id, merged_into, 0 AS depth FROM users WHERE lower(email) = lower($1)
+			UNION ALL
+			SELECT u.id, u.merged_into, chain.depth + 1
+			FROM users u JOIN chain ON u.id = chain.merged_into
+			WHERE chain.depth < 8
+		)
+		SELECT `+userColumns+` FROM users
+		WHERE id = (SELECT id FROM chain WHERE merged_into IS NULL LIMIT 1)`,
+		strings.TrimSpace(email)))
 }
 
 func (s *Store) UserByTelegramID(ctx context.Context, telegramID int64) (*User, error) {
@@ -90,6 +105,28 @@ func (s *Store) UserByTelegramID(ctx context.Context, telegramID int64) (*User, 
 func (s *Store) UserByTag(ctx context.Context, tag string) (*User, error) {
 	return scanUser(s.pool.QueryRow(ctx,
 		`SELECT `+userColumns+` FROM users WHERE lower(telegram_tag) = lower($1)`, strings.TrimSpace(tag)))
+}
+
+// referrerMatches is how `users.referrer_tag` finds the person it names.
+//
+// It holds a Telegram tag for anyone who has one and an email address for
+// anyone who does not: a referrer who signed up on the website has no tag to
+// be named by, and before this they could be named and then never credited.
+// The two cannot collide -- an address always has an `@` and a tag never does.
+//
+// Kept identical to `_REFERRER_MATCHES` in shared/tgvpn_shared/db/users.py.
+// A payment made in the bot is credited by that one and a payment made here by
+// this one; if they disagreed, whether a referrer got their bonus would depend
+// on where their invitee happened to pay.
+const referrerMatches = `
+	$1 <> ''
+	AND (lower(telegram_tag) = lower($1) OR lower(email) = lower($1))`
+
+// UserByReferrerHandle finds whoever a customer named as their referrer,
+// whether they typed a Telegram tag or an email address.
+func (s *Store) UserByReferrerHandle(ctx context.Context, handle string) (*User, error) {
+	return scanUser(s.pool.QueryRow(ctx,
+		`SELECT `+userColumns+` FROM users WHERE `+referrerMatches, strings.TrimSpace(handle)))
 }
 
 // CreateEmailUser registers someone who arrived through the website with no
@@ -107,6 +144,34 @@ func (s *Store) CreateEmailUser(ctx context.Context, email string) (*User, error
 		 VALUES ($1, to_timestamp(0), now())
 		 RETURNING id`,
 		strings.TrimSpace(email),
+	).Scan(&id)
+	if err != nil {
+		return nil, err
+	}
+	return s.UserByID(ctx, id)
+}
+
+// CreateTelegramUser registers someone arriving through the Telegram login
+// widget who has never opened the bot.
+//
+// The counterpart to CreateEmailUser, and admitted on the same grounds: the
+// widget payload is HMAC-signed with the bot's own token, so the identity is
+// proven before this is reached. `email` stays NULL — they have not given one,
+// and the schema has never required it.
+//
+// Upserted rather than inserted because two tabs finishing the widget at the
+// same moment would otherwise race on `telegram_id`'s unique index, and the
+// loser would see an error on a login that had in fact just succeeded. The tag
+// is refreshed on the way through: it is what referrals are matched by, and a
+// customer who renames themselves on Telegram should not stop being findable.
+func (s *Store) CreateTelegramUser(ctx context.Context, telegramID int64, tag string) (*User, error) {
+	var id string
+	err := s.pool.QueryRow(ctx,
+		`INSERT INTO users (telegram_id, telegram_tag, subscription_ends, created_at)
+		 VALUES ($1, $2, to_timestamp(0), now())
+		 ON CONFLICT (telegram_id) DO UPDATE SET telegram_tag = EXCLUDED.telegram_tag
+		 RETURNING id`,
+		telegramID, strings.TrimSpace(tag),
 	).Scan(&id)
 	if err != nil {
 		return nil, err
@@ -164,7 +229,7 @@ func (s *Store) AwardReferral(ctx context.Context, referrerTag string, inviteeID
 
 	cmd, err := tx.Exec(ctx,
 		`UPDATE users SET referred_people = referred_people + 1
-		 WHERE lower(telegram_tag) = lower($1)`, strings.TrimSpace(referrerTag))
+		 WHERE `+referrerMatches, strings.TrimSpace(referrerTag))
 	if err != nil {
 		return false, err
 	}

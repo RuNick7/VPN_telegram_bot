@@ -57,9 +57,9 @@ func (s *Server) handleTelegramCallback(w http.ResponseWriter, r *http.Request) 
 		s.bounce(w, r, "bad_signature")
 		return
 	case errors.Is(err, store.ErrNotFound):
-		// No account for this Telegram user. Creating one here would mean
-		// provisioning a panel profile and a trial from an endpoint anyone can
-		// navigate to; the bot's /start owns that.
+		// A first-time Telegram sign-in registers the account, so reaching here
+		// means the row went missing between being written and being read back
+		// -- not the ordinary "has never opened the bot" case it used to be.
 		s.bounce(w, r, "no_account")
 		return
 	case err != nil:

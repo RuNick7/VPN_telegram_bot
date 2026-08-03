@@ -56,7 +56,9 @@
               <input class="input" id="email" name="email" type="email" inputmode="email"
                      autocomplete="email" spellcheck="false" required>
             </div>
-            <button class="btn btn-ghost btn-sm" type="submit" data-email-submit>Сохранить</button>
+            <div class="actions">
+              <button class="btn btn-ghost btn-sm" type="submit" data-email-submit>Изменить</button>
+            </div>
           </form>
         </div>
 
@@ -70,11 +72,13 @@
             <span class="badge" data-kind="on">Привязан</span>
             <p class="mono-sm strong" data-tg-tag></p>
           </div>
-          <div data-tg-unlinked hidden>
+          <div class="stack" data-tg-unlinked hidden>
             <p class="mono-sm muted">После привязки дни подписки с обоих аккаунтов сложатся.</p>
-            <button class="btn btn-outline btn-sm" type="button" data-tg-link>
-              <span data-icon="link"></span> Привязать Telegram
-            </button>
+            <div class="actions">
+              <button class="btn btn-outline btn-sm" type="button" data-tg-link>
+                <span data-icon="link"></span> Привязать Telegram
+              </button>
+            </div>
             <div class="copy" data-tg-link-box hidden>
               <input type="text" readonly data-tg-link-url aria-label="Ссылка привязки" spellcheck="false">
               <button type="button" data-tg-copy aria-label="Копировать">
@@ -111,11 +115,13 @@
           </div>
           <form class="stack" data-ref-form hidden novalidate>
             <div class="field">
-              <label for="referrer">Ник в Telegram</label>
+              <label for="referrer">Ник в Telegram или почта</label>
               <input class="input" id="referrer" name="referrer" type="text"
-                     autocomplete="off" spellcheck="false" placeholder="@nickname" required>
+                     autocomplete="off" spellcheck="false" placeholder="@nickname или mail@example.com" required>
             </div>
-            <button class="btn btn-ghost btn-sm" type="submit" data-ref-submit>Указать</button>
+            <div class="actions">
+              <button class="btn btn-ghost btn-sm" type="submit" data-ref-submit>Указать</button>
+            </div>
             <p class="mono-sm muted">Указать можно один раз. Бонус начислится ему после вашей первой оплаты.</p>
           </form>
         </div>

@@ -39,9 +39,9 @@ async function saveEmail(event) {
       const result = await api("/api/me/email", { method: "PATCH", body: { email } });
       input.value = result.email;
       $("[data-me-email]").textContent = result.email;
-      flash("Адрес сохранён. Следующая ссылка для входа придёт на него.", "ok");
+      flash("Адрес изменён. Следующая ссылка для входа придёт на него.", "ok");
     } catch (err) {
-      flash(err instanceof ApiError ? err.message : "Не удалось сохранить адрес.");
+      flash(err instanceof ApiError ? err.message : "Не удалось изменить адрес.");
     }
   });
 }
@@ -103,18 +103,29 @@ function renderReferrals(referrals) {
       ? "Максимальный уровень"
       : `Уровень ${referrals.tier} из ${referrals.max_tier}`;
 
+  // What this user is named by when they invite somebody. A Telegram tag if
+  // they have one, otherwise their address — which the referrer field now
+  // accepts, so an account with no Telegram is no longer un-nameable.
   const own = $("[data-ref-own]");
-  own.textContent = referrals.own_tag ? "@" + referrals.own_tag : "—";
+  own.textContent = referrals.own_tag ? "@" + referrals.own_tag : referrals.own_email || "—";
   $("[data-ref-own-note]").textContent = referrals.own_tag
     ? "Его называют те, кого вы пригласили."
-    : "Появится после привязки Telegram — приглашения считаются по нику.";
+    : referrals.own_email
+      ? "Этот адрес называют те, кого вы пригласили. Привяжите Telegram, чтобы вас находили и по нику."
+      : "Укажите почту или привяжите Telegram, чтобы вас можно было указать как пригласившего.";
 
   if (referrals.referrer_locked) {
     $("[data-ref-set]").hidden = false;
-    $("[data-ref-referrer]").textContent = "@" + referrals.referrer_tag;
+    $("[data-ref-referrer]").textContent = referrerLabel(referrals.referrer_tag);
   } else {
     $("[data-ref-form]").hidden = false;
   }
+}
+
+/** An address is shown as typed; a Telegram tag gets its `@` back. */
+function referrerLabel(handle) {
+  const value = String(handle || "");
+  return value.includes("@") ? value : "@" + value;
 }
 
 async function saveReferrer(event) {
@@ -122,10 +133,14 @@ async function saveReferrer(event) {
   clearFlash();
 
   const input = $("#referrer");
-  const tag = input.value.trim().replace(/^@/, "");
+  // A tag loses its `@`; an address keeps everything after the first one. The
+  // server normalises again on its side, so this is only about not sending an
+  // address with the leading `@` a customer typed out of habit.
+  const raw = input.value.trim();
+  const tag = raw.replace(/^@/, "");
   if (!tag) {
     input.setAttribute("aria-invalid", "true");
-    flash("Укажите ник пригласившего.");
+    flash("Укажите ник или почту пригласившего.");
     return;
   }
   input.removeAttribute("aria-invalid");
@@ -135,7 +150,7 @@ async function saveReferrer(event) {
       const result = await api("/api/referrals/referrer", { method: "PUT", body: { tag } });
       $("[data-ref-form]").hidden = true;
       $("[data-ref-set]").hidden = false;
-      $("[data-ref-referrer]").textContent = "@" + result.referrer_tag;
+      $("[data-ref-referrer]").textContent = referrerLabel(result.referrer_tag);
       flash(result.detail || "Пригласивший сохранён.", "ok");
     } catch (err) {
       flash(err instanceof ApiError ? err.message : "Не удалось сохранить.");

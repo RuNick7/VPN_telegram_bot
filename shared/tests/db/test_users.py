@@ -3,6 +3,8 @@ import time
 import pytest
 
 from tgvpn_shared.db import UserRepository
+from tgvpn_shared.db.pool import get_pool
+from tgvpn_shared.identity import plan_merge
 
 
 @pytest.fixture
@@ -102,3 +104,84 @@ async def test_get_inactive_telegram_ids_for_cleanup(users: UserRepository):
 
     assert 500 in inactive
     assert 501 not in inactive
+
+
+# -- merging a website account into a Telegram one --------------------------
+
+
+async def _website_account(email: str, subscription_ends: int) -> str:
+    """A row as the site creates one: an address, no Telegram identity."""
+    pool = await get_pool()
+    return str(
+        await pool.fetchval(
+            """
+            INSERT INTO users (email, subscription_ends, created_at)
+            VALUES ($1, to_timestamp($2), now())
+            RETURNING id
+            """,
+            email, subscription_ends,
+        )
+    )
+
+
+async def test_merging_moves_the_website_address_onto_the_survivor(users: UserRepository):
+    """
+    The regression that broke linking outright.
+
+    `users.email` is UNIQUE, and the survivor used to adopt the website
+    account's address while the website row still held it. Every link died on
+    `users_email_key`, and all the bot could say was "попробуйте позже".
+    """
+    now = int(time.time())
+    await users.create_user_record(901, "tg_user")
+    telegram_row = await users.get_user_by_id(901)
+    web_id = await _website_account("web@example.com", now + 10 * 86400)
+    web_row = await users.get_user_by_uuid(web_id)
+
+    plan = plan_merge(survivor=dict(telegram_row), absorbed=dict(web_row), now=now)
+    await users.apply_merge(plan)
+
+    survivor = await users.get_user_by_id(901)
+    assert survivor["email"] == "web@example.com"
+    # And the address is gone from the row that gave it up, or the write above
+    # could not have landed at all.
+    absorbed = await users.get_user_by_uuid(web_id)
+    assert absorbed["id"] == survivor["id"], "the id should now resolve to the survivor"
+
+
+async def test_an_address_the_survivor_keeps_leaves_the_other_one_alone(users: UserRepository):
+    """
+    Nothing is deleted when there is no collision to resolve: the absorbed
+    address stays a working sign-in route, because the lookup follows
+    `merged_into` to the survivor.
+    """
+    now = int(time.time())
+    await users.create_user_record(902, "tg_user")
+    await users.update_user_email(902, "mine@example.com")
+    telegram_row = await users.get_user_by_id(902)
+    web_id = await _website_account("other@example.com", now + 5 * 86400)
+    web_row = await users.get_user_by_uuid(web_id)
+
+    plan = plan_merge(survivor=dict(telegram_row), absorbed=dict(web_row), now=now)
+    await users.apply_merge(plan)
+
+    survivor = await users.get_user_by_id(902)
+    assert survivor["email"] == "mine@example.com"
+    reached = await users.get_user_by_email("other@example.com")
+    assert reached is not None and reached["email"] == "other@example.com"
+
+
+async def test_days_from_both_accounts_survive_the_merge(users: UserRepository):
+    """The rule the whole feature rests on, asserted against real SQL."""
+    now = int(time.time())
+    await users.create_user_record(903, "tg_user")
+    await users.update_subscription_expire(903, now + 14 * 86400)
+    telegram_row = await users.get_user_by_id(903)
+    web_id = await _website_account("sum@example.com", now + 30 * 86400)
+    web_row = await users.get_user_by_uuid(web_id)
+
+    plan = plan_merge(survivor=dict(telegram_row), absorbed=dict(web_row), now=now)
+    await users.apply_merge(plan)
+
+    survivor = await users.get_user_by_id(903)
+    assert abs(survivor["subscription_ends"] - (now + 44 * 86400)) <= 1

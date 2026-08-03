@@ -12,11 +12,11 @@ import {
   api,
   ApiError,
   copyText,
-  daysLabel,
   el,
   flash,
   formatDate,
   formatGB,
+  plural,
   setText,
   show,
 } from "./core.js";
@@ -43,21 +43,24 @@ function renderSubscription(sub) {
   title.textContent = "";
   title.append(
     "Kaira ",
-    el("br"),
     el("span", { class: active ? "accent" : "muted", text: active ? "Active" : "Offline" })
   );
 
   setText(
     "[data-status-note]",
     active
-      ? "Доступ открыт. Подключайте устройства по ссылке подписки — она одна на всех."
+      ? "Доступ открыт. Ссылка подписки одна на все устройства."
       : "Доступ закрыт. Оформите подписку, чтобы начать пользоваться."
   );
 
-  show($("[data-side]"), true);
-  show($("[data-has-subscription]"), active);
   show($("[data-actions-active]"), active);
   show($("[data-actions-none]"), !active);
+
+  // The plaque column exists only when there is a period to count down. The
+  // band collapses to one column with it, rather than ruling a hairline down
+  // the middle of an empty half.
+  show($("[data-plan-side]"), active);
+  $("[data-band]").dataset.single = String(!active);
 
   if (active) {
     // `tier` is the squad the account sits in, which is what actually decides
@@ -65,7 +68,12 @@ function renderSubscription(sub) {
     const names = { free: "Бесплатный", lte: "С квотой трафика" };
     setText("[data-plan-name]", names[sub.tier] || "Полный доступ");
     setText("[data-plan-until]", formatDate(sub.expires_at));
-    setText("[data-plan-left]", `Осталось: ${daysLabel(sub.days_left)}`);
+
+    // Split across two elements so the number can be set in the display size
+    // and the word beside it stays small: how long is left is the question
+    // this page exists to answer, and it was a line of 12px grey text.
+    setText("[data-days-left]", String(sub.days_left));
+    setText("[data-days-word]", plural(sub.days_left, "день", "дня", "дней"));
   }
 
   // The link section appears only when there is a link. An empty field that
@@ -76,6 +84,21 @@ function renderSubscription(sub) {
 }
 
 // -- traffic --------------------------------------------------------------
+
+/**
+ * Matches the column count to how many cells there actually are.
+ *
+ * The traffic cell is two columns wide and only exists when quotas are on, so
+ * without it a four-column grid drew two empty columns with a hairline
+ * between them.
+ */
+function fitStatsGrid() {
+  const grid = $("[data-stats]");
+  if (!grid) return;
+  const wide = !$("[data-traffic-cell]").hidden;
+  grid.classList.toggle("cols-4", wide);
+  grid.classList.toggle("cols-2", !wide);
+}
 
 function renderTraffic(traffic) {
   if (!traffic?.enabled) return;
@@ -167,4 +190,8 @@ boot(async (user) => {
     settle(api("/api/devices"), renderDevices),
     settle(api("/api/referrals"), (r) => renderReferrals(r, user)),
   ]);
+
+  // After, not inside renderTraffic: a failed traffic call leaves the cell
+  // hidden too, and the grid has to fit what is on screen either way.
+  fitStatsGrid();
 });

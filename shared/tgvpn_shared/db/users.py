@@ -37,6 +37,19 @@ _EPOCH_SELECT = """
     EXTRACT(EPOCH FROM created_at)::bigint AS created_at
 """
 
+# How `users.referrer_tag` is matched back to the person it names.
+#
+# It holds a Telegram tag for anyone who has one and an email address for
+# anyone who does not -- a referrer who signed up on the website has no tag to
+# be named by, and before this they could be named and then never credited.
+# The two can't collide: an address always has an `@` in it and a tag never
+# does. Empty is excluded explicitly, or a blank referrer_tag would credit
+# every account that has no tag either.
+_REFERRER_MATCHES = """
+    $1 <> ''
+    AND (lower(telegram_tag) = lower($1) OR lower(email) = lower($1))
+"""
+
 
 class UserRepository:
     async def insert_new_user(
@@ -159,7 +172,8 @@ class UserRepository:
                 if already is None or already:
                     return False
                 updated = await connection.execute(
-                    "UPDATE users SET referred_people = referred_people + 1 WHERE telegram_tag = $1",
+                    "UPDATE users SET referred_people = referred_people + 1 "
+                    f"WHERE {_REFERRER_MATCHES}",
                     referrer_tag,
                 )
                 if updated == "UPDATE 0":
@@ -270,10 +284,34 @@ class UserRepository:
         statements have to land together -- a survivor credited with the
         absorbed account's days while the absorbed row stays independently
         usable would double the time the user actually paid for.
+
+        The absorbed row is written **first**, and that order is load-bearing.
+        `users.email` is UNIQUE, so a survivor adopting an address the absorbed
+        row still holds violates `users_email_key` -- which is what every link
+        of a website account to a Telegram account did, and why the bot could
+        only answer "попробуйте позже".
         """
         pool = await get_pool()
         async with pool.acquire() as connection:
             async with connection.transaction():
+                # The absorbed row keeps its own panel columns so an operator
+                # can still find the leftover account; `merged_into` is what
+                # takes it out of circulation. It gives up its address only
+                # when the survivor is the one taking it -- otherwise both
+                # addresses stay live, and both reach the survivor, because
+                # every lookup follows `merged_into`.
+                await connection.execute(
+                    """
+                    UPDATE users SET
+                        merged_into            = $1::uuid,
+                        telegram_id            = NULL,
+                        email                  = CASE WHEN $3 THEN NULL ELSE email END,
+                        subscription_ends      = to_timestamp(0),
+                        lte_paid_balance_bytes = 0
+                    WHERE id = $2::uuid
+                    """,
+                    plan.survivor_id, plan.absorbed_id, plan.absorbed_releases_email,
+                )
                 await connection.execute(
                     """
                     UPDATE users SET
@@ -296,20 +334,6 @@ class UserRepository:
                     plan.adopt_panel_uuid,
                     plan.adopt_panel_username,
                     plan.survivor_id,
-                )
-                # The absorbed row keeps its own panel columns so an operator
-                # can still find the leftover account; `merged_into` is what
-                # takes it out of circulation.
-                await connection.execute(
-                    """
-                    UPDATE users SET
-                        merged_into            = $1::uuid,
-                        telegram_id            = NULL,
-                        subscription_ends      = to_timestamp(0),
-                        lte_paid_balance_bytes = 0
-                    WHERE id = $2::uuid
-                    """,
-                    plan.survivor_id, plan.absorbed_id,
                 )
 
     async def get_subscription_info(self, telegram_id: int) -> Optional[dict]:
@@ -426,7 +450,8 @@ class UserRepository:
                 if claimed_id is None:
                     return False
                 await conn.execute(
-                    "UPDATE users SET referred_people = referred_people + 1 WHERE telegram_tag = $1",
+                    "UPDATE users SET referred_people = referred_people + 1 "
+                    f"WHERE {_REFERRER_MATCHES}",
                     referrer_tag,
                 )
                 return True

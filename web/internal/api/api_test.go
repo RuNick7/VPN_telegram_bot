@@ -53,6 +53,36 @@ func TestTagNormalisation(t *testing.T) {
 	}
 }
 
+func TestAReferrerCanBeNamedByTagOrByAddress(t *testing.T) {
+	// Only a tag used to be accepted, which quietly excluded every referrer who
+	// joined through the website: they have no Telegram tag, so nobody could
+	// name them and they could never be credited.
+	cases := map[string]string{
+		"@nickname":             "nickname",
+		"https://t.me/nickname": "nickname",
+		"mail@example.com":      "mail@example.com",
+		"  Mail@Example.COM  ":  "mail@example.com",
+		// A leading @ before an address is habit, not part of it.
+		"@mail@example.com": "mail@example.com",
+		"":                  "",
+	}
+	for raw, want := range cases {
+		if got := normalizeReferrerHandle(raw); got != want {
+			t.Errorf("normalizeReferrerHandle(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}
+
+func TestAnAddressIsNotPutThroughTheTagCleanup(t *testing.T) {
+	// normalizeTag truncates at the first "/", "?" or "#". A plus-addressed
+	// mailbox survives that, but the moment one does not, the customer is told
+	// their referrer does not exist and has no way to tell why.
+	const addr = "first.last+kaira@example.co.uk"
+	if got := normalizeReferrerHandle(addr); got != addr {
+		t.Errorf("normalizeReferrerHandle(%q) = %q, want it unchanged", addr, got)
+	}
+}
+
 func TestSessionCookieIsHostPrefixed(t *testing.T) {
 	// __Host- makes the browser refuse the cookie unless it is Secure, path=/
 	// and has no Domain -- which stops a compromised subdomain from setting a

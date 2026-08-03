@@ -211,12 +211,22 @@ func (s *Server) handleReferrals(w http.ResponseWriter, r *http.Request, user *s
 		// Once set it cannot change, so the client can render the field as
 		// permanently read-only rather than offering an edit that will fail.
 		"referrer_locked": user.ReferrerTag != "",
-		"tier":            pricing.Tier(user.ReferredPeople),
-		"max_tier":        pricing.MaxTier,
-		"own_tag":         user.TelegramTag,
+		"tier":     pricing.Tier(user.ReferredPeople),
+		"max_tier": pricing.MaxTier,
+		// What this user is named by when somebody invites *them*. A website
+		// account has no Telegram tag, and its address is now a handle the
+		// referrer field accepts, so it is no longer "nothing to show".
+		"own_tag":   user.TelegramTag,
+		"own_email": user.Email,
 	})
 }
 
+// handleSetReferrer records who invited this customer.
+//
+// The field takes a Telegram tag or an email address. Only a tag used to be
+// accepted, which quietly excluded everyone who joined through the website:
+// they have no tag, so there was no way for an invitee to name them and no way
+// for them to ever be credited.
 func (s *Server) handleSetReferrer(w http.ResponseWriter, r *http.Request, user *store.User) {
 	var body struct {
 		Tag string `json:"tag"`
@@ -225,19 +235,21 @@ func (s *Server) handleSetReferrer(w http.ResponseWriter, r *http.Request, user 
 		writeError(w, http.StatusBadRequest, "bad_request", "Некорректный запрос.")
 		return
 	}
-	tag := normalizeTag(body.Tag)
-	if tag == "" {
-		writeError(w, http.StatusBadRequest, "invalid_tag", "Укажите ник пригласившего.")
+	handle := normalizeReferrerHandle(body.Tag)
+	if handle == "" {
+		writeError(w, http.StatusBadRequest, "invalid_tag", "Укажите ник или почту пригласившего.")
 		return
 	}
-	if user.TelegramTag != "" && equalFold(tag, user.TelegramTag) {
+	if (user.TelegramTag != "" && equalFold(handle, user.TelegramTag)) ||
+		(user.Email != "" && equalFold(handle, user.Email)) {
 		writeError(w, http.StatusBadRequest, "self_referral", "Нельзя указать самого себя.")
 		return
 	}
 
-	referrer, err := s.store.UserByTag(r.Context(), tag)
+	referrer, err := s.store.UserByReferrerHandle(r.Context(), handle)
 	if errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "referrer_not_found", "Пользователь с таким ником не найден.")
+		writeError(w, http.StatusNotFound, "referrer_not_found",
+			"Пользователь с таким ником или почтой не найден.")
 		return
 	}
 	if err != nil {
@@ -247,6 +259,13 @@ func (s *Server) handleSetReferrer(w http.ResponseWriter, r *http.Request, user 
 	if referrer.ID == user.ID {
 		writeError(w, http.StatusBadRequest, "self_referral", "Нельзя указать самого себя.")
 		return
+	}
+
+	// Stored as whatever will find them again at award time, preferring the tag
+	// so existing rows and the bot's own field keep the same shape.
+	tag := handle
+	if referrer.TelegramTag != "" {
+		tag = referrer.TelegramTag
 	}
 
 	set, err := s.store.SetReferrerTag(r.Context(), user.ID, tag)

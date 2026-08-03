@@ -189,6 +189,44 @@ def test_an_absent_email_is_filled_in_from_the_absorbed_account():
     assert plan.email == "web@example.com"
 
 
+def test_an_adopted_email_is_moved_rather_than_copied():
+    """
+    `users.email` is UNIQUE, so an address cannot sit on both rows at once.
+    Copying it was the bug: every attempt to link a website account to a
+    Telegram account died on `users_email_key`, and the bot could only say
+    "попробуйте позже".
+    """
+    plan = plan_merge(
+        survivor=account(email=None),
+        absorbed=account(id=WEB_ID, email="web@example.com"),
+        now=NOW,
+    )
+    assert plan.absorbed_releases_email is True
+
+
+def test_an_address_the_survivor_does_not_take_stays_where_it_is():
+    """
+    Both addresses keep working -- the lookup follows `merged_into`, so the
+    one left behind reaches the survivor anyway. Clearing it would silently
+    delete a sign-in route the user still uses.
+    """
+    plan = plan_merge(
+        survivor=account(email="mine@example.com"),
+        absorbed=account(id=WEB_ID, email="other@example.com"),
+        now=NOW,
+    )
+    assert plan.absorbed_releases_email is False
+
+
+def test_nothing_is_released_when_the_absorbed_account_had_no_address():
+    plan = plan_merge(
+        survivor=account(email="mine@example.com"),
+        absorbed=account(id=WEB_ID, email=None),
+        now=NOW,
+    )
+    assert plan.absorbed_releases_email is False
+
+
 def test_the_referrer_is_never_overwritten_either():
     """Changing who invited someone would move a discount they already earned."""
     plan = plan_merge(

@@ -38,11 +38,11 @@
 
 <main class="app-main">
 
-  <section class="split">
+  <section class="split" data-band>
     <div class="stack">
       <span class="section-tag">01 // Подключение</span>
       <h1 class="h-md">Одна ссылка на всё</h1>
-      <p class="lead">Вставьте её в приложение Happ на любом устройстве. Конфигурация подтянется сама и будет обновляться, когда мы меняем узлы.</p>
+      <p class="mono-sm muted">Вставьте её в приложение на любом устройстве. Конфигурация подтянется сама и будет обновляться, когда мы меняем узлы.</p>
 
       <div class="notice" data-notice hidden role="status"></div>
 
@@ -67,58 +67,26 @@
 
       <div class="stack" data-no-connect hidden>
         <p class="mono-sm muted">Ссылка появится сразу после оформления подписки.</p>
-        <a class="btn btn-lg" href="/app/plans"><span data-icon="card"></span> Выбрать тариф</a>
+        <div class="actions">
+          <a class="btn" href="/app/plans"><span data-icon="card"></span> Выбрать тариф</a>
+        </div>
       </div>
     </div>
 
     <div class="side" data-qr-side hidden>
       <span class="mono-sm muted">QR-код</span>
-      <div data-qr aria-live="polite"></div>
+      <div class="qr" data-qr aria-live="polite"></div>
       <p class="mono-sm muted">В приложении: <span class="strong">+</span> → добавить по QR-коду.</p>
     </div>
   </section>
 
   <section class="section">
     <div class="wrap stack">
-      <span class="section-tag">02 // Приложение</span>
-      <div class="grid-lines cols-4">
-        <div class="stack">
-          <span data-icon="phone" data-icon-class="icon-lg accent"></span>
-          <h3 class="mono strong">iPhone / iPad</h3>
-          <a class="mono-sm accent" href="https://apps.apple.com/us/app/happ-proxy-utility/id6504287215" rel="noopener" target="_blank">Happ в App Store →</a>
-        </div>
-        <div class="stack">
-          <span data-icon="phone" data-icon-class="icon-lg accent"></span>
-          <h3 class="mono strong">Android</h3>
-          <a class="mono-sm accent" href="https://play.google.com/store/apps/details?id=com.happproxy" rel="noopener" target="_blank">Happ в Google Play →</a>
-        </div>
-        <div class="stack">
-          <span data-icon="monitor" data-icon-class="icon-lg accent"></span>
-          <h3 class="mono strong">Windows</h3>
-          <a class="mono-sm accent" href="https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe" rel="noopener" target="_blank">Скачать Happ →</a>
-        </div>
-        <div class="stack">
-          <span data-icon="laptop" data-icon-class="icon-lg accent"></span>
-          <h3 class="mono strong">macOS</h3>
-          <a class="mono-sm accent" href="https://apps.apple.com/us/app/happ-proxy-utility/id6504287215" rel="noopener" target="_blank">Happ в App Store →</a>
-        </div>
-        <div class="stack">
-          <span data-icon="tv" data-icon-class="icon-lg accent"></span>
-          <h3 class="mono strong">Android TV</h3>
-          <a class="mono-sm accent" href="https://github.com/Happ-proxy/happ-android/releases/latest/download/Happ.apk" rel="noopener" target="_blank">APK для телевизора →</a>
-        </div>
-        <div class="stack">
-          <span data-icon="tv" data-icon-class="icon-lg accent"></span>
-          <h3 class="mono strong">Apple TV</h3>
-          <a class="mono-sm accent" href="https://apps.apple.com/us/app/happ-proxy-utility-for-tv/id6748297274" rel="noopener" target="_blank">Happ для Apple TV →</a>
-        </div>
-        <div class="stack span-2">
-          <span data-icon="info" data-icon-class="icon-lg accent"></span>
-          <h3 class="mono strong">Не получается?</h3>
-          <p class="mono-sm muted">На телевизоре добавляйте профиль QR-кодом с этой страницы. Если приложение не принимает ссылку — сбросьте её выше и попробуйте снова.</p>
-          <a class="mono-sm accent" href="#" data-faq hidden rel="noopener" target="_blank">Частые вопросы →</a>
-        </div>
-      </div>
+      <span class="section-tag">02 // Инструкция по установке</span>
+      <p class="mono-sm muted">Выберите устройство — покажем шаги именно для него.</p>
+      <div class="chips" role="tablist" aria-label="Операционная система" data-os-tabs></div>
+      <div data-os-panel role="tabpanel" tabindex="0"></div>
+      <a class="mono-sm accent" href="#" data-faq hidden rel="noopener" target="_blank">Частые вопросы →</a>
     </div>
   </section>
 

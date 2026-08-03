@@ -34,7 +34,7 @@ function reportCallbackError() {
   const messages = {
     bad_signature: "Данные Telegram не прошли проверку. Попробуйте войти ещё раз.",
     no_account:
-      "Аккаунта с этим Telegram нет. Откройте бота, нажмите «Start», затем вернитесь сюда.",
+      "Не удалось открыть аккаунт. Попробуйте ещё раз или войдите по почте.",
     not_configured: "Вход через Telegram сейчас не настроен. Используйте почту.",
   };
   flash(messages[reason] || "Не удалось войти через Telegram. Попробуйте почту.");

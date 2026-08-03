@@ -92,11 +92,11 @@ func (s *Server) handleTelegramLogin(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, "bad_signature", "Данные Telegram не прошли проверку.")
 		return
 	case errors.Is(err, store.ErrNotFound):
-		// No account for this Telegram user. Creating one here would mean
-		// creating a panel profile and a trial from an unauthenticated
-		// endpoint; the bot's /start owns that.
+		// A first-time Telegram sign-in registers the account, so this is no
+		// longer the ordinary "never opened the bot" case -- it means the row
+		// went missing between being written and being read back.
 		writeError(w, http.StatusNotFound, "no_account",
-			"Аккаунт не найден. Откройте бота и нажмите /start, затем войдите снова.")
+			"Не удалось открыть аккаунт. Попробуйте ещё раз или войдите по почте.")
 		return
 	case err != nil:
 		s.fail(w, r, err)

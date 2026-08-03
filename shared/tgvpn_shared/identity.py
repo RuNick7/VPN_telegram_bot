@@ -90,6 +90,13 @@ class MergePlan:
     referred_people: int
     email: str | None
     referrer_tag: str | None
+    # Whether the absorbed row has to give its address up.
+    #
+    # `users.email` is UNIQUE, so one address cannot sit on two rows at once.
+    # The survivor adopting an address the absorbed row still holds is a
+    # constraint violation, and that is precisely what it was: every link of a
+    # website account to a Telegram account died on `users_email_key`.
+    absorbed_releases_email: bool
     # Set when the survivor had no panel account and should adopt the absorbed
     # one instead of leaving it orphaned.
     adopt_panel_uuid: str | None
@@ -127,6 +134,11 @@ def plan_merge(*, survivor: dict, absorbed: dict, now: int) -> MergePlan:
     reason. Email and referrer are taken from the absorbed account only where
     the survivor has none -- a merge should never overwrite a value the
     survivor already had.
+
+    An adopted email also has to be *moved*, not copied, which is what
+    `absorbed_releases_email` says: the column is UNIQUE. Where the survivor
+    keeps its own address the absorbed row keeps its one too, and both go on
+    working as sign-in routes because the lookup follows `merged_into`.
     """
     survivor_left = max(0, int(survivor.get("subscription_ends") or 0) - now)
     absorbed_left = max(0, int(absorbed.get("subscription_ends") or 0) - now)
@@ -159,6 +171,7 @@ def plan_merge(*, survivor: dict, absorbed: dict, now: int) -> MergePlan:
         ),
         email=survivor.get("email") or absorbed.get("email") or None,
         referrer_tag=survivor.get("referrer_tag") or absorbed.get("referrer_tag") or None,
+        absorbed_releases_email=bool(absorbed.get("email")) and not survivor.get("email"),
         adopt_panel_uuid=str(adopt) if adopt else None,
         adopt_panel_username=absorbed.get("remnawave_username") if adopt else None,
         expire_panel_uuid=str(expire) if expire else None,

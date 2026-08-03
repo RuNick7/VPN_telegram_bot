@@ -617,6 +617,12 @@ main {
   color: var(--steel);
 }
 
+/* Inside a stack the gap already separates it, and the two together left a
+   hole between a cell's title and its number. */
+.stack > .panel-head {
+  margin-bottom: 0;
+}
+
 .card-hover {
   transition: background 0.18s;
 }
@@ -814,6 +820,72 @@ main {
   gap: 1.5rem;
 }
 
+/* With nothing to put in the second column, the band is one column. Left as a
+   2fr/1fr grid it drew a hairline down the middle of an empty half. */
+.split[data-single="true"] {
+  grid-template-columns: 1fr;
+}
+
+.split[data-single="true"] > :first-child {
+  border-right: 0;
+}
+
+/* The cabinet is denser than the landing page.
+   The front page is a poster and can afford to breathe; these four are a tool
+   somebody opens to check one number, and the same rhythm made it a page you
+   have to scroll to see three facts. */
+.app-main .split > * {
+  padding: var(--pad);
+}
+
+.app-main .section {
+  padding-block: clamp(2rem, 4vw, 3rem);
+}
+
+.app-main .section-tag {
+  margin-bottom: 1.25rem;
+}
+
+/* -- actions ------------------------------------------------------------ */
+
+/* Buttons sized to their labels and set on one line.
+   Three full-width blocks stacked in the side column took most of a desktop
+   screen to offer three things that fit on one row. */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.625rem;
+}
+
+/* -- days-left plaque --------------------------------------------------- */
+
+/* How long is left is the one thing the cabinet exists to answer, so it is
+   the one inverted block on the page -- the design allows exactly one, and it
+   used to be spent on the referral count. */
+.plaque {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  background: var(--ember);
+  color: var(--void);
+}
+
+.plaque-num {
+  font-size: clamp(2.75rem, 6vw, 3.75rem);
+  font-weight: 300;
+  line-height: 0.9;
+  letter-spacing: -0.03em;
+}
+
+.plaque-word {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
 /* The pulse is the only ambient motion in the cabinet, and it is load-bearing:
    it is what says "this is live" rather than a screenshot of a state. */
 .dot {
@@ -895,6 +967,104 @@ main {
   margin-top: 0.15rem;
 }
 
+/* -- os tabs ------------------------------------------------------------ */
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.875rem;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--steel);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.chip:hover {
+  color: var(--bone);
+  border-color: var(--bone);
+}
+
+.chip[aria-selected="true"] {
+  background: var(--ember);
+  border-color: var(--ember);
+  color: var(--void);
+}
+
+/* -- numbered steps ----------------------------------------------------- */
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 2.5rem 1fr;
+  gap: 1rem;
+}
+
+.step-num {
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.6;
+  color: var(--ember);
+}
+
+.step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+/* The subscription link is long and has no spaces in it, so it has to be told
+   it may break -- otherwise it pushes the whole column wider than the screen. */
+.code {
+  display: block;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--bone);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* The per-platform "it did not work" branch, closed until it is wanted. */
+.drop {
+  margin-top: 2rem;
+  border-top: 1px solid var(--line);
+  padding-top: 1.5rem;
+}
+
+.drop > summary {
+  cursor: pointer;
+  color: var(--bone);
+  margin-bottom: 1.5rem;
+}
+
+.drop > summary:hover {
+  color: var(--ember);
+}
+
 /* -- copy field --------------------------------------------------------- */
 
 .copy {
@@ -931,6 +1101,21 @@ main {
 .copy button:hover {
   background: var(--ember);
   color: var(--void);
+}
+
+/* -- qr ----------------------------------------------------------------- */
+
+/* The generated SVG carries no width of its own, so it grew to whatever
+   column it was dropped into -- on a desktop that was a QR code the size of a
+   beer mat, which no phone needs. */
+.qr {
+  width: 100%;
+  max-width: 11rem;
+}
+
+.qr svg {
+  width: 100%;
+  height: auto;
 }
 
 /* -- centred single-column pages (login, gift, verify) ------------------ */
