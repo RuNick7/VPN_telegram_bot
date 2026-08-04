@@ -307,3 +307,35 @@ async def test_an_address_somebody_else_holds_is_refused(users: UserRepository):
 
     assert await users.bind_email(str(row["id"]), "taken@example.com") is False
     assert (await users.get_user_by_id(921))["email"] is None
+
+
+# -- the nurture campaign only chases people it can reach -------------------
+
+
+async def test_nurture_skips_accounts_with_no_telegram(users: UserRepository):
+    """
+    A website account has no chat to message. It came back from this query
+    anyway and was handed to SendMessage(chat_id=None), which failed
+    validation once per user on every pass -- forever, and silently as far as
+    anyone outside the log could tell.
+    """
+    await users.insert_web_user("nurture-web@example.com", 0)
+    await users.insert_subscription_user(telegram_id=7001, subscription_ends=0)
+
+    found = await users.get_users_for_nurture(now_ts=int(time.time()) + 60, target_stage=1, days_after=0)
+    assert [row["telegram_id"] for row in found] == [7001]
+
+
+async def test_nurture_skips_a_merged_away_row(users: UserRepository):
+    """Its telegram_id is gone and its days now live on the survivor."""
+    survivor_tg = 7002
+    await users.insert_subscription_user(telegram_id=survivor_tg, subscription_ends=0)
+    absorbed = await users.insert_web_user("nurture-merged@example.com", 0)
+
+    survivor = await users.get_user_by_id(survivor_tg)
+    plan = plan_merge(survivor=dict(survivor), absorbed=dict(await users.get_user_by_uuid(absorbed)),
+                      now=int(time.time()))
+    await users.apply_merge(plan)
+
+    found = await users.get_users_for_nurture(now_ts=int(time.time()) + 60, target_stage=1, days_after=0)
+    assert [row["telegram_id"] for row in found] == [survivor_tg]

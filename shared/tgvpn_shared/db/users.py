@@ -1015,11 +1015,21 @@ class UserRepository:
         )
 
     async def get_users_for_nurture(self, now_ts: int, target_stage: int, days_after: int) -> list[asyncpg.Record]:
-        """Users at nurture_stage == target_stage-1, created at least days_after days ago."""
+        """
+        Users at nurture_stage == target_stage-1, created at least days_after
+        days ago -- and reachable, which is what the last condition is for.
+
+        A website account has no telegram_id, and a merged-away row has had
+        its nulled. Both came back from this query and were handed to
+        `SendMessage(chat_id=None)`, which fails validation once per user per
+        pass, forever. Nobody was being messaged and the log filled up.
+        """
         pool = await get_pool()
         cutoff_ts = now_ts - days_after * 86400
         return await pool.fetch(
-            "SELECT telegram_id FROM users WHERE nurture_stage = $1 AND created_at <= to_timestamp($2)",
+            "SELECT telegram_id FROM users "
+            "WHERE nurture_stage = $1 AND created_at <= to_timestamp($2) "
+            "AND telegram_id IS NOT NULL AND merged_into IS NULL",
             target_stage - 1, cutoff_ts,
         )
 
