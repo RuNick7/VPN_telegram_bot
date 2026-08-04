@@ -130,6 +130,41 @@ func TestAUserNestedUnderResponseUserIsAlsoRead(t *testing.T) {
 	}
 }
 
+func TestAnAccountIdentifiedOnlyByNumericIDIsFound(t *testing.T) {
+	// The live panel answers exactly like this: a 200, the account present,
+	// `id` numeric and no `uuid` at all. Requiring a uuid reported every one of
+	// them as missing, so creating the profile hit "already exists", reading it
+	// back said "not found", and the customer's subscription broke on every
+	// request while the account sat there working.
+	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(
+			`{"response":{"id":92,"username":"u-15e5a99848f04757","subscriptionUrl":"https://sub/9"}}`))
+	})
+
+	user, err := client.UserByUsername(context.Background(), "u-15e5a99848f04757")
+	if err != nil {
+		t.Fatalf("UserByUsername: %v", err)
+	}
+	if user.Ref() != "92" {
+		t.Errorf("ref = %q, want the numeric id", user.Ref())
+	}
+	if user.SubscriptionURL != "https://sub/9" {
+		t.Errorf("got %+v", user)
+	}
+}
+
+func TestAnAccountWithNeitherIdentifierIsStillMissing(t *testing.T) {
+	// The genuine empty answer has to keep being reported as missing, or the
+	// caller would go on to act on an account it cannot address.
+	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"response":{"username":"555"}}`))
+	})
+
+	if _, err := client.UserByUsername(context.Background(), "555"); !errors.Is(err, ErrUserNotFound) {
+		t.Errorf("expected ErrUserNotFound, got %v", err)
+	}
+}
+
 func TestAMissingUserIsDistinguishable(t *testing.T) {
 	// Callers create a profile on this specific error, so it must not be
 	// lumped in with transport failures.

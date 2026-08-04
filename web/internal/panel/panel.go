@@ -358,7 +358,15 @@ func (c *Client) UserByUsername(ctx context.Context, username string) (*User, er
 	if err := json.Unmarshal(raw, &user); err != nil {
 		return nil, fmt.Errorf("panel: decode user: %w", err)
 	}
-	if user.UUID == "" {
+	// `Ref()`, not `UUID`. A newer panel identifies accounts by a numeric `id`
+	// and sends no `uuid` at all, so requiring one reported every account on
+	// such a panel as missing -- on a 200 response with the account in it.
+	//
+	// The damage was not a bad error message. Creating the profile then failed
+	// with "already exists", the caller read it back, got "not found", and the
+	// customer's subscription and device list broke on every request from then
+	// on. The account was there the whole time.
+	if user.Ref() == "" {
 		return nil, ErrUserNotFound
 	}
 	return &user, nil
