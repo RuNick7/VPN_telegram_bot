@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"math"
 	"net/http"
 	"time"
 
@@ -97,7 +98,12 @@ func (s *Server) handleSubscription(w http.ResponseWriter, r *http.Request, user
 		expires := user.SubscriptionEnds.Unix()
 		body.ExpiresAt = &expires
 		if remaining := time.Until(user.SubscriptionEnds); remaining > 0 {
-			body.DaysLeft = int(remaining.Hours() / 24)
+			// Rounded up, not truncated. Seven days granted became "6 дней"
+			// the moment any time passed -- the customer was told they had
+			// been short-changed by a day, on the same screen that had just
+			// promised seven. Six days and fifteen hours left is six more
+			// whole days plus today, and today still works.
+			body.DaysLeft = int(math.Ceil(remaining.Hours() / 24))
 		}
 	}
 	writeJSON(w, http.StatusOK, body)

@@ -279,6 +279,18 @@ func (s *Store) GrantTrial(ctx context.Context, userID string, days int) (time.T
 		 WHERE id = $2
 		   AND NOT trial_signup_granted
 		   AND (subscription_ends IS NULL OR subscription_ends <= to_timestamp(0))
+		   -- ...and this Telegram account has not already collected one on a
+		   -- row it has since been detached from. The flag above is per row,
+		   -- so unlinking and signing up again minted a fresh seven days, and
+		   -- linking back merged them onto the pile: the free period was
+		   -- limited only by how many times somebody cared to go round.
+		   AND NOT EXISTS (
+		       SELECT 1
+		       FROM telegram_link_history history
+		       JOIN users prior ON prior.id = history.user_id
+		       WHERE history.telegram_id = users.telegram_id
+		         AND prior.trial_signup_granted
+		   )
 		 RETURNING subscription_ends`,
 		days, userID,
 	).Scan(&ends)

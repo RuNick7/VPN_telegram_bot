@@ -58,12 +58,13 @@
       <!-- Two mutually exclusive states. Which one is shown is decided in
            overview.js once the subscription has actually been read; neither is
            rendered before then, so nothing flashes the wrong answer. -->
+      <!-- "Продлить" is deliberately not here. It belongs against the day
+           count, the way "Купить гигабайты" sits against the traffic figure:
+           the number that tells you to act and the control that acts on it
+           were at opposite ends of the screen. -->
       <div class="actions" data-actions-active hidden>
         <a class="btn btn-sm" href="/app/devices">
           <span data-icon="link"></span> Подключить устройство
-        </a>
-        <a class="btn btn-ghost btn-sm" href="/app/plans">
-          <span data-icon="refresh"></span> Продлить
         </a>
         <a class="btn btn-outline btn-sm" href="/app/plans#gift">
           <span data-icon="gift"></span> Подарить
@@ -92,6 +93,9 @@
         <span class="plaque-num num" data-days-left>—</span>
         <span class="plaque-word" data-days-word>осталось</span>
       </div>
+      <a class="btn btn-sm plaque-action" href="/app/plans">
+        <span data-icon="refresh"></span> Продлить
+      </a>
       <p class="mono-sm muted">Активна до <span class="strong num" data-plan-until>—</span></p>
     </div>
   </section>

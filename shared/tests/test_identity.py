@@ -312,7 +312,29 @@ def test_the_plan_names_both_sides():
 
 @pytest.mark.parametrize(
     "timestamp, expected",
-    [(NOW + 10 * DAY, 10), (NOW, 0), (NOW - DAY, 0), (NOW + DAY - 1, 0)],
+    [(NOW + 10 * DAY, 10), (NOW, 0), (NOW - DAY, 0), (NOW - 1, 0)],
 )
 def test_day_counting_never_goes_negative(timestamp, expected):
+    assert days_from(timestamp, NOW) == expected
+
+
+@pytest.mark.parametrize(
+    "timestamp, expected",
+    [
+        # The one that mattered: seven days granted, read a moment later.
+        (NOW + 7 * DAY - 1, 7),
+        (NOW + DAY - 1, 1),
+        (NOW + 1, 1),
+        (NOW + 6 * DAY + 15 * 3600, 7),
+    ],
+)
+def test_a_part_day_still_counts_as_a_day(timestamp, expected):
+    """
+    Rounded up.
+
+    Truncation reported a freshly granted seven-day trial as "6 дн." -- the
+    grant and the number contradicting each other on the same screen. Six days
+    and fifteen hours of service left is seven days on which the subscription
+    works.
+    """
     assert days_from(timestamp, NOW) == expected

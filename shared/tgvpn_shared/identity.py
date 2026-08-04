@@ -192,5 +192,13 @@ def plan_merge(*, survivor: dict, absorbed: dict, now: int) -> MergePlan:
 
 
 def days_from(timestamp: int, now: int) -> int:
-    """Whole days between now and a timestamp, never negative."""
-    return max(0, (timestamp - now) // SECONDS_IN_DAY)
+    """
+    Days between now and a timestamp, rounded up, never negative.
+
+    Up rather than down: granting exactly seven days and then reporting them
+    reads "6 дн." under truncation, because a few milliseconds have passed by
+    the time anyone looks. The customer is told they were short-changed by a
+    day on the same screen that just promised seven. A part-day of service is
+    a day the subscription still works.
+    """
+    return max(0, -(-(timestamp - now) // SECONDS_IN_DAY))

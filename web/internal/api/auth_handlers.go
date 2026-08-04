@@ -27,8 +27,19 @@ func (s *Server) handleRequestMagicLink(w http.ResponseWriter, r *http.Request) 
 
 	err := s.auth.RequestMagicLink(r.Context(), body.Email, clientIP(r))
 	switch {
-	case err == nil, errors.Is(err, auth.ErrRateLimited):
-		// Deliberately the same answer. A rate-limited caller learns nothing.
+	case err == nil:
+	case errors.Is(err, auth.ErrRateLimited):
+		// Said out loud, which it was not before. Answering "письмо
+		// отправлено" to a request we refused is the worst of both worlds: the
+		// customer waits for a letter that was never sent, retries, and drives
+		// the counter further up. This leaks nothing -- the bucket is keyed on
+		// whatever address was typed, and exists for an unknown address exactly
+		// as it does for a real one.
+		s.log.Warn("magic link rate limited", "ip", clientIP(r))
+		writeError(w, http.StatusTooManyRequests, "rate_limited",
+			"Мы уже отправили несколько писем на этот адрес. "+
+				"Проверьте папку «Спам» и попробуйте снова через час.")
+		return
 	case errors.Is(err, auth.ErrInvalidEmail):
 		writeError(w, http.StatusBadRequest, "invalid_email", "Проверьте адрес почты.")
 		return

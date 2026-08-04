@@ -10,6 +10,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"net"
 	"net/mail"
 	"net/url"
 	"strings"
@@ -34,6 +35,24 @@ const (
 	verifyAttemptsPerIP = 30
 	verifyWindow        = 10 * time.Minute
 )
+
+// untrustedIP reports whether the address we resolved for a request is one
+// every visitor would share.
+//
+// It is, in this deployment: nginx's stream block SNI-routes 443 to the HTTP
+// server over loopback without PROXY protocol, so `X-Forwarded-For` is
+// literally "127.0.0.1" for everyone. Bucketing on that gave the whole site
+// one 20-per-hour allowance between them, and the caller who exhausted it was
+// still told the letter had been sent. Nobody could sign in and nothing said
+// why.
+//
+// So a per-IP bucket that cannot distinguish IPs is skipped rather than
+// applied to everybody at once. The per-address limit still stands, and it is
+// the one that actually protects a mailbox.
+func untrustedIP(ip string) bool {
+	parsed := net.ParseIP(strings.TrimSpace(ip))
+	return parsed == nil || parsed.IsLoopback() || parsed.IsUnspecified()
+}
 
 type Service struct {
 	store         *store.Store
@@ -85,9 +104,12 @@ func (s *Service) RequestMagicLink(ctx context.Context, email, ip string) error 
 	if err != nil {
 		return err
 	}
-	okIP, err := s.store.AllowAttempt(ctx, "magic-ip:"+ip, magicLinkPerIP, magicLinkWindow)
-	if err != nil {
-		return err
+	okIP := true
+	if !untrustedIP(ip) {
+		okIP, err = s.store.AllowAttempt(ctx, "magic-ip:"+ip, magicLinkPerIP, magicLinkWindow)
+		if err != nil {
+			return err
+		}
 	}
 	if !okEmail || !okIP {
 		return ErrRateLimited
