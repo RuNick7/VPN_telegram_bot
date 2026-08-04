@@ -4,8 +4,16 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/store"
+)
+
+// Generous enough that nobody mistyping a code from a friend will hit it, far
+// too small to search a keyspace with.
+const (
+	promoAttemptsPerUser = 10
+	promoWindow          = time.Hour
 )
 
 func (s *Server) handleRedeemPromo(w http.ResponseWriter, r *http.Request, user *store.User) {
@@ -19,6 +27,20 @@ func (s *Server) handleRedeemPromo(w http.ResponseWriter, r *http.Request, user 
 	code := strings.ToUpper(strings.TrimSpace(body.Code))
 	if code == "" {
 		writeError(w, http.StatusBadRequest, "invalid_code", "Введите промокод.")
+		return
+	}
+
+	// A gift code is a bearer credential, and this endpoint says whether a
+	// guess was right. Unlimited guesses turn it into an oracle over every
+	// unredeemed gift at once, so the attempts are counted per account.
+	ok, err := s.store.AllowAttempt(r.Context(), "promo:"+user.ID, promoAttemptsPerUser, promoWindow)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if !ok {
+		writeError(w, http.StatusTooManyRequests, "rate_limited",
+			"Слишком много попыток. Попробуйте через час.")
 		return
 	}
 

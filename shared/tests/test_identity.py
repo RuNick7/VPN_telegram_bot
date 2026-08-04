@@ -338,3 +338,61 @@ def test_a_part_day_still_counts_as_a_day(timestamp, expected):
     works.
     """
     assert days_from(timestamp, NOW) == expected
+
+
+# -- the free period is one per person, not one per address ----------------
+
+
+def test_two_signup_trials_do_not_add_up():
+    """
+    The abuse this closes, seen four times in production data: register with a
+    new address, collect the free week, link the same Telegram, and the merge
+    adds those days to the account that already had its own. Repeatable for as
+    long as somebody has addresses.
+    """
+    plan = plan_merge(
+        survivor=account(subscription_ends=NOW + 7 * DAY, trial_signup_granted=True),
+        absorbed=account(id=WEB_ID, subscription_ends=NOW + 7 * DAY,
+                         trial_signup_granted=True),
+        now=NOW,
+        trial_days=7,
+    )
+    assert days_from(plan.subscription_ends, NOW) == 7
+
+
+def test_paid_time_survives_the_deduction():
+    """Only one trial's worth comes off; a month that was bought stays."""
+    plan = plan_merge(
+        survivor=account(subscription_ends=NOW + 37 * DAY, trial_signup_granted=True),
+        absorbed=account(id=WEB_ID, subscription_ends=NOW + 7 * DAY,
+                         trial_signup_granted=True),
+        now=NOW,
+        trial_days=7,
+    )
+    assert days_from(plan.subscription_ends, NOW) == 37
+
+
+def test_one_trial_between_them_still_adds_up():
+    """
+    Nothing is deducted when only one side ever had a free period -- the other
+    side's days were bought, and taking them would be theft.
+    """
+    plan = plan_merge(
+        survivor=account(subscription_ends=NOW + 30 * DAY, trial_signup_granted=False),
+        absorbed=account(id=WEB_ID, subscription_ends=NOW + 7 * DAY,
+                         trial_signup_granted=True),
+        now=NOW,
+        trial_days=7,
+    )
+    assert days_from(plan.subscription_ends, NOW) == 37
+
+
+def test_the_deduction_never_goes_negative():
+    plan = plan_merge(
+        survivor=account(subscription_ends=NOW + DAY, trial_signup_granted=True),
+        absorbed=account(id=WEB_ID, subscription_ends=NOW + DAY,
+                         trial_signup_granted=True),
+        now=NOW,
+        trial_days=30,
+    )
+    assert plan.subscription_ends == NOW

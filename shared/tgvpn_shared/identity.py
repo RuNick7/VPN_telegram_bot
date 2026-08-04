@@ -128,7 +128,7 @@ def choose_survivor(telegram_account: dict, web_account: dict) -> tuple[dict, di
     return telegram_account, web_account
 
 
-def plan_merge(*, survivor: dict, absorbed: dict, now: int) -> MergePlan:
+def plan_merge(*, survivor: dict, absorbed: dict, now: int, trial_days: int = 0) -> MergePlan:
     """
     Fold `absorbed` into `survivor`.
 
@@ -138,6 +138,17 @@ def plan_merge(*, survivor: dict, absorbed: dict, now: int) -> MergePlan:
     negative. Someone who bought a month on the website and had two weeks left
     in the bot ends up with six weeks, which is the only answer that does not
     take something they paid for.
+
+    **Except the signup trial, which is one per person.** When both rows
+    collected one, `trial_days` is deducted from the sum. A merge is the two
+    rows turning out to be the same person, and that person is entitled to one
+    free period, not one per address they own. Without this the free week was
+    renewable at will: register with a new address, collect seven days, link
+    the same Telegram, and the merge adds them to the pile -- four rounds of
+    exactly that are visible in the production data this closes.
+
+    Paid time is never touched: the deduction is capped at what the trial was
+    worth, so an account that also bought a month keeps the month.
 
     Purchased traffic, gifts given and referrals earned add up for the same
     reason. Email and referrer are taken from the absorbed account only where
@@ -152,6 +163,12 @@ def plan_merge(*, survivor: dict, absorbed: dict, now: int) -> MergePlan:
     survivor_left = max(0, int(survivor.get("subscription_ends") or 0) - now)
     absorbed_left = max(0, int(absorbed.get("subscription_ends") or 0) - now)
 
+    both_had_a_trial = bool(
+        survivor.get("trial_signup_granted") and absorbed.get("trial_signup_granted")
+    )
+    duplicate_trial = max(0, int(trial_days)) * SECONDS_IN_DAY if both_had_a_trial else 0
+    total_left = max(0, survivor_left + absorbed_left - duplicate_trial)
+
     survivor_uuid = survivor.get("remnawave_uuid")
     absorbed_uuid = absorbed.get("remnawave_uuid")
 
@@ -165,7 +182,7 @@ def plan_merge(*, survivor: dict, absorbed: dict, now: int) -> MergePlan:
     return MergePlan(
         survivor_id=str(survivor["id"]),
         absorbed_id=str(absorbed["id"]),
-        subscription_ends=now + survivor_left + absorbed_left,
+        subscription_ends=now + total_left,
         lte_paid_balance_bytes=(
             max(0, int(survivor.get("lte_paid_balance_bytes") or 0))
             + max(0, int(absorbed.get("lte_paid_balance_bytes") or 0))

@@ -189,7 +189,7 @@ func (s *Server) handleBuyGift(w http.ResponseWriter, r *http.Request, user *sto
 }
 
 func (s *Server) handlePaymentStatus(w http.ResponseWriter, r *http.Request, user *store.User) {
-	status, err := s.store.PaymentStatus(r.Context(), r.PathValue("id"))
+	status, err := s.store.PaymentStatus(r.Context(), r.PathValue("id"), user.ID)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "unknown_payment", "Платёж не найден.")
 		return

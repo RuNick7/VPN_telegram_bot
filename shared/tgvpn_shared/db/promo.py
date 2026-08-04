@@ -3,17 +3,30 @@ user_bot/data/db_utils.py and admin_bot/app/services/subscription_db.py."""
 
 from __future__ import annotations
 
-import random
-import string
+import secrets
 from typing import Optional
 
 import asyncpg
 
 from .pool import get_pool
 
+# I, O, L, 0 and 1 are left out: a gift code gets read off a screen and typed
+# into a phone, and often dictated. Everything here is unambiguous in every
+# font we might be read in.
+_GIFT_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 
-def generate_gift_code(length: int = 6) -> str:
-    return "GIFT-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=length))
+
+def generate_gift_code(length: int = 10) -> str:
+    """
+    A gift code: whoever holds it gets the subscription it was paid for.
+
+    `secrets`, not `random`. This is a bearer credential worth money, and
+    `random` is a deterministic PRNG whose output stream can be reproduced --
+    the wrong primitive whatever the odds. Ten characters over 31 symbols is
+    about 50 bits, which is not guessable at any rate an HTTP endpoint or a
+    Telegram chat will accept, even before the rate limits above it.
+    """
+    return "GIFT-" + "".join(secrets.choice(_GIFT_ALPHABET) for _ in range(length))
 
 
 class PromoRepository:

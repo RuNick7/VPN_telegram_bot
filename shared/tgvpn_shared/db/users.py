@@ -197,8 +197,8 @@ class UserRepository:
                     return False
                 updated = await connection.execute(
                     "UPDATE users SET referred_people = referred_people + 1 "
-                    f"WHERE {_REFERRER_MATCHES}",
-                    referrer_tag,
+                    f"WHERE {_REFERRER_MATCHES} AND id <> $2::uuid",
+                    referrer_tag, user_id,
                 )
                 if updated == "UPDATE 0":
                     return False
@@ -293,7 +293,22 @@ class UserRepository:
         pool = await get_pool()
         result = await pool.execute(
             """
-            UPDATE users SET telegram_id = $1, telegram_tag = $2
+            UPDATE users SET
+                telegram_id  = $1,
+                telegram_tag = $2,
+                -- Clearing a referrer that turns out to be this very account.
+                -- Naming your own Telegram tag is accepted while the account
+                -- has no Telegram to compare it against; attaching that tag is
+                -- the moment it becomes self-referral, so it is the moment to
+                -- drop it. `award_referral` refuses to credit it either way --
+                -- this only keeps the profile from showing a person as their
+                -- own inviter.
+                referrer_tag = CASE
+                    WHEN referrer_tag IS NOT NULL
+                     AND $2 <> ''
+                     AND lower(referrer_tag) = lower($2)
+                    THEN NULL ELSE referrer_tag
+                END
             WHERE id = $3::uuid AND telegram_id IS NULL
             """,
             telegram_id, telegram_tag or "", user_id,
@@ -619,8 +634,17 @@ class UserRepository:
         )
 
     async def award_referral(self, referrer_tag: str, telegram_id: int) -> bool:
-        """Atomically marks user as referred and increments referrer count.
-        Returns True if referral was applied, False if already referred."""
+        """
+        Atomically marks user as referred and increments referrer count.
+        Returns True if a referrer was actually credited.
+
+        `id <> claimed_id` is the check that nobody can invite themselves. It
+        has to be here rather than only where the tag is typed: an account
+        created on the website has no Telegram tag yet, so naming your own tag
+        passes every check at that point -- and then linking that very Telegram
+        makes the name resolve to you. The credit is the last gate before the
+        discount, so it is the one that has to hold.
+        """
         pool = await get_pool()
         async with pool.acquire() as conn:
             async with conn.transaction():
@@ -630,12 +654,15 @@ class UserRepository:
                 )
                 if claimed_id is None:
                     return False
-                await conn.execute(
+                updated = await conn.execute(
                     "UPDATE users SET referred_people = referred_people + 1 "
-                    f"WHERE {_REFERRER_MATCHES}",
-                    referrer_tag,
+                    f"WHERE {_REFERRER_MATCHES} AND id <> $2::uuid",
+                    referrer_tag, claimed_id,
                 )
-                return True
+                # `is_referred` stays set even when nobody was credited: the
+                # invitee has had their one attempt, and leaving it open would
+                # let a self-referral be retried until it lands on somebody.
+                return updated != "UPDATE 0"
 
     async def increment_gifted_subscriptions(self, telegram_id: int) -> None:
         pool = await get_pool()

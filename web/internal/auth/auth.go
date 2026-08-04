@@ -134,12 +134,19 @@ func (s *Service) RequestMagicLink(ctx context.Context, email, ip string) error 
 //
 // Returns the session token and the user it belongs to.
 func (s *Service) RedeemMagicLink(ctx context.Context, token, ip, userAgent string) (string, *store.User, error) {
-	okIP, err := s.store.AllowAttempt(ctx, "verify-ip:"+ip, verifyAttemptsPerIP, verifyWindow)
-	if err != nil {
-		return "", nil, err
-	}
-	if !okIP {
-		return "", nil, ErrRateLimited
+	// Same reasoning as RequestMagicLink: an address every visitor shares is
+	// not an identity to bucket on. Left applied here it was worse than
+	// useless -- thirty redemptions per ten minutes for the entire site, after
+	// which nobody could finish signing in. The token is 256 bits from
+	// crypto/rand, so guessing was never what this limit protected against.
+	if !untrustedIP(ip) {
+		okIP, err := s.store.AllowAttempt(ctx, "verify-ip:"+ip, verifyAttemptsPerIP, verifyWindow)
+		if err != nil {
+			return "", nil, err
+		}
+		if !okIP {
+			return "", nil, ErrRateLimited
+		}
 	}
 
 	email, err := s.store.ConsumeMagicLink(ctx, token)

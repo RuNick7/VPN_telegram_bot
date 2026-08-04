@@ -14,10 +14,12 @@ level (volume snapshots or a scheduled `pg_dump` to off-host storage).
 import asyncio
 import gzip
 import logging
+import os
 import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from aiogram.types import FSInputFile
 
@@ -32,18 +34,37 @@ PG_DUMP_TIMEOUT_SECONDS = 300
 TELEGRAM_MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
 
+def _scrub(text: str, database_url: str) -> str:
+    """Replace the connection string and its password wherever they appear."""
+    cleaned = text.replace(database_url, "<database_url>")
+    password = urlsplit(database_url).password
+    if password:
+        cleaned = cleaned.replace(password, "<password>")
+    return cleaned
+
+
 def _dump_database(database_url: str, dest_path: Path) -> None:
-    """Write a gzipped `pg_dump` of the database to `dest_path`."""
+    """
+    Write a gzipped `pg_dump` of the database to `dest_path`.
+
+    The connection string is handed over in the environment rather than in
+    argv. Every process table on the host shows a process's arguments to every
+    local user, so passing it directly published the database password to
+    anyone who could run `ps` -- once a day, for five minutes at a time.
+    """
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     result = subprocess.run(
-        ["pg_dump", "--no-owner", "--no-privileges", database_url],
+        ["pg_dump", "--no-owner", "--no-privileges"],
         capture_output=True,
         timeout=PG_DUMP_TIMEOUT_SECONDS,
+        env={**os.environ, "PGDATABASE": database_url},
     )
     if result.returncode != 0:
-        raise RuntimeError(
-            f"pg_dump exited {result.returncode}: {result.stderr.decode(errors='replace')[:500]}"
-        )
+        # Truncated and scrubbed: pg_dump echoes the connection string it was
+        # given in some failure modes, and this text goes into a log file that
+        # is itself sent to admins over Telegram.
+        detail = result.stderr.decode(errors="replace")[:500]
+        raise RuntimeError(f"pg_dump exited {result.returncode}: {_scrub(detail, database_url)}")
     with gzip.open(dest_path, "wb") as handle:
         handle.write(result.stdout)
 

@@ -195,3 +195,63 @@ async def test_by_user_id_writes_to_a_missing_row_report_failure():
     assert await repo.admin_set_referrer_by_user_id(MISSING_ID, "x") is False
     assert await repo.set_referred_people_by_user_id(MISSING_ID, 1) is None
     assert await repo.adjust_referred_people_by_user_id(MISSING_ID, 1) is None
+
+
+# -- nobody invites themselves ---------------------------------------------
+
+
+async def test_a_website_account_cannot_credit_its_own_telegram_tag():
+    """
+    The hole: an account created by email has no Telegram tag, so naming your
+    own tag passes every check at the moment you type it. Linking that very
+    Telegram is what makes the name resolve to you -- and the credit was the
+    only gate left.
+    """
+    user_id = await repo.insert_web_user("selfref@example.com", 0)
+    await repo.admin_set_referrer_by_user_id(user_id, "myself")
+    await repo.attach_telegram(user_id, 3001, "myself")
+
+    assert await repo.award_referral_by_user_id("myself", user_id) is False
+    assert (await repo.get_user_by_uuid(user_id))["referred_people"] == 0
+
+
+async def test_attaching_telegram_drops_a_referrer_that_is_now_yourself():
+    user_id = await repo.insert_web_user("selfclear@example.com", 0)
+    await repo.admin_set_referrer_by_user_id(user_id, "myself")
+
+    await repo.attach_telegram(user_id, 3002, "myself")
+    assert (await repo.get_user_by_uuid(user_id))["referrer_tag"] is None
+
+
+async def test_attaching_telegram_leaves_a_real_referrer_alone():
+    user_id = await repo.insert_web_user("keepref@example.com", 0)
+    await repo.admin_set_referrer_by_user_id(user_id, "somebody_else")
+
+    await repo.attach_telegram(user_id, 3003, "myself")
+    assert (await repo.get_user_by_uuid(user_id))["referrer_tag"] == "somebody_else"
+
+
+async def test_a_telegram_account_cannot_credit_its_own_tag():
+    await _make_user(3004, tag="loner")
+    await repo.set_referrer_tag(3004, "loner")
+
+    assert await repo.award_referral("loner", 3004) is False
+    assert (await repo.get_user_by_id(3004))["referred_people"] == 0
+
+
+async def test_a_failed_self_referral_is_not_retryable():
+    """`is_referred` is spent either way, or the attempt could be repeated
+    until it happened to land on somebody real."""
+    await _make_user(3005, tag="loner2")
+    await repo.set_referrer_tag(3005, "loner2")
+    await repo.award_referral("loner2", 3005)
+
+    assert (await repo.get_user_by_id(3005))["is_referred"] is True
+
+
+async def test_a_real_referrer_is_still_credited():
+    await _make_user(3006, tag="inviter")
+    await _make_user(3007, tag="invitee")
+
+    assert await repo.award_referral("inviter", 3007) is True
+    assert (await repo.get_user_by_id(3006))["referred_people"] == 1

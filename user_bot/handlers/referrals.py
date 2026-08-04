@@ -244,11 +244,10 @@ async def promo_code_entry(message: types.Message, state: FSMContext) -> None:
 async def handle_promo_code(message: Message, state: FSMContext) -> None:
     promo_code = message.text.strip().upper()
     telegram_id = message.from_user.id
-    escaped_code = escape_markdown_v2(promo_code)
 
     promo = await _promo.get_promo_by_code(promo_code)
     if not promo or not promo["is_active"]:
-        text = f"❌ Промокод *{escaped_code}* недействителен\\."
+        text = f"❌ Промокод {promo_code} недействителен."
     elif promo["type"] == "gift":
         creator_id_raw = promo["creator_id"] if "creator_id" in promo.keys() else None
         try:
@@ -256,12 +255,25 @@ async def handle_promo_code(message: Message, state: FSMContext) -> None:
         except (TypeError, ValueError):
             creator_id = None
 
-        if creator_id is not None and creator_id == telegram_id:
-            text = f"❌ Нельзя активировать собственный подарочный промокод *{escaped_code}*\\."
+        # Both handles, matching the website's check. A gift bought on the site
+        # records no Telegram ID at all, so comparing that alone let its buyer
+        # activate their own code the moment they linked Telegram.
+        creator_user_id = (
+            promo["creator_user_id"] if "creator_user_id" in promo.keys() else None
+        )
+        own_row = await _users.get_user_by_id(telegram_id)
+        bought_it = (creator_id is not None and creator_id == telegram_id) or (
+            creator_user_id is not None
+            and own_row is not None
+            and str(creator_user_id) == str(own_row["id"])
+        )
+
+        if bought_it:
+            text = f"❌ Нельзя активировать собственный подарочный промокод {promo_code}."
         elif not await _promo.try_claim_promo_usage(promo_code, telegram_id, one_time=True):
             # Claim до начисления: одноразовый код нельзя погасить дважды,
             # даже если два человека вводят его одновременно.
-            text = f"❌ Этот подарочный промокод *{escaped_code}* уже был использован\\."
+            text = f"❌ Этот подарочный промокод {promo_code} уже был использован."
         else:
             added_days = promo["value"]
             result = await _extend_subscription_async(telegram_id, added_days)
@@ -269,10 +281,10 @@ async def handle_promo_code(message: Message, state: FSMContext) -> None:
                 await _promo.release_promo_usage(promo_code, telegram_id)
                 text = f"⚠️ Не удалось продлить подписку: {result}"
             else:
-                text = f"✅ Промокод *{escaped_code}* активирован\\! Подписка продлена на *{added_days}* дней\\."
+                text = f"✅ Промокод {promo_code} активирован! Подписка продлена на {added_days} дней."
     elif promo["type"] == "days":
         if not await _promo.try_claim_promo_usage(promo_code, telegram_id, one_time=False):
-            text = f"❌ Вы уже использовали промокод *{escaped_code}*\\."
+            text = f"❌ Вы уже использовали промокод {promo_code}."
         else:
             added_days = promo["value"]
             result = await _extend_subscription_async(telegram_id, added_days)
@@ -280,12 +292,12 @@ async def handle_promo_code(message: Message, state: FSMContext) -> None:
                 await _promo.release_promo_usage(promo_code, telegram_id)
                 text = f"⚠️ Не удалось продлить подписку: {result}"
             else:
-                text = f"✅ Промокод *{escaped_code}* активирован\\! Подписка продлена на *{added_days}* дней\\."
+                text = f"✅ Промокод {promo_code} активирован! Подписка продлена на {added_days} дней."
     else:
-        text = f"❌ Тип промокода *{promo['type']}* пока не поддерживается\\."
+        text = f"❌ Тип промокода {promo['type']} пока не поддерживается."
 
     await message.answer(
-        text.replace("\\", ""),
+        text,
         reply_markup=back_to_menu_keyboard(),
     )
     await state.clear()

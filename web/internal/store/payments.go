@@ -44,10 +44,21 @@ func (s *Store) InsertPendingPayment(ctx context.Context, paymentID, userID, pur
 
 // PaymentStatus reads what the webhook has recorded, for polling a payment
 // from the browser after the user returns from YooKassa.
-func (s *Store) PaymentStatus(ctx context.Context, paymentID string) (string, error) {
+// PaymentStatus reports the status of one of this user's payments.
+//
+// Scoped to the caller. It used to take the id alone, so any signed-in visitor
+// could read the state of any payment whose id they had -- an id that travels
+// in URLs, in YooKassa's own emails and in logs.
+//
+// Only the site's own payments are readable here, and every one of them is
+// stamped with a user by InsertPendingPayment. Rows the bot wrote carry no
+// user_id and are deliberately invisible: the bot reports its own payments in
+// the chat that started them.
+func (s *Store) PaymentStatus(ctx context.Context, paymentID, userID string) (string, error) {
 	var status string
 	err := s.pool.QueryRow(ctx,
-		`SELECT status FROM payments WHERE payment_id = $1`, paymentID).Scan(&status)
+		`SELECT status FROM payments WHERE payment_id = $1 AND user_id = $2`,
+		paymentID, userID).Scan(&status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrNotFound
 	}

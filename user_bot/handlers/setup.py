@@ -31,6 +31,8 @@ from handlers.keyboards import (
 )
 from precache_videos import VIDEOS
 
+logger = logging.getLogger(__name__)
+
 router = Router()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -48,8 +50,13 @@ def _load_cache() -> dict:
     if CACHE_FILE.exists():
         try:
             return json.loads(CACHE_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+        except Exception as exc:
+            # Starting empty is the right recovery -- the cache is derived data
+            # and rebuilds itself. Silence was not: a file that fails to parse
+            # every single time looks exactly like a cache that never helps,
+            # and nothing said which of the two was happening.
+            logger.warning("Setup cache at %s is unreadable, starting empty: %s",
+                           CACHE_FILE, exc)
     return {}
 
 

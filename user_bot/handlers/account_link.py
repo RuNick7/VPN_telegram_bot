@@ -22,7 +22,7 @@ from aiogram.filters import CommandObject, CommandStart
 from tgvpn_shared.db import AccountLinkRepository, UserRepository
 from tgvpn_shared.identity import choose_survivor, days_from, plan_merge
 
-from handlers.constants import trial_link_bonus_days
+from handlers.constants import trial_days, trial_link_bonus_days
 from handlers.keyboards import back_to_menu_keyboard
 
 router = Router()
@@ -127,7 +127,9 @@ async def link_account(token: str, telegram_id: int, telegram_tag: str) -> str:
     # Both sides exist: fold them into one.
     now = int(time.time())
     survivor, absorbed = choose_survivor(dict(existing_row), web_account)
-    plan = plan_merge(survivor=survivor, absorbed=absorbed, now=now)
+    # The trial length is passed in so the merge can refuse to hand the same
+    # person a second free period; see `plan_merge`.
+    plan = plan_merge(survivor=survivor, absorbed=absorbed, now=now, trial_days=trial_days())
 
     await _users.apply_merge(plan)
     if plan.expire_panel_uuid:
