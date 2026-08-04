@@ -72,6 +72,50 @@ async def count_users() -> int:
     return total
 
 
+# -- the account picker ----------------------------------------------------
+#
+# Sourced from our database, not from Remnawave. The panel holds profiles, not
+# customers: an account created on the website is named `u-<uuid16>` there, and
+# one whose profile never got created is absent altogether. Both were missing
+# from the very screens meant to find people.
+
+
+async def fetch_accounts_page(page: int, size: int) -> tuple[list[dict[str, Any]], int]:
+    """One page of our own accounts as `(accounts, total)`."""
+    total = await users_repo.count_accounts()
+    rows = await users_repo.list_accounts_page(size, (max(1, page) - 1) * size)
+    return rows, total
+
+
+async def count_accounts() -> int:
+    return await users_repo.count_accounts()
+
+
+def account_label(row: dict[str, Any]) -> str:
+    """
+    How an account reads in a list of buttons.
+
+    Whatever handle the person actually has, plus how long they have left --
+    the two things an operator is looking for. The panel username is not one of
+    them: `u-15e5a99848f04757` identifies nobody.
+    """
+    handle = (
+        (f"@{row['telegram_tag']}" if row.get("telegram_tag") else None)
+        or row.get("email")
+        or (str(row["telegram_id"]) if row.get("telegram_id") else None)
+        or str(row.get("id", "?"))[:8]
+    )
+
+    ends = int(row.get("subscription_ends") or 0)
+    if ends <= 0:
+        remaining = "нет подписки"
+    else:
+        days = (ends - int(datetime.now(timezone.utc).timestamp()) + 86399) // 86400
+        remaining = f"{days} дн." if days > 0 else "истекла"
+
+    return f"{handle} — {remaining}"
+
+
 # -- finding a user by whatever the admin typed ----------------------------
 
 # What every "type who you mean" prompt accepts. Written once because all

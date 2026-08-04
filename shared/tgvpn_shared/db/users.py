@@ -930,6 +930,38 @@ class UserRepository:
         )
         return {int(row["telegram_id"]): int(row["subscription_ends"] or 0) for row in rows}
 
+    async def list_accounts_page(self, limit: int, offset: int) -> list[dict]:
+        """
+        One page of accounts for the admin picker, newest first.
+
+        From our own table rather than from the panel, because the panel is not
+        the list of customers -- it is the list of *profiles*. An account that
+        signed up on the website is called `u-<uuid>` there, which tells an
+        operator nothing, and one whose profile failed to create is not there
+        at all. Both were invisible in a screen whose whole job is finding
+        people.
+
+        Merged-away rows are excluded: their days now live on the survivor and
+        picking one would edit a record nothing reads.
+        """
+        pool = await get_pool()
+        rows = await pool.fetch(
+            f"""
+            SELECT {_EPOCH_SELECT}
+            FROM users
+            WHERE merged_into IS NULL
+            ORDER BY created_at DESC
+            LIMIT $1 OFFSET $2
+            """,
+            max(1, int(limit)), max(0, int(offset)),
+        )
+        return [dict(row) for row in rows]
+
+    async def count_accounts(self) -> int:
+        """How many accounts the picker can page through."""
+        pool = await get_pool()
+        return int(await pool.fetchval("SELECT COUNT(*) FROM users WHERE merged_into IS NULL") or 0)
+
     async def get_all_telegram_ids(self) -> list[int]:
         pool = await get_pool()
         rows = await pool.fetch("SELECT telegram_id FROM users WHERE telegram_id IS NOT NULL")

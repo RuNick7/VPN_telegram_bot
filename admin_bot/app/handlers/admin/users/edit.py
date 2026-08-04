@@ -21,13 +21,14 @@ from app.handlers.admin.pagination import (
 from app.handlers.admin.users.common import (
     HANDLE_PROMPT,
     DATE_FOREVER,
-    count_users,
+    account_label,
+    count_accounts,
+    fetch_accounts_page,
     edit_again_keyboard,
     edit_expire_keyboard,
     edit_field_keyboard,
     edit_start_keyboard,
     expire_at_of,
-    fetch_users_page,
     parse_iso_datetime,
     find_db_row,
     find_panel_user,
@@ -49,16 +50,14 @@ BYTES_PER_GB = 1024**3
 
 
 async def render(target: Message, page: int, size: int, edit: bool) -> None:
-    users, total = await fetch_users_page(page, size)
+    users, total = await fetch_accounts_page(page, size)
     if not users:
         await target.answer("📭 Пользователи не найдены.")
         return
     keyboard = picker_keyboard(
         users,
-        label=lambda user: str(user.get("username", "unknown")),
-        item_callback=lambda user: (
-            f"admin:edit_user:select_uuid:{user['uuid']}" if user.get("uuid") else None
-        ),
+        label=account_label,
+        item_callback=lambda user: f"admin:edit_user:select_id:{user['id']}",
         prefix=PREFIX,
         page=page,
         total=total,
@@ -71,7 +70,7 @@ async def render(target: Message, page: int, size: int, edit: bool) -> None:
         await target.answer("Выберите пользователя:", reply_markup=keyboard)
 
 
-VIEW = register_view(PagedView(name="edit", size=PAGE_SIZE, render=render, count=count_users))
+VIEW = register_view(PagedView(name="edit", size=PAGE_SIZE, render=render, count=count_accounts))
 
 
 async def _open_field_menu(target: Message, state: FSMContext, user: dict, username: str) -> None:
@@ -94,6 +93,27 @@ async def _open_field_menu(target: Message, state: FSMContext, user: dict, usern
     await state.set_state(UserEditState.field)
     await target.answer(
         f"Пользователь: {username}\nВыберите поле для редактирования:",
+        reply_markup=edit_field_keyboard(),
+    )
+
+
+async def _open_db_only_menu(target: Message, state: FSMContext, row: dict) -> None:
+    """
+    The field picker for an account with no panel profile.
+
+    Same menu; what differs is that `user_uuid` is empty, so `apply_update`
+    refuses the panel-side fields instead of sending them nowhere.
+    """
+    await state.update_data(
+        user_uuid=None,
+        username=row.get("remnawave_username") or str(row["id"])[:8],
+        telegram_id=row.get("telegram_id"),
+        row_id=str(row["id"]),
+        expire_at=None,
+    )
+    await state.set_state(UserEditState.field)
+    await target.answer(
+        f"Пользователь: {account_label(row)}\nВыберите поле для редактирования:",
         reply_markup=edit_field_keyboard(),
     )
 
@@ -122,8 +142,17 @@ async def apply_update(
     telegram_id = data.get("telegram_id")
     row_id = data.get("row_id")
     if not user_uuid:
-        await message.answer("❌ Не выбран пользователь.")
-        await state.clear()
+        # Either nothing was picked, or the account has no panel profile --
+        # which the list can now show, so the message has to tell the two
+        # apart instead of claiming nobody was selected.
+        await message.answer(
+            "❌ У этого аккаунта нет профиля в Remnawave — менять срок, лимит "
+            "и tag не в чем.\nПочта, пригласивший и квоты трафика доступны."
+            if row_id
+            else "❌ Не выбран пользователь."
+        )
+        if not row_id:
+            await state.clear()
         return
 
     mirrored = True
@@ -213,8 +242,43 @@ async def show_page(callback: CallbackQuery):
     await callback.answer()
 
 
+@router.callback_query(F.data.startswith("admin:edit_user:select_id:"))
+async def select_account_from_list(callback: CallbackQuery, state: FSMContext):
+    """
+    Open the edit menu for a row picked out of our own list.
+
+    The panel account is resolved from the row rather than the other way
+    round, so an account whose profile is missing still opens -- its
+    database-only fields are editable and the panel-side ones report the
+    profile is not there, which beats the account being unlistable.
+    """
+    row_id = callback.data.rsplit(":", 1)[-1]
+    try:
+        row = await users_repo.get_user_by_uuid(row_id)
+        if row is None:
+            await callback.message.answer("❌ Запись не найдена — возможно, аккаунт уже удалён.")
+            await callback.answer()
+            return
+
+        row = dict(row)
+        user, name = await find_panel_user(row.get("remnawave_username") or row_id, row)
+        if not user:
+            await callback.message.answer(
+                "⚠️ У этого аккаунта нет профиля в Remnawave.\n"
+                "Поля панели (срок, лимит, tag) редактировать нечем — "
+                "остальные доступны."
+            )
+            await _open_db_only_menu(callback.message, state, row)
+        else:
+            await _open_field_menu(callback.message, state, user, str(name))
+    except Exception as exc:
+        await callback.message.answer(f"❌ Ошибка: {exc}")
+    await callback.answer()
+
+
 @router.callback_query(F.data.startswith("admin:edit_user:select_uuid:"))
 async def select_from_list(callback: CallbackQuery, state: FSMContext):
+    """Kept for buttons in messages sent before the list moved to our own rows."""
     user_uuid = callback.data.rsplit(":", 1)[-1]
     try:
         user = await user_service.get_user_by_uuid(user_uuid)

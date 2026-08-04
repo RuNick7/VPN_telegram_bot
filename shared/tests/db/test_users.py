@@ -339,3 +339,51 @@ async def test_nurture_skips_a_merged_away_row(users: UserRepository):
 
     found = await users.get_users_for_nurture(now_ts=int(time.time()) + 60, target_stage=1, days_after=0)
     assert [row["telegram_id"] for row in found] == [survivor_tg]
+
+
+# -- the admin picker lists our accounts, not the panel's profiles ---------
+
+
+async def test_the_picker_lists_website_accounts(users: UserRepository):
+    """
+    The reason this query exists. Sourced from Remnawave, an account created on
+    the website appears as `u-<uuid16>` -- and one whose panel profile failed
+    to create does not appear at all.
+    """
+    await users.insert_web_user("picker-web@example.com", 0)
+    await users.insert_subscription_user(telegram_id=8001, subscription_ends=0)
+
+    rows = await users.list_accounts_page(50, 0)
+    handles = {r["email"] or r["telegram_id"] for r in rows}
+    assert handles == {"picker-web@example.com", 8001}
+    assert await users.count_accounts() == 2
+
+
+async def test_the_picker_hides_merged_away_rows(users: UserRepository):
+    """Their days live on the survivor; picking one would edit a dead record."""
+    await users.insert_subscription_user(telegram_id=8002, subscription_ends=0)
+    absorbed = await users.insert_web_user("picker-merged@example.com", 0)
+    survivor = await users.get_user_by_id(8002)
+
+    await users.apply_merge(
+        plan_merge(
+            survivor=dict(survivor),
+            absorbed=dict(await users.get_user_by_uuid(absorbed)),
+            now=int(time.time()),
+        )
+    )
+
+    rows = await users.list_accounts_page(50, 0)
+    assert [r["telegram_id"] for r in rows] == [8002]
+    assert await users.count_accounts() == 1
+
+
+async def test_the_picker_pages_newest_first(users: UserRepository):
+    for index in range(5):
+        await users.insert_web_user(f"page{index}@example.com", 0)
+
+    first = await users.list_accounts_page(2, 0)
+    second = await users.list_accounts_page(2, 2)
+    assert len(first) == 2 and len(second) == 2
+    assert {r["email"] for r in first}.isdisjoint({r["email"] for r in second})
+    assert await users.count_accounts() == 5
