@@ -64,28 +64,11 @@
     </div>
   </section>
 
-  <section class="grid-lines cols-4" aria-label="Показатели сервиса">
-    <div class="card-hover">
-      <span class="mono-sm muted">Канал</span>
-      <div class="metric num">2 Гбит/с</div>
-      <span class="mono-sm accent">Без ограничений</span>
-    </div>
-    <div class="card-hover">
-      <span class="mono-sm muted">Сетевые узлы</span>
-      <div class="metric num">04</div>
-      <span class="mono-sm accent">Локации</span>
-    </div>
-    <div class="card-hover">
-      <span class="mono-sm muted">Маршрутизация</span>
-      <div class="metric">Обход</div>
-      <span class="mono-sm accent">Белых списков</span>
-    </div>
-    <div class="card-hover">
-      <span class="mono-sm muted">Стоимость</span>
-      <div class="metric num" data-monthly-price>—</div>
-      <span class="mono-sm accent">В месяц</span>
-    </div>
-  </section>
+  <!-- There was a strip of four figures here: channel, nodes, whitelist
+       bypass, price. Every one of them is stated again below with an
+       explanation attached, and the price a third time in the hero — the same
+       three facts read three times before a visitor reached the tariffs. The
+       version that explains itself is the one worth keeping. -->
 
   <section class="section">
     <div class="wrap">
@@ -104,7 +87,7 @@
         <div class="card-hover stack">
           <svg class="icon icon-lg accent" aria-hidden="true"><use href="#i-speed"></use></svg>
           <h3 class="mono strong">Канал 2 Гбит/с</h3>
-          <p class="mono-sm muted">Скорость не режется искусственно и не зависит от тарифа. Нагрузка распределяется балансировщиками между четырьмя узлами.</p>
+          <p class="mono-sm muted">Скорость не режется искусственно и не зависит от тарифа. Нагрузка распределяется балансировщиками между четырьмя узлами в разных локациях.</p>
         </div>
       </div>
     </div>
@@ -112,7 +95,7 @@
 
   <section class="section">
     <div class="wrap">
-      <span class="section-tag">02 // Сценарии</span>
+      <span class="section-tag">02 // Устройства</span>
       <div class="grid-lines cols-3">
         <div class="stack">
           <svg class="icon icon-lg accent" aria-hidden="true"><use href="#i-tv"></use></svg>
@@ -142,7 +125,8 @@
         <div class="plan"><span class="mono-sm muted skeleton">Загрузка</span><div class="metric skeleton">000 ₽</div></div>
         <div class="plan"><span class="mono-sm muted skeleton">Загрузка</span><div class="metric skeleton">000 ₽</div></div>
       </div>
-      <p class="mono-sm muted" data-trial-note hidden></p>
+      <!-- The trial is announced once, in the hero, next to the price it
+           changes the meaning of. It used to be repeated here as well. -->
       <p class="mono-sm muted">Приглашайте друзей — цена подписки снижается на каждом уровне, вплоть до пятого.</p>
     </div>
   </section>
@@ -153,7 +137,7 @@
   <div class="wrap row between wrap-row">
     <div class="stack">
       <span class="mono accent">KairaVPN</span>
-      <p class="mono-sm muted">Доступ к сети без посредников и без журналов.</p>
+      <p class="mono-sm muted">Быстрый доступ к любым сайтам. Мы не смотрим, что вы открываете.</p>
     </div>
     <nav aria-label="Документы">
       <span class="mono-sm strong">Документы</span>
@@ -163,6 +147,7 @@
     <nav aria-label="Связь">
       <span class="mono-sm strong">Связь</span>
       <a class="mono-sm muted" href="#" data-support hidden>Поддержка в Telegram</a>
+      <a class="mono-sm muted" href="mailto:kaira.supp@gmail.com">kaira.supp@gmail.com</a>
     </nav>
   </div>
 </footer>

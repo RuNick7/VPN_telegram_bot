@@ -141,15 +141,13 @@ async function load() {
     for (const node of $$("[data-monthly-price]")) node.textContent = formatRub(cheapest);
   }
 
-  // The trial is announced under the price grid rather than as a headline
-  // figure: the four cells above it state what the service *is*, and those are
-  // fixed facts about the infrastructure, not a promotion that can be switched
-  // off in .env.
-  // Said twice on purpose: next to the price, where it changes what the number
-  // means, and again under the plans, where somebody is deciding.
+  // Once, next to the price, where it changes what the number means. It was
+  // printed under the plans as well, on the theory that it is worth saying
+  // where somebody is deciding — but the two are a screen apart and it read as
+  // the page repeating itself.
   if (config.trial_days > 0) {
     const wording = `Первые ${daysLabel(config.trial_days)} — бесплатно, карта не нужна.`;
-    for (const node of $$("[data-trial-hero], [data-trial-note]")) {
+    for (const node of $$("[data-trial-hero]")) {
       node.textContent = wording;
       node.hidden = false;
     }
