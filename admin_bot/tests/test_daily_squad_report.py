@@ -133,3 +133,27 @@ async def test_a_failure_to_report_the_failure_does_not_raise_either(job):
     send.side_effect = RuntimeError("telegram down")
 
     await run_daily_squad_report()  # must not raise
+
+
+# -- the markup has to survive the trip ------------------------------------
+
+
+async def test_the_report_is_sent_as_html_not_escaped_into_a_code_block(job):
+    """
+    `send_admin_message` escapes its argument and wraps it in <pre> by default,
+    which is right for an error dump and wrong for this: the report arrived
+    with its own <b> tags visible inside a monospace block.
+    """
+    _client, send = job
+    await run_daily_squad_report()
+    assert send.await_args.kwargs.get("html_body") is True
+
+
+async def test_a_squad_named_with_angle_brackets_does_not_break_the_message():
+    """
+    Squad names come from the panel. With html_body on, an unescaped one would
+    make Telegram reject the whole report.
+    """
+    text = report(squad_members={"internal": 1, "<b>oops": 2})
+    assert "<b>oops" not in text
+    assert "&lt;b&gt;oops" in text

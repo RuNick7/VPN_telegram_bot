@@ -250,6 +250,16 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 // call. The prices here are tier 0: quoting a signed-in user's discounted
 // price to an anonymous visitor would leak that the discount ladder exists at
 // whatever tier the *last* caller happened to be.
+// referralBestPrice is the monthly price at the highest referral tier, or 0 if
+// the table does not sell a monthly plan there.
+func referralBestPrice() int {
+	price, ok := pricing.SubscriptionPrice(1, pricing.MaxTier)
+	if !ok {
+		return 0
+	}
+	return price
+}
+
 func (s *Server) handleClientConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"telegram_login":   s.cfg.TelegramLoginEnabled(),
@@ -258,6 +268,10 @@ func (s *Server) handleClientConfig(w http.ResponseWriter, r *http.Request) {
 		"traffic_enabled":  s.cfg.LTEEnabled,
 		"trial_days":       s.cfg.WebTrialDays,
 		"plans":            pricing.PlansFor(0),
+		// What a month costs once somebody has invited the most that counts.
+		// Sent rather than written into the markup so the landing page cannot
+		// advertise a saving the price table no longer offers.
+		"referral_best_price": referralBestPrice(),
 		"docs": map[string]string{
 			"license": s.cfg.Links.License,
 			"privacy": s.cfg.Links.Privacy,

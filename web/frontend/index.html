@@ -126,8 +126,19 @@
         <div class="plan"><span class="mono-sm muted skeleton">Загрузка</span><div class="metric skeleton">000 ₽</div></div>
       </div>
       <!-- The trial is announced once, in the hero, next to the price it
-           changes the meaning of. It used to be repeated here as well. -->
-      <p class="mono-sm muted">Приглашайте друзей — цена подписки снижается на каждом уровне, вплоть до пятого.</p>
+           changes the meaning of. It used to be repeated here as well.
+
+           The referral line used to read "цена снижается на каждом уровне,
+           вплоть до пятого" — "уровень" is our word for a column in the price
+           table, and it left a reader to guess what a level was and what
+           reaching the fifth would get them. Both numbers now come from
+           /api/config, so the page cannot promise a saving the price table
+           has stopped offering. -->
+      <p class="mono-sm muted" data-referral-line hidden>
+        Пригласите друга — подписка подешевеет. Пятеро друзей, и месяц стоит
+        <span class="strong num" data-referral-best>—</span> вместо
+        <span class="strong num" data-monthly-price>—</span>.
+      </p>
     </div>
   </section>
 

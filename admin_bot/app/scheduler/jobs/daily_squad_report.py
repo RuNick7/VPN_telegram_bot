@@ -18,6 +18,7 @@ habit that hides a job which quietly stopped running.
 
 import logging
 import time
+from html import escape
 
 from tgvpn_shared.db import LteRepository, UserRepository
 from tgvpn_shared.squads import members_count
@@ -51,10 +52,12 @@ def format_report(
     """
     paid_members = squad_members.get(paid_squad_name.lower(), 0)
 
+    # Squad names come from the panel, so they are escaped: an operator who
+    # names a squad `<test>` should get a report, not a parse error.
     lines = [
         "📊 <b>Ежедневный отчёт</b>",
         "",
-        f"<b>Сквад «{paid_squad_name}»</b>: {paid_members} чел.",
+        f"<b>Сквад «{escape(paid_squad_name)}»</b>: {paid_members} чел.",
     ]
 
     others = sorted(
@@ -63,7 +66,7 @@ def format_report(
     if others:
         lines.append("")
         lines.append("<b>Остальные сквады</b>")
-        lines.extend(f"• {name}: {count} чел." for name, count in others)
+        lines.extend(f"• {escape(name)}: {count} чел." for name, count in others)
 
     lines.extend([
         "",
@@ -95,7 +98,8 @@ async def run_daily_squad_report() -> None:
                 paid_squad_name=settings.paid_squad_name,
                 tier_counts=tier_counts,
                 active_subscriptions=int(stats.get("active", 0)),
-            )
+            ),
+            html_body=True,
         )
         logger.info("Daily squad report sent at %s", int(time.time()))
     except Exception as exc:

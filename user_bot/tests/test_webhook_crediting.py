@@ -202,10 +202,28 @@ async def test_gift_counter_uses_whichever_identity_exists(monkeypatch):
     "payer, expected",
     [
         ({"telegram_id": 555, "id": WEB_ID}, "555"),
+        ({"telegram_id": 555, "telegram_tag": "bob", "id": WEB_ID}, "@bob (555)"),
+        ({"telegram_id": 555, "telegram_tag": "@bob", "id": WEB_ID}, "@bob (555)"),
+        # The one the admin notification got wrong: a website payer has no
+        # Telegram ID, and the line naming who paid read "None".
+        ({"telegram_id": None, "email": "buyer@example.com", "id": WEB_ID},
+         "buyer@example.com"),
         ({"telegram_id": None, "id": WEB_ID}, WEB_ID),
         ({"telegram_id": None, "id": None}, "?"),
         (None, "?"),
     ],
 )
-def test_a_payer_is_always_nameable_in_a_log_line(payer, expected):
+def test_a_payer_is_always_nameable(payer, expected):
     assert webhook._payer_label(payer) == expected
+
+
+def test_no_admin_notification_can_render_a_payer_as_none():
+    """
+    Every "Пользователь:" line goes through the label, not through the raw
+    telegram_id -- which is None for everyone who paid on the website.
+    """
+    import pathlib
+
+    source = pathlib.Path(webhook.__file__).read_text(encoding="utf-8")
+    assert "Пользователь: {telegram_id}" not in source
+    assert source.count("Пользователь: {_payer_label(payer)}") == 5

@@ -152,6 +152,16 @@ async function load() {
       node.hidden = false;
     }
   }
+
+  // Both halves of the referral sentence have to be real numbers before it is
+  // worth showing: "стоит — вместо —" is worse than saying nothing, and a
+  // best price that is not actually cheaper is a claim we should not make.
+  const best = config.referral_best_price;
+  const line = $("[data-referral-line]");
+  if (line && best > 0 && cheapest !== null && best < cheapest) {
+    for (const node of $$("[data-referral-best]")) node.textContent = formatRub(best);
+    line.hidden = false;
+  }
 }
 
 setUpHeroBackground();

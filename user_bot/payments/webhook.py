@@ -68,10 +68,23 @@ async def _resolve_payer(metadata: dict) -> dict | None:
 
 
 def _payer_label(payer: dict | None) -> str:
-    """How to name a payer in a log line, whichever identity they have."""
+    """
+    How to name a payer, whichever identity they have.
+
+    Telegram first, because that is what an operator can act on: they can open
+    the chat. An account that arrived through the website has no Telegram ID at
+    all, and every admin notification about it read "Пользователь: None" -- the
+    one line whose whole job is saying who paid. The address is what identifies
+    those people; our own id is the last resort, and only an account with
+    neither can produce it.
+    """
     if not payer:
         return "?"
-    return str(payer.get("telegram_id") or payer.get("id") or "?")
+    telegram_id = payer.get("telegram_id")
+    if telegram_id:
+        tag = str(payer.get("telegram_tag") or "").strip().lstrip("@")
+        return f"@{tag} ({telegram_id})" if tag else str(telegram_id)
+    return str(payer.get("email") or payer.get("id") or "?")
 
 
 # Everything below picks the identity the payer actually has. A Telegram user
@@ -326,7 +339,7 @@ async def yookassa_webhook_handler(request: web.Request):
                     )
                     group_message = (
                         f"📶 Куплен трафик белых списков\n"
-                        f"Пользователь: {telegram_id}\n"
+                        f"Пользователь: {_payer_label(payer)}\n"
                         f"Пакет: {lte_gb} ГБ"
                     )
                 except Exception as exc:
@@ -342,7 +355,7 @@ async def yookassa_webhook_handler(request: web.Request):
                     )
                     group_message = (
                         f"⚠️ Ошибка начисления трафика\n"
-                        f"Пользователь: {telegram_id}\n"
+                        f"Пользователь: {_payer_label(payer)}\n"
                         f"Пакет: {lte_gb} ГБ\n"
                         f"Текст: {exc}"
                     )
@@ -391,7 +404,7 @@ async def yookassa_webhook_handler(request: web.Request):
                     )
                 group_message = (
                     f"🎁 Подарок оформлен\\!\n"
-                    f"Пользователь: {telegram_id}\n"
+                    f"Пользователь: {_payer_label(payer)}\n"
                     f"Срок: {days_to_extend} дней\n"
                     f"Код: {escape_gift_code}"
                 )
@@ -426,7 +439,7 @@ async def yookassa_webhook_handler(request: web.Request):
                     )
                     group_message = (
                         f"⚠️ Ошибка продления\n"
-                        f"Пользователь: {telegram_id}\n"
+                        f"Пользователь: {_payer_label(payer)}\n"
                         f"Текст: {result}"
                     )
                 else:
@@ -436,7 +449,7 @@ async def yookassa_webhook_handler(request: web.Request):
                     )
                     group_message = (
                         f"🔔 Платеж успешно завершен\n"
-                        f"Пользователь: {telegram_id}\n"
+                        f"Пользователь: {_payer_label(payer)}\n"
                         f"Тариф продлен на {days_to_extend} дней"
                     )
 
