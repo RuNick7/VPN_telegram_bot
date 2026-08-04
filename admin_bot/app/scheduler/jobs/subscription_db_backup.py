@@ -19,7 +19,7 @@ import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from aiogram.types import FSInputFile
 
@@ -43,21 +43,49 @@ def _scrub(text: str, database_url: str) -> str:
     return cleaned
 
 
-def _dump_database(database_url: str, dest_path: Path) -> None:
+def pg_env(database_url: str) -> dict[str, str]:
     """
-    Write a gzipped `pg_dump` of the database to `dest_path`.
+    A connection string as the individual PG* variables libpq reads.
 
-    The connection string is handed over in the environment rather than in
-    argv. Every process table on the host shows a process's arguments to every
-    local user, so passing it directly published the database password to
-    anyone who could run `ps` -- once a day, for five minutes at a time.
+    Not `PGDATABASE=<the whole URL>`: that variable is the database *name* and
+    is never expanded as a URI, so libpq took `postgresql://...` for a database
+    called that, found no host, and fell back to a local socket that does not
+    exist in this container. The password still stays out of argv -- which is
+    the point of doing this at all, since a process's arguments are readable by
+    every local user -- but each part now goes to the variable that means it.
     """
+    parts = urlsplit(database_url)
+    env: dict[str, str] = {}
+
+    if parts.hostname:
+        env["PGHOST"] = parts.hostname
+    if parts.port:
+        env["PGPORT"] = str(parts.port)
+    # Percent-decoded: a password with an `@` or a `/` in it has to be encoded
+    # in the URL and must not reach libpq still encoded.
+    if parts.username:
+        env["PGUSER"] = unquote(parts.username)
+    if parts.password:
+        env["PGPASSWORD"] = unquote(parts.password)
+
+    name = parts.path.lstrip("/")
+    if name:
+        env["PGDATABASE"] = unquote(name)
+
+    sslmode = parse_qs(parts.query).get("sslmode")
+    if sslmode and sslmode[0]:
+        env["PGSSLMODE"] = sslmode[0]
+    return env
+
+
+def _dump_database(database_url: str, dest_path: Path) -> None:
+    """Write a gzipped `pg_dump` of the database to `dest_path`."""
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     result = subprocess.run(
         ["pg_dump", "--no-owner", "--no-privileges"],
         capture_output=True,
         timeout=PG_DUMP_TIMEOUT_SECONDS,
-        env={**os.environ, "PGDATABASE": database_url},
+        env={**os.environ, **pg_env(database_url)},
     )
     if result.returncode != 0:
         # Truncated and scrubbed: pg_dump echoes the connection string it was
