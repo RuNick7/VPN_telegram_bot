@@ -30,9 +30,14 @@ type Service struct {
 	freeTierEnabled bool
 	trialDays       int
 	paidSquadName   string
+	lteEnabled      bool
+	lteSquadName    string
 }
 
-func NewService(st *store.Store, pc *panel.Client, freeTierEnabled bool, trialDays int, paidSquadName string) *Service {
+func NewService(
+	st *store.Store, pc *panel.Client, freeTierEnabled bool, trialDays int,
+	paidSquadName string, lteEnabled bool, lteSquadName string,
+) *Service {
 	if trialDays < 0 {
 		trialDays = 0
 	}
@@ -42,6 +47,8 @@ func NewService(st *store.Store, pc *panel.Client, freeTierEnabled bool, trialDa
 		freeTierEnabled: freeTierEnabled,
 		trialDays:       trialDays,
 		paidSquadName:   paidSquadName,
+		lteEnabled:      lteEnabled,
+		lteSquadName:    lteSquadName,
 	}
 }
 
@@ -63,7 +70,30 @@ func (s *Service) paidSquad(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot place the account in a squad: %w", err)
 	}
-	return []string{uuid}, nil
+	squads := []string{uuid}
+
+	// The metered squad too, when quotas are on. A new account is shown its
+	// free gigabytes immediately, and without this it could not reach the
+	// servers those gigabytes are for: membership was granted only by the
+	// traffic monitor, on its own schedule, and only after it had found a
+	// metered node to look at. The customer saw an allowance and a dead route.
+	//
+	// The monitor still owns the *removal* when the quota runs out, and the
+	// re-add after a top-up. This only means the entitlement starts switched
+	// on, which is what having an allowance means.
+	if s.lteEnabled && strings.TrimSpace(s.lteSquadName) != "" {
+		lte, err := s.panel.SquadUUIDByName(ctx, s.lteSquadName)
+		if err != nil {
+			// Not fatal, unlike the paid squad. LTE is an extra; an account
+			// without it still connects to everything else, and the monitor
+			// adds it on its next pass.
+			slog.Warn("metered squad not resolved; account starts without it",
+				"squad", s.lteSquadName, "err", err)
+		} else {
+			squads = append(squads, lte)
+		}
+	}
+	return squads, nil
 }
 
 // TrialEligible reports whether creating this user's first panel account

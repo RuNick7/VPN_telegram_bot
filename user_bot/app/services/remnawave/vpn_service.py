@@ -19,7 +19,7 @@ from tgvpn_shared.free_tier import panel_expire_timestamp
 from tgvpn_shared.identity import panel_username_for, resolve_panel_identity
 from tgvpn_shared.remnawave import APINotFoundError, RemnawaveClient, UserNotFoundError
 from tgvpn_shared.settings import get_settings
-from tgvpn_shared.squads import resolve_paid_squad_uuid
+from tgvpn_shared.squads import resolve_paid_squad_uuid, resolve_squad_uuid
 
 logger = logging.getLogger(__name__)
 
@@ -216,22 +216,39 @@ async def delete_device(telegram_id: int, hwid: str) -> None:
 
 async def _assign_internal_squad(user_uuid: str) -> None:
     """
-    Put a new user into the paid squad; never fatal to creation.
+    Put a new user into the paid squad, and into the metered one when quotas
+    are on. Never fatal to creation.
 
-    There is one squad now and nothing is created here -- an operator manages
-    them in the panel. A failure leaves the user unassigned, which the expiry
-    monitor repairs on its next pass, and that is better than refusing to
-    create the account at all.
+    The metered squad matters at creation and not only at reconciliation: a new
+    account is told how many free gigabytes it has straight away, and until it
+    is a member it cannot reach the servers those gigabytes are for. Membership
+    used to be granted only by the traffic monitor -- on its own schedule, and
+    only once it had found a metered node to look at, so with no such node it
+    never happened at all. The customer saw an allowance and a dead route.
+
+    Nothing is created here; an operator manages squads in the panel. A failure
+    leaves the user unassigned, which the expiry monitor repairs on its next
+    pass, and that is better than refusing to create the account.
     """
     client = get_client()
+    settings = get_settings()
     try:
-        squad_uuid = await resolve_paid_squad_uuid(client, get_settings().paid_squad_name)
+        squad_uuid = await resolve_paid_squad_uuid(client, settings.paid_squad_name)
         if not squad_uuid:
             return
-        await client.set_user_squads([str(user_uuid)], [str(squad_uuid)])
-        logger.info("[Remnawave] User %s placed in paid squad %s", user_uuid, squad_uuid)
+
+        squads = [str(squad_uuid)]
+        if settings.lte_enabled and settings.lte_squad_name.strip():
+            lte_uuid = await resolve_squad_uuid(
+                    client, settings.lte_squad_name, role="Metered squad"
+                )
+            if lte_uuid:
+                squads.append(str(lte_uuid))
+
+        await client.set_user_squads([str(user_uuid)], squads)
+        logger.info("[Remnawave] User %s placed in squads %s", user_uuid, squads)
     except Exception as exc:
-        logger.error("[Remnawave] Failed to assign paid squad: %s", exc)
+        logger.error("[Remnawave] Failed to assign squads: %s", exc)
 
 
 async def create_vpn_user(telegram_id: int, days_to_add: int) -> bool:

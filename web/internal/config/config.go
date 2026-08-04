@@ -39,6 +39,9 @@ type Config struct {
 	PaidSquadName     string
 	FreeTierEnabled   bool
 	LTEEnabled        bool
+	// LTESquadName is the metered squad a new account joins alongside the paid
+	// one. Same key the bots read, so the two cannot place people differently.
+	LTESquadName      string
 	LTEFreeGBPerCycle int
 	LTECycleDays      int
 	TrialDays int
@@ -136,6 +139,7 @@ func Load(envFiles ...string) (*Config, error) {
 		PaidSquadName:     getString("PAID_SQUAD_NAME", "internal"),
 		FreeTierEnabled:   getBool("FREE_TIER_ENABLED", false),
 		LTEEnabled:        getBool("LTE_ENABLED", false),
+		LTESquadName:      getString("LTE_SQUAD_NAME", "LTE"),
 		LTEFreeGBPerCycle: getInt("LTE_FREE_GB_PER_CYCLE", 10),
 		LTECycleDays:      getInt("LTE_CYCLE_DAYS", 30),
 		TrialDays:         getInt("TRIAL_DAYS", 7),

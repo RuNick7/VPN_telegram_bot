@@ -112,7 +112,8 @@ func run(log *slog.Logger) error {
 	}
 
 	authSvc := auth.NewService(st, ml, cfg.BaseURL, cfg.MagicLinkTTL, cfg.SessionTTL, cfg.TelegramBotToken)
-	accountSvc := account.NewService(st, panelClient, cfg.FreeTierEnabled, cfg.WebTrialDays, cfg.PaidSquadName)
+	accountSvc := account.NewService(st, panelClient, cfg.FreeTierEnabled, cfg.WebTrialDays,
+		cfg.PaidSquadName, cfg.LTEEnabled, cfg.LTESquadName)
 	server := api.NewServer(cfg, st, authSvc, accountSvc, yookassa.New(cfg.YooKassaShopID, cfg.YooKassaSecretKey), log)
 
 	site, err := static.New(frontend.Files, static.Options{

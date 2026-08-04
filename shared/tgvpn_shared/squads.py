@@ -141,18 +141,30 @@ async def resolve_squad_roles(
     return SquadRoles(free_uuid=free_uuid, lte_uuid=lte_uuid, paid_uuid=paid_uuid)
 
 
-async def resolve_paid_squad_uuid(client: RemnawaveClient, paid_name: str) -> str | None:
+async def resolve_squad_uuid(
+    client: RemnawaveClient, name: str, *, role: str = "Squad"
+) -> str | None:
     """
-    Just the paid squad, for the paths that only need somewhere to put a user.
+    One squad by name, for the paths that only need somewhere to put a user.
 
     Returns None rather than raising: account creation should not fail because
     squad placement did. A user with no squad still exists and still has a
     link; the reconciliation job puts them right on its next pass.
+
+    `role` only names the squad in the log line. It exists because the message
+    used to say "Paid squad" unconditionally, and this is now called for the
+    metered squad too -- an operator reading "paid squad not found" while
+    hunting a traffic problem is being sent the wrong way.
     """
-    squad_uuid = _find_by_name(await client.list_internal_squads(), paid_name)
+    squad_uuid = _find_by_name(await client.list_internal_squads(), name)
     if not squad_uuid:
         logger.error(
-            "Paid squad %r not found in the panel; user left unassigned until reconciliation",
-            paid_name,
+            "%s %r not found in the panel; user left unassigned until reconciliation",
+            role, name,
         )
     return squad_uuid
+
+
+async def resolve_paid_squad_uuid(client: RemnawaveClient, paid_name: str) -> str | None:
+    """The paid squad; see `resolve_squad_uuid`."""
+    return await resolve_squad_uuid(client, paid_name, role="Paid squad")
