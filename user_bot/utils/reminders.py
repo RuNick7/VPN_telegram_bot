@@ -8,11 +8,20 @@ from datetime import datetime
 from tgvpn_shared.settings import get_settings
 from tgvpn_shared.db import UserRepository
 
+from handlers.constants import PRICES, trial_days
+from handlers.utils import escape_markdown_v2
+
 logger = logging.getLogger(__name__)
 _users = UserRepository()
 
 SECONDS_DAY = 86_400
 STATUS_CHANNEL_URL = get_settings().status_channel_url
+
+# Read from the same table the checkout charges from, so a message cannot
+# quote a price the customer will not be offered.
+MAX_REFERRAL_TIER = max(PRICES)
+BASE_MONTHLY_PRICE = PRICES[0][1]
+BEST_TIER_MONTHLY_PRICE = PRICES[MAX_REFERRAL_TIER][1]
 
 REMINDER_TEXT = (
     "⚠️ Ваша подписка истекает через 24 часа!\n\n"
@@ -62,16 +71,8 @@ async def reminders_scheduler(bot: Bot):
         try:
             logger.debug("Запуск hourly reminders в %s", datetime.now())
             await send_reminders(bot)
-            # One stage per pass, newest first. Running them in ascending order
-            # meant each step handed the same person straight to the next: a
-            # user sitting at stage 0 -- anyone who joined before the campaign
-            # existed -- collected all four messages within one second of each
-            # other. Descending, a stage advanced this hour is no longer a
-            # candidate for the stage above it until the next.
-            await send_nurture_3(bot, now_ts)
-            await send_nurture_2(bot, now_ts)
-            await send_nurture_1(bot, now_ts)
-            await send_nurture_channel(bot, now_ts)
+            for send in NURTURE_SENDERS:
+                await send(bot, now_ts)
             logger.debug("Hourly reminders выполнены успешно")
         except Exception:
             logger.exception("Ошибка в hourly reminders")
@@ -97,33 +98,84 @@ async def send_nurture_1(bot: Bot, now_ts: int):
 
 
 async def send_nurture_2(bot: Bot, now_ts: int):
-    users = await _users.get_users_for_nurture(now_ts, target_stage=3, days_after=10)
+    """
+    Day 10: what inviting people is actually worth.
+
+    It used to promise "бонусные дни". Referrals do not pay days -- they move
+    the customer down the price table, which is a different and rather better
+    offer. Somebody who invited five friends expecting free time and got a
+    cheaper renewal has been misled by us in writing.
+    """
+    users = await _users.get_users_for_nurture(now_ts, target_stage=5, days_after=10)
     if not users:
         return
     text_md = (
-        "👥 *Реферальная программа*\n\n"
-        "Приглашайте друзей и получайте бонусные дни\\!\n"
-        "Команда для участия: `/ref`"
+        "👥 *Приглашайте друзей — подписка дешевеет*\n\n"
+        "Каждый приглашённый снижает цену вашей подписки\\. "
+        "На пятом друге месяц стоит "
+        f"{escape_markdown_v2(str(BEST_TIER_MONTHLY_PRICE))} ₽ вместо "
+        f"{escape_markdown_v2(str(BASE_MONTHLY_PRICE))} ₽ — и остаётся таким\\.\n\n"
+        "Ваша ссылка и счётчик приглашённых: `/ref`"
     )
     kb = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="🚀 Перейти к /ref", callback_data="referral_info")]]
+        inline_keyboard=[[InlineKeyboardButton(text="🚀 Моя ссылка", callback_data="referral_info")]]
     )
-    await _broadcast_and_mark(bot, users, text_md, next_stage=3, kb=kb)
+    await _broadcast_and_mark(bot, users, text_md, next_stage=5, kb=kb)
 
 
 async def send_nurture_3(bot: Bot, now_ts: int):
-    users = await _users.get_users_for_nurture(now_ts, target_stage=4, days_after=25)
+    """
+    Sent one day before the free period runs out, whatever it currently is.
+
+    It used to go out on day 25 and open with "скоро закончится бесплатный
+    период". With a seven-day trial that arrived eighteen days after the
+    period had ended, to somebody who by then had either paid or left.
+    """
+    users = await _users.get_users_for_nurture(
+        now_ts, target_stage=4, days_after=max(1, trial_days() - 1)
+    )
     if not users:
         return
     kb = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="💳 Продлить", callback_data="subscription_tariffs")]]
+        inline_keyboard=[[InlineKeyboardButton(text="💳 Посмотреть тарифы", callback_data="subscription_tariffs")]]
     )
     text_md = (
-        "⏳ *Скоро закончится бесплатный период\\!*\n\n"
-        "Продлите подписку заранее командой `/pay` "
-        "или нажмите кнопку ниже\\."
+        "⏳ *Бесплатный период заканчивается*\n\n"
+        "Чтобы доступ не прервался, продлите подписку — от "
+        f"{escape_markdown_v2(str(BASE_MONTHLY_PRICE))} ₽ за месяц\\.\n\n"
+        "Оплата картой, подписка продлевается сразу\\."
     )
     await _broadcast_and_mark(bot, users, text_md, next_stage=4, kb=kb)
+
+
+async def send_nurture_site(bot: Bot, now_ts: int):
+    """
+    Day 5: there is a website, and it is the same account.
+
+    Worth its own message because nothing else says it. Somebody who arrived
+    through the bot has no reason to suspect a cabinet exists, and the two
+    things it does better than a chat -- reading a QR on the machine you are
+    setting up, and having an address that can recover the account if the
+    Telegram one is lost -- are exactly what they will want later.
+    """
+    site = get_settings().web_base_url.strip().rstrip("/")
+    if not site:
+        return
+    users = await _users.get_users_for_nurture(now_ts, target_stage=3, days_after=5)
+    if not users:
+        return
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="🌐 Открыть личный кабинет", url=site + "/app")]]
+    )
+    text_md = (
+        "🌐 *У сервиса есть сайт*\n\n"
+        f"{escape_markdown_v2(site)} — тот же аккаунт, что и здесь\\.\n\n"
+        "На большом экране удобнее: настройка устройств с QR\\-кодом, "
+        "история оплат и подарки в одном месте\\.\n\n"
+        "Вход по почте — и если Telegram однажды потеряется, "
+        "аккаунт останется с вами\\."
+    )
+    await _broadcast_and_mark(bot, users, text_md, next_stage=3, kb=kb)
 
 
 async def send_nurture_channel(bot: Bot, now_ts: int):
@@ -153,3 +205,26 @@ async def _broadcast_and_mark(bot: Bot, rows, text, next_stage: int, kb):
             logging.error(f"Nurture send fail {row['telegram_id']}: {e}")
 
     await _users.update_nurture_stage(succeeded, next_stage)
+
+
+# The chain, highest stage first.
+#
+# Two rules hold it together. Stages ascend with the day they fire on, because
+# a stage gates the one above it -- numbering the day-5 message above the
+# day-10 one would make it wait for a message a week further out. And they run
+# in descending order, because ascending meant each step handed the person it
+# had just advanced straight to the next: anybody at stage 0, which is everyone
+# who joined before the chain existed, collected the whole series in one second.
+#
+#   1 — day 1                 канал
+#   2 — day 3                 команды
+#   3 — day 5                 сайт
+#   4 — day TRIAL_DAYS - 1    бесплатный период кончается
+#   5 — day 10                рефералы
+NURTURE_SENDERS = (
+    send_nurture_2,        # stage 5
+    send_nurture_3,        # stage 4
+    send_nurture_site,     # stage 3
+    send_nurture_1,        # stage 2
+    send_nurture_channel,  # stage 1
+)

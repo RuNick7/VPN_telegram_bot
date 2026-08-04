@@ -63,9 +63,16 @@
         <button class="btn btn-ghost btn-block btn-sm" type="button" data-again>Ввести другой адрес</button>
       </div>
 
-      <div data-telegram-block hidden>
+      <!-- Our own button, not Telegram's iframe. The widget renders a fixed
+           blue pill that cannot be styled from here -- it sits in a
+           cross-origin frame -- and it was the one element on the site that
+           looked borrowed. The script is still Telegram's and still does the
+           authenticating; only the thing you click is ours. -->
+      <div class="stack" data-telegram-block hidden>
         <p class="mono-sm muted">Или войдите через Telegram, если пользуетесь ботом:</p>
-        <div data-telegram-widget></div>
+        <button class="btn btn-outline btn-block" type="button" data-telegram-login>
+          <span data-icon="telegram"></span> Войти через Telegram
+        </button>
       </div>
 
       <p class="mono-sm muted">

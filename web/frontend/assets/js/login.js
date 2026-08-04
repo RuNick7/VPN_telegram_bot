@@ -83,34 +83,66 @@ $("[data-again]")?.addEventListener("click", () => {
 // -- Telegram -------------------------------------------------------------
 
 /**
- * Mounts Telegram's login widget in redirect mode.
+ * Wires our own button to Telegram's login script.
  *
- * `data-auth-url` rather than `data-onauth`: the callback form has the widget
- * script evaluate an attribute string, which would mean allowing 'unsafe-eval'
- * in the page's Content-Security-Policy for one optional button. In redirect
- * mode Telegram sends the browser to our own endpoint with the signed payload
- * in the query string, and the signature is checked server-side either way.
+ * The widget's own markup is a fixed blue pill inside a cross-origin iframe:
+ * unstyleable from here, and the one element on the site that looked borrowed
+ * from somewhere else. `Telegram.Login.auth` is the same entry point the pill
+ * calls, so what changes is only what the customer clicks.
+ *
+ * This is the callback form, but invoked from a module we serve rather than
+ * from a `data-onauth` attribute -- the attribute is what would have needed
+ * 'unsafe-eval' in the policy, not the function.
+ *
+ * The payload goes to POST /api/auth/telegram, which verifies its HMAC before
+ * issuing anything. Nothing here is trusted; the browser only carries it.
  */
-function mountTelegram(botUsername) {
-  const host = $("[data-telegram-widget]");
-  if (!host) return;
+function mountTelegram(botID) {
+  const button = $("[data-telegram-login]");
+  if (!button) return;
 
   const script = el("script", {
     async: true,
     src: "https://telegram.org/js/telegram-widget.js?22",
-    "data-telegram-login": botUsername,
-    "data-size": "large",
-    "data-radius": "0",
-    "data-userpic": "false",
-    "data-auth-url": `${location.origin}/auth/telegram?next=${encodeURIComponent(nextPath())}`,
   });
-  host.append(script);
-  $("[data-telegram-block]").hidden = false;
+  script.addEventListener("load", () => {
+    $("[data-telegram-block]").hidden = false;
+  });
+  script.addEventListener("error", () => {
+    // telegram.org unreachable -- blocked, offline, an extension. Say so
+    // rather than leaving a button that silently does nothing.
+    flash("Не удалось загрузить вход через Telegram. Войдите по почте.");
+  });
+  document.head.append(script);
+
+  button.addEventListener("click", () => {
+    const login = window.Telegram?.Login;
+    if (!login) {
+      flash("Вход через Telegram сейчас недоступен. Войдите по почте.");
+      return;
+    }
+    withBusy(button, () => new Promise((resolve) => {
+      login.auth({ bot_id: botID, request_access: "write" }, async (payload) => {
+        if (!payload) {
+          // The customer closed the window or declined. Not an error.
+          resolve();
+          return;
+        }
+        try {
+          await api("/api/auth/telegram", { method: "POST", body: payload });
+          location.replace(nextPath());
+        } catch (err) {
+          flash(err instanceof ApiError ? err.message : "Не удалось войти через Telegram.");
+        }
+        resolve();
+      });
+    }));
+  });
 }
 
 clientConfig().then((config) => {
-  if (config.telegram_login && config.telegram_bot) {
-    mountTelegram(config.telegram_bot);
+  if (config.telegram_login && config.telegram_bot_id) {
+    mountTelegram(String(config.telegram_bot_id));
   }
   // The agreement link in the sentence above the form is markup now, with a
   // real href, and assets/js/footer.js repoints it along with every other

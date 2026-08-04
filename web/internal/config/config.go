@@ -195,6 +195,21 @@ func (c *Config) Validate() error {
 // its own, so a missing bot token disables one button rather than the site.
 func (c *Config) TelegramLoginEnabled() bool { return c.TelegramBotToken != "" }
 
+// TelegramBotID is the numeric half of the bot token, which is what
+// `Telegram.Login.auth` identifies the bot by.
+//
+// Public information -- it is in every deep link the bot hands out -- unlike
+// the secret half after the colon, which never leaves this process. Derived
+// rather than configured separately so the id and the token cannot name two
+// different bots.
+func (c *Config) TelegramBotID() string {
+	id, _, found := strings.Cut(c.TelegramBotToken, ":")
+	if !found || id == "" {
+		return ""
+	}
+	return id
+}
+
 // PaymentsEnabled reports whether new payments can be created.
 func (c *Config) PaymentsEnabled() bool {
 	return c.YooKassaShopID != "" && c.YooKassaSecretKey != ""

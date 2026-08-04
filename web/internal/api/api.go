@@ -264,6 +264,7 @@ func (s *Server) handleClientConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"telegram_login":   s.cfg.TelegramLoginEnabled(),
 		"telegram_bot":     s.cfg.TelegramBotUsername,
+		"telegram_bot_id":  s.cfg.TelegramBotID(),
 		"payments_enabled": s.cfg.PaymentsEnabled(),
 		"traffic_enabled":  s.cfg.LTEEnabled,
 		"trial_days":       s.cfg.WebTrialDays,

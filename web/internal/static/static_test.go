@@ -255,7 +255,9 @@ func TestEveryResponseCarriesTheHardeningHeaders(t *testing.T) {
 			"X-Content-Type-Options":       "nosniff",
 			"X-Frame-Options":              "DENY",
 			"Referrer-Policy":              "same-origin",
-			"Cross-Origin-Opener-Policy":   "same-origin",
+			// allow-popups, or Telegram's login widget cannot report back to
+			// the page that opened it -- see setSecurityHeaders.
+			"Cross-Origin-Opener-Policy":   "same-origin-allow-popups",
 			"Cross-Origin-Resource-Policy": "same-origin",
 		} {
 			if got := header.Get(key); got != want {

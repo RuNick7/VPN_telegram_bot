@@ -414,7 +414,16 @@ func (h *Handler) setSecurityHeaders(w http.ResponseWriter, r *http.Request) {
 	// sign-in tokens, and nothing outside it needs to know where a visitor
 	// came from.
 	header.Set("Referrer-Policy", "same-origin")
-	header.Set("Cross-Origin-Opener-Policy", "same-origin")
+	// `same-origin-allow-popups`, not `same-origin`. The stricter value puts
+	// every window this page opens into its own browsing-context group, which
+	// severs `window.opener` -- and that is the channel Telegram's login
+	// widget uses to report back after the customer confirms in the app. The
+	// symptom was exactly what you would expect and nothing you could search
+	// for: the button worked, the phone confirmed, and the page sat there.
+	//
+	// What COOP is actually for survives: a cross-origin page that opens *us*
+	// still gets no handle on this window.
+	header.Set("Cross-Origin-Opener-Policy", "same-origin-allow-popups")
 	header.Set("Cross-Origin-Resource-Policy", "same-origin")
 	header.Set("Permissions-Policy",
 		"accelerometer=(), autoplay=(self), camera=(), display-capture=(), "+
