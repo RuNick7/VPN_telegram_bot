@@ -6,7 +6,7 @@
  * to the Remnawave panel and one slow node should not hold up the page.
  */
 
-import { boot } from "./app.js";
+import { boot, clientConfig } from "./app.js";
 import {
   $,
   api,
@@ -183,6 +183,19 @@ boot(async (user) => {
     flash("Не удалось получить состояние подписки. Обновите страницу через минуту.");
     return null;
   });
+
+  // The bot's handle, from configuration rather than from markup: the site and
+  // the bot are deployed together and the username is already in .env, so
+  // writing it into the page would be a second place to forget to change.
+  clientConfig()
+    .then((config) => {
+      const handle = (config.telegram_bot || "").replace(/^@/, "");
+      if (!handle) return;
+      setText("[data-bot-handle]", `@${handle}`);
+      $("[data-bot-link]").href = `https://t.me/${handle}`;
+      $("[data-bot-card]").hidden = false;
+    })
+    .catch((err) => console.error(err));
 
   await Promise.all([
     subscription.then((sub) => (sub ? renderSubscription(sub) : null)),

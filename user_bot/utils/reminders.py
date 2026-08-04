@@ -34,9 +34,13 @@ async def send_reminders(bot: Bot):
         return
 
     for u in users:
-        chat_id = u.get("chat_id")
+        # The Telegram ID *is* the chat id for a private chat. This used to
+        # read `u["chat_id"]`, a column the query does not select and the table
+        # does not have -- so every user was skipped with a warning and the
+        # expiry reminder had never once been delivered.
+        chat_id = u.get("telegram_id")
         if not chat_id:
-            logging.warning(f"[WARN] chat_id отсутствует ({u['telegram_id']})")
+            logging.warning("[WARN] Нет telegram_id у строки напоминания: %r", u)
             continue
 
         try:
@@ -58,10 +62,16 @@ async def reminders_scheduler(bot: Bot):
         try:
             logger.debug("Запуск hourly reminders в %s", datetime.now())
             await send_reminders(bot)
-            await send_nurture_channel(bot, now_ts)
-            await send_nurture_1(bot, now_ts)
-            await send_nurture_2(bot, now_ts)
+            # One stage per pass, newest first. Running them in ascending order
+            # meant each step handed the same person straight to the next: a
+            # user sitting at stage 0 -- anyone who joined before the campaign
+            # existed -- collected all four messages within one second of each
+            # other. Descending, a stage advanced this hour is no longer a
+            # candidate for the stage above it until the next.
             await send_nurture_3(bot, now_ts)
+            await send_nurture_2(bot, now_ts)
+            await send_nurture_1(bot, now_ts)
+            await send_nurture_channel(bot, now_ts)
             logger.debug("Hourly reminders выполнены успешно")
         except Exception:
             logger.exception("Ошибка в hourly reminders")
