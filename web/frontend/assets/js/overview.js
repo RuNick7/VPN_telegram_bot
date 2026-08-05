@@ -95,9 +95,14 @@ function renderSubscription(sub) {
 function fitStatsGrid() {
   const grid = $("[data-stats]");
   if (!grid) return;
-  const wide = !$("[data-traffic-cell]").hidden;
-  grid.classList.toggle("cols-4", wide);
-  grid.classList.toggle("cols-2", !wide);
+  // Counted, not inferred. Two of these cells come and go independently now --
+  // traffic with the quota feature, the bot card with a configured username --
+  // and a rule written for one of them drew empty columns whenever the other
+  // was the one missing.
+  const shown = [...grid.children].filter((cell) => !cell.hidden).length;
+  for (const columns of [2, 3, 4]) {
+    grid.classList.toggle(`cols-${columns}`, shown === columns);
+  }
 }
 
 function renderTraffic(traffic) {
@@ -187,7 +192,7 @@ boot(async (user) => {
   // The bot's handle, from configuration rather than from markup: the site and
   // the bot are deployed together and the username is already in .env, so
   // writing it into the page would be a second place to forget to change.
-  clientConfig()
+  const botCard = clientConfig()
     .then((config) => {
       const handle = (config.telegram_bot || "").replace(/^@/, "");
       if (!handle) return;
@@ -198,6 +203,7 @@ boot(async (user) => {
     .catch((err) => console.error(err));
 
   await Promise.all([
+    botCard,
     subscription.then((sub) => (sub ? renderSubscription(sub) : null)),
     settle(api("/api/traffic"), renderTraffic),
     settle(api("/api/devices"), renderDevices),

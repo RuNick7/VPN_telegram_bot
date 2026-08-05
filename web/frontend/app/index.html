@@ -100,27 +100,9 @@
     </div>
   </section>
 
-  <!-- The bot, named. Hidden until /api/config supplies a username, because a
-       card advertising a bot with no handle in it is worse than no card: the
-       one thing a visitor needs from it is the name to search for. -->
-  <section class="section" data-bot-card hidden>
-    <div class="wrap">
-      <div class="card-hover row between wrap-row">
-        <div class="stack">
-          <span class="mono-sm muted">Telegram-бот</span>
-          <div class="mono strong num" data-bot-handle>—</div>
-          <p class="mono-sm muted">Подписка, оплата и подключение — те же, что здесь.</p>
-        </div>
-        <a class="btn btn-sm" data-bot-link href="#" rel="noopener">
-          <span data-icon="link"></span> Открыть
-        </a>
-      </div>
-    </div>
-  </section>
-
   <section class="grid-lines cols-4" aria-label="Показатели аккаунта" data-stats>
 
-    <div class="card-hover stack span-2" data-traffic-cell hidden>
+    <div class="card-hover stack" data-traffic-cell hidden>
       <div class="panel-head">
         <span class="mono-sm" data-traffic-label>Трафик</span>
         <span data-icon="chart"></span>
@@ -150,6 +132,19 @@
       </div>
       <div class="metric num"><span data-device-count>—</span> <small data-device-limit></small></div>
       <div class="pips" data-device-pips></div>
+    </div>
+
+    <!-- Hidden until /api/config supplies a username: a card advertising a bot
+         without its handle is worse than no card, since the handle is the one
+         thing anybody needs from it. -->
+    <div class="card-hover stack" data-bot-card hidden>
+      <div class="panel-head">
+        <span class="mono-sm">Telegram-бот</span>
+        <span data-icon="telegram"></span>
+      </div>
+      <div class="mono strong" data-bot-handle>—</div>
+      <p class="mono-sm muted">Тот же аккаунт, что здесь.</p>
+      <a class="mono-sm accent" data-bot-link href="#" rel="noopener">Открыть в Telegram →</a>
     </div>
 
   </section>
