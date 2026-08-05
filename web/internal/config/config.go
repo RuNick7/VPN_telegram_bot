@@ -86,6 +86,8 @@ type Links struct {
 	Privacy string
 	Support string
 	FAQ     string
+	// Channel is the announcements channel, the same one the bot links to.
+	Channel string
 }
 
 // Load reads .env files (later files do not override earlier ones, matching
@@ -134,6 +136,7 @@ func Load(envFiles ...string) (*Config, error) {
 			License: getString("LICENSE_URL", "/docs/license"),
 			Privacy: getString("PRIVACY_POLICY_URL", "/docs/privacy"),
 			Support: getString("SUPPORT_URL", ""),
+			Channel: getString("STATUS_CHANNEL_URL", ""),
 			FAQ:     getString("FAQ_URL", ""),
 		},
 		PaidSquadName:     getString("PAID_SQUAD_NAME", "internal"),

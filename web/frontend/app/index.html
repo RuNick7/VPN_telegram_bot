@@ -134,17 +134,21 @@
       <div class="pips" data-device-pips></div>
     </div>
 
-    <!-- Hidden until /api/config supplies a username: a card advertising a bot
-         without its handle is worse than no card, since the handle is the one
-         thing anybody needs from it. -->
-    <div class="card-hover stack" data-bot-card hidden>
+    <!-- Bot and channel share one cell rather than taking two. The grid is a
+         row of four and both are one link apiece, so a tile each would have
+         cost a whole row to say very little. Each link appears only when it is
+         configured, and the cell stays hidden when neither is. -->
+    <div class="card-hover stack" data-telegram-card hidden>
       <div class="panel-head">
-        <span class="mono-sm">Telegram-бот</span>
+        <span class="mono-sm">Telegram</span>
         <span data-icon="telegram"></span>
       </div>
       <div class="mono strong" data-bot-handle>—</div>
       <p class="mono-sm muted">Тот же аккаунт, что здесь.</p>
-      <a class="mono-sm accent" data-bot-link href="#" rel="noopener">Открыть в Telegram →</a>
+      <div class="row wrap-row">
+        <a class="mono-sm accent" data-bot-link href="#" rel="noopener" hidden>Бот →</a>
+        <a class="mono-sm accent" data-channel-link href="#" rel="noopener" hidden>Канал →</a>
+      </div>
     </div>
 
   </section>

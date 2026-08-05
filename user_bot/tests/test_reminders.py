@@ -125,3 +125,18 @@ async def test_the_site_message_is_skipped_when_there_is_no_site(bot, monkeypatc
         await reminders.send_nurture_site(bot, 0)
 
     repo.get_users_for_nurture.assert_not_awaited()
+
+
+async def test_the_channel_message_is_skipped_when_no_channel_is_set(bot, monkeypatch):
+    """
+    aiogram rejects a button with an empty `url`, so an unset address would
+    fail the whole send rather than drop one link.
+    """
+    repo = AsyncMock()
+    monkeypatch.setattr(reminders, "STATUS_CHANNEL_URL", "")
+
+    with patch.object(reminders, "_users", repo):
+        await reminders.send_nurture_channel(bot, 0)
+
+    repo.get_users_for_nurture.assert_not_awaited()
+    bot.send_message.assert_not_awaited()

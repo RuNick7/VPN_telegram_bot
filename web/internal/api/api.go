@@ -278,6 +278,7 @@ func (s *Server) handleClientConfig(w http.ResponseWriter, r *http.Request) {
 			"privacy": s.cfg.Links.Privacy,
 		},
 		"support_url": s.cfg.Links.Support,
+		"channel_url": s.cfg.Links.Channel,
 		"faq_url":     s.cfg.Links.FAQ,
 	})
 }

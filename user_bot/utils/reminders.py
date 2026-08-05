@@ -179,6 +179,12 @@ async def send_nurture_site(bot: Bot, now_ts: int):
 
 
 async def send_nurture_channel(bot: Bot, now_ts: int):
+    # An unset address is not a button with nothing behind it: aiogram rejects
+    # an empty `url` outright, so the whole message would fail for everybody
+    # rather than arrive without its link. Skipping the stage keeps the account
+    # eligible, so it goes out whenever a channel is configured.
+    if not STATUS_CHANNEL_URL.strip():
+        return
     users = await _users.get_users_for_nurture(now_ts, target_stage=1, days_after=1)
     if not users:
         return

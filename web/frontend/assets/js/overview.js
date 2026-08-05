@@ -95,10 +95,10 @@ function renderSubscription(sub) {
 function fitStatsGrid() {
   const grid = $("[data-stats]");
   if (!grid) return;
-  // Counted, not inferred. Two of these cells come and go independently now --
-  // traffic with the quota feature, the bot card with a configured username --
-  // and a rule written for one of them drew empty columns whenever the other
-  // was the one missing.
+  // Counted, not inferred. Two of these cells come and go independently --
+  // traffic with the quota feature, the Telegram one with a configured bot or
+  // channel -- and a rule written for one of them drew empty columns whenever
+  // the other was the one missing.
   const shown = [...grid.children].filter((cell) => !cell.hidden).length;
   for (const columns of [2, 3, 4]) {
     grid.classList.toggle(`cols-${columns}`, shown === columns);
@@ -189,21 +189,38 @@ boot(async (user) => {
     return null;
   });
 
-  // The bot's handle, from configuration rather than from markup: the site and
-  // the bot are deployed together and the username is already in .env, so
-  // writing it into the page would be a second place to forget to change.
-  const botCard = clientConfig()
+  // From configuration rather than markup: both addresses are already in
+  // .env, and a copy in the page would be a second place to forget to change.
+  // One cell for both Telegram links, each shown only if configured. A card
+  // naming a bot without its handle, or offering a channel we have no address
+  // for, is worse than no card: the address is the only thing either is for.
+  const telegramCard = clientConfig()
     .then((config) => {
       const handle = (config.telegram_bot || "").replace(/^@/, "");
-      if (!handle) return;
-      setText("[data-bot-handle]", `@${handle}`);
-      $("[data-bot-link]").href = `https://t.me/${handle}`;
-      $("[data-bot-card]").hidden = false;
+      const channel = (config.channel_url || "").trim();
+      if (!handle && !channel) return;
+
+      if (handle) {
+        setText("[data-bot-handle]", `@${handle}`);
+        show($("[data-bot-handle]"), true);
+        const link = $("[data-bot-link]");
+        link.href = `https://t.me/${handle}`;
+        link.hidden = false;
+      } else {
+        show($("[data-bot-handle]"), false);
+      }
+
+      if (channel) {
+        const link = $("[data-channel-link]");
+        link.href = channel;
+        link.hidden = false;
+      }
+      $("[data-telegram-card]").hidden = false;
     })
     .catch((err) => console.error(err));
 
   await Promise.all([
-    botCard,
+    telegramCard,
     subscription.then((sub) => (sub ? renderSubscription(sub) : null)),
     settle(api("/api/traffic"), renderTraffic),
     settle(api("/api/devices"), renderDevices),
