@@ -45,8 +45,8 @@ def trial_link_bonus_days() -> int:
 # down -- and stacking the referral ladder on top of it would let a
 # five-referral user buy traffic for a fraction of what it costs to serve.
 LTE_TRAFFIC_PACKS = {
-    5: 89,
-    10: 119,
-    15: 149,
-    30: 239,
+    5: 49,
+    10: 59,
+    15: 79,
+    30: 119,
 }

@@ -14,7 +14,7 @@ from handlers.utils import traffic_pack_discount, traffic_pack_label
 
 
 def test_the_advertised_packs_and_prices():
-    assert LTE_TRAFFIC_PACKS == {5: 89, 10: 119, 15: 149, 30: 239}
+    assert LTE_TRAFFIC_PACKS == {5: 49, 10: 59, 15: 79, 30: 119}
 
 
 def test_traffic_prices_are_flat_across_referral_tiers():
@@ -51,10 +51,10 @@ def test_pack_keyboard_lists_every_pack_cheapest_first():
 def test_pack_buttons_show_size_price_and_saving():
     labels = [row[0].text for row in lte_packs_keyboard(LTE_TRAFFIC_PACKS).inline_keyboard[:-1]]
     assert labels == [
-        "5 ГБ — 89₽",
-        "10 ГБ — 119₽ (-33%)",
-        "15 ГБ — 149₽ (-44%)",
-        "30 ГБ — 239₽ (-55%)",
+        "5 ГБ — 49₽",
+        "10 ГБ — 59₽ (-39%)",
+        "15 ГБ — 79₽ (-46%)",
+        "30 ГБ — 119₽ (-59%)",
     ]
 
 
@@ -63,15 +63,15 @@ def test_pack_buttons_show_size_price_and_saving():
 
 @pytest.mark.parametrize(
     "gigabytes, expected",
-    [(5, 0), (10, 33), (15, 44), (30, 55)],
+    [(5, 0), (10, 39), (15, 46), (30, 59)],
 )
 def test_discount_against_the_smallest_pack(gigabytes, expected):
     """
     The saving is measured against the smallest pack's per-gigabyte rate:
 
-        (1 - price / (gb / 5 * 89)) * 100
+        (1 - price / (gb / 5 * 49)) * 100
 
-    e.g. 10 GB at the 5 GB rate would be 178₽; it costs 119₽, so -33%.
+    e.g. 10 GB at the 5 GB rate would be 98₽; it costs 59₽, so -39%.
     """
     price = LTE_TRAFFIC_PACKS[gigabytes]
     assert traffic_pack_discount(gigabytes, price, LTE_TRAFFIC_PACKS) == expected
@@ -79,8 +79,8 @@ def test_discount_against_the_smallest_pack(gigabytes, expected):
 
 def test_the_reference_pack_shows_no_discount():
     """It defines the rate, so it cannot be a saving against itself."""
-    assert traffic_pack_discount(5, 89, LTE_TRAFFIC_PACKS) == 0
-    assert traffic_pack_label(5, 89, LTE_TRAFFIC_PACKS) == "5 ГБ — 89₽"
+    assert traffic_pack_discount(5, 49, LTE_TRAFFIC_PACKS) == 0
+    assert traffic_pack_label(5, 49, LTE_TRAFFIC_PACKS) == "5 ГБ — 49₽"
 
 
 def test_a_pack_priced_worse_than_the_baseline_shows_no_saving():

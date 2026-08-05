@@ -1329,6 +1329,28 @@ main {
   color: var(--ember);
 }
 
+/* The support address, which copies rather than navigating.
+   `mailto:` is the obvious markup and the wrong one here: on a machine with no
+   mail client configured -- which is most of them -- clicking it opened a blank
+   browser tab or an app chooser, and the address stayed exactly where it was.
+   A button says "this does something on click" honestly; these rules only take
+   away the chrome that would make it look like a form control. */
+.site-footer button.as-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  /* The footer's mono style uppercases its labels, which is right for "Связь"
+     and wrong for an address: it is a literal string, not a label, and the
+     manual-copy fallback selects what is painted rather than what is written. */
+  text-transform: none;
+}
+
+.site-footer button.as-link:hover {
+  color: var(--ember);
+}
+
 /* The cabinet's tab bar is fixed over the bottom of the viewport on phones, so
    whatever is last on the page has to clear it. That used to be <main>, which
    is why the padding lived there; the footer is last now.

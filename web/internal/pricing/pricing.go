@@ -33,7 +33,7 @@ const MaxTier = 5
 // cost, not a plan someone can earn their way down. Stacking the referral
 // ladder on it would let a five-referral user buy traffic for a fraction of
 // what serving it costs.
-var TrafficPacks = map[int]int{5: 89, 10: 119, 15: 149, 30: 239}
+var TrafficPacks = map[int]int{5: 49, 10: 59, 15: 79, 30: 119}
 
 // DaysForMonths is how long each plan actually runs.
 // A "year" is 360 days here, matching the bot's 12 * 30 -- not 365.

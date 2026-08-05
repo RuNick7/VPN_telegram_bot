@@ -15,7 +15,41 @@
  * token-redeeming pages — have no entry point of their own.
  */
 
-import { $$, clientConfig } from "./core.js";
+import { $$, clientConfig, copyText } from "./core.js";
+
+/*
+ * The support address copies instead of navigating.
+ *
+ * `mailto:` is the obvious markup and the wrong one on a desktop with no mail
+ * client configured, which is most of them: clicking opened a blank browser
+ * tab or an app chooser, and the address stayed exactly where it was. Copying
+ * is what somebody clicking an address in a footer actually wants.
+ *
+ * The label swaps to confirm, because a copy that gives no feedback is
+ * indistinguishable from a click that did nothing -- the very complaint this
+ * replaces.
+ */
+for (const button of $$("[data-copy-mail]")) {
+  button.addEventListener("click", async () => {
+    const original = button.textContent;
+    if (await copyText(button.dataset.copyMail, button)) {
+      button.textContent = "Скопировано";
+      setTimeout(() => {
+        button.textContent = original;
+      }, 1600);
+      return;
+    }
+    // The clipboard can be refused -- a browser that wants a gesture it did
+    // not see, a page that is not focused. Selecting the address leaves the
+    // customer one keystroke from having it, rather than back where they
+    // started with a control that did nothing.
+    const range = document.createRange();
+    range.selectNodeContents(button);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  });
+}
 
 clientConfig().then((config) => {
   for (const link of $$("[data-doc]")) {
@@ -33,5 +67,14 @@ clientConfig().then((config) => {
     support.href = config.support_url;
     support.rel = "noopener";
     support.hidden = false;
+  }
+
+  // Same rule as support: shown only when there is an address behind it, so a
+  // deployment without a channel does not offer one.
+  for (const channel of $$("[data-channel]")) {
+    if (!config.channel_url) continue;
+    channel.href = config.channel_url;
+    channel.rel = "noopener";
+    channel.hidden = false;
   }
 });

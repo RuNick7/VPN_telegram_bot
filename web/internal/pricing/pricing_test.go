@@ -27,7 +27,7 @@ func TestPriceTableMatchesTheBot(t *testing.T) {
 }
 
 func TestTrafficPackTableMatchesTheBot(t *testing.T) {
-	want := map[int]int{5: 89, 10: 119, 15: 149, 30: 239}
+	want := map[int]int{5: 49, 10: 59, 15: 79, 30: 119}
 	for gb, price := range want {
 		if got := TrafficPacks[gb]; got != price {
 			t.Errorf("%d GB = %d, want %d", gb, got, price)
@@ -84,7 +84,7 @@ func TestDiscountIsMeasuredAtTheUsersOwnTier(t *testing.T) {
 }
 
 func TestTrafficDiscountsMatchTheBot(t *testing.T) {
-	want := map[int]int{5: 0, 10: 33, 15: 44, 30: 55}
+	want := map[int]int{5: 0, 10: 39, 15: 46, 30: 59}
 	for gb, expected := range want {
 		if got := TrafficPackDiscount(gb, TrafficPacks[gb]); got != expected {
 			t.Errorf("%d GB: discount %d%%, want %d%%", gb, got, expected)
@@ -94,9 +94,9 @@ func TestTrafficDiscountsMatchTheBot(t *testing.T) {
 
 func TestDiscountsAreTruncatedNotRounded(t *testing.T) {
 	// An advertised saving must never be larger than the real one.
-	// 10 GB at the 5 GB rate is 178₽; at 118₽ the real saving is 33.7%.
-	if got := TrafficPackDiscount(10, 118); got != 33 {
-		t.Errorf("discount = %d%%, want 33%%", got)
+	// 10 GB at the 5 GB rate is 98₽; at 59₽ the real saving is 39.7%.
+	if got := TrafficPackDiscount(10, 59); got != 39 {
+		t.Errorf("discount = %d%%, want 39%%", got)
 	}
 }
 
