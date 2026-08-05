@@ -255,6 +255,28 @@ async function reportReturn(giftsBefore) {
   );
 }
 
+/**
+ * Scrolls to the section named in the URL, once it exists.
+ *
+ * The browser acts on `#traffic` the moment the document loads, and at that
+ * moment the traffic section is still `hidden` -- it is revealed only after
+ * /api/plans answers with the packs to put in it. A hidden element is not a
+ * scroll target, so the jump silently did nothing and "Купить гигабайты"
+ * landed the customer at the top of the tariffs to hunt for it.
+ *
+ * Runs after rendering rather than on a timer: by here the section either
+ * exists or genuinely is not offered.
+ */
+function revealRequestedSection() {
+  const id = location.hash.slice(1);
+  if (!id) return;
+  const target = document.getElementById(id);
+  // `hidden` covers the section being switched off entirely -- traffic when
+  // quotas are disabled. Scrolling to nothing is worse than staying put.
+  if (!target || target.hidden) return;
+  target.scrollIntoView({ block: "start", behavior: "smooth" });
+}
+
 // -- boot -----------------------------------------------------------------
 
 boot(async () => {
@@ -292,6 +314,7 @@ boot(async () => {
   }
 
   hydrateIcons();
+  revealRequestedSection();
   // Counted before polling starts, so "a gift appeared" means this payment's
   // gift rather than one bought last week.
   reportReturn(await loadGifts());
