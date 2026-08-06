@@ -14,6 +14,12 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    # The one service that was missing this, and the only one whose absence
+    # takes everything else with it. A host reboot brought the bots and the
+    # site back up against a database that never returned, and they sat in a
+    # crash loop until somebody noticed -- `depends_on` orders a startup, it
+    # does not restart a dependency that died.
+    restart: unless-stopped
 
   migrate:
     image: migrate/migrate
