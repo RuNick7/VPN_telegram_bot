@@ -323,7 +323,22 @@ def _format_report(reason: str, demoted: int, promoted: int, failures: list[str]
 
 
 async def run_subscription_expire_monitor(reason: str = "по расписанию") -> None:
-    """Scheduled entry point. Never raises -- the scheduler must keep ticking."""
+    """
+    Scheduled entry point. Never raises -- the scheduler must keep ticking.
+
+    The guarantee is enforced here rather than assumed of the body, because
+    the body's own failure path can fail: a panel timeout was handled exactly
+    as intended, then recording that failure hit a database which was down
+    too, and the second exception escaped as an unhandled task exception. An
+    outage that takes both at once is precisely when this must not compound.
+    """
+    try:
+        await _run_and_report(reason)
+    except Exception as exc:
+        logger.error("Expire monitor entry point failed: %s", exc, exc_info=True)
+
+
+async def _run_and_report(reason: str) -> None:
     if not settings.free_tier_enabled:
         return
 

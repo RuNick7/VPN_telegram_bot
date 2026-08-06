@@ -486,7 +486,21 @@ async def _run() -> tuple[int, int, int]:
 
 
 async def run_lte_traffic_monitor() -> None:
-    """Scheduled entry point. Never raises -- the scheduler must keep ticking."""
+    """
+    Scheduled entry point. Never raises -- the scheduler must keep ticking.
+
+    Guarded from the outside, for the reason spelled out on the expiry
+    monitor's entry point: the handlers below record failures and message the
+    admin chat, and both of those can fail on their own during the outage they
+    are reporting.
+    """
+    try:
+        await _run_and_report()
+    except Exception as exc:
+        logger.error("LTE monitor entry point failed: %s", exc, exc_info=True)
+
+
+async def _run_and_report() -> None:
     if not settings.lte_enabled:
         return
 
