@@ -46,9 +46,12 @@ class FakePanel(RemnawaveClient):
         self.answers = answers or {}
         self.fail_enable = fail_enable
         self.calls: list[tuple[str, str]] = []
+        self.bodies: dict[str, dict] = {}
 
     async def request(self, method, endpoint, **kwargs):
         self.calls.append((method, endpoint))
+        if kwargs.get("json"):
+            self.bodies[endpoint] = kwargs["json"]
         if "enable" in endpoint and self.fail_enable:
             self.fail_enable -= 1
             raise APIServerError("panel unreachable")
@@ -62,14 +65,22 @@ class FakePanel(RemnawaveClient):
         return [endpoint for _, endpoint in self.calls]
 
 
-def no_disconnect_endpoints() -> dict:
-    """What the live panel answers: none of the disconnect spellings exist."""
+def no_disconnect_endpoints_for(ref: str) -> dict:
+    """What the live panel answers: none of the `/users/*` spellings exist."""
     return {
-        ("POST", "/users/104/actions/disconnect"): APINotFoundError("Cannot POST"),
-        ("POST", "/users/104/disconnect"): APINotFoundError("Cannot POST"),
-        ("POST", "/users/disconnect/104"): APINotFoundError("Cannot POST"),
+        # The `connections` module is the newest spelling and is tried first,
+        # so a test about the older ones has to say it is absent.
+        ("POST", "/connections/drop"): APINotFoundError("Cannot POST"),
+        ("POST", f"/users/{ref}/actions/disconnect"): APINotFoundError("Cannot POST"),
+        ("POST", f"/users/{ref}/disconnect"): APINotFoundError("Cannot POST"),
+        ("POST", f"/users/disconnect/{ref}"): APINotFoundError("Cannot POST"),
         ("POST", "/users/bulk/disconnect"): APINotFoundError("Cannot POST"),
     }
+
+
+def no_disconnect_endpoints() -> dict:
+    """The same, for the numerically-named account these tests use."""
+    return no_disconnect_endpoints_for("104")
 
 
 # -- the happy path --------------------------------------------------------
@@ -77,9 +88,9 @@ def no_disconnect_endpoints() -> dict:
 
 async def test_a_panel_with_a_disconnect_endpoint_is_left_alone():
     """The flip is a fallback; an account is not disabled when it is avoidable."""
-    panel = FakePanel()
+    panel = FakePanel(answers={("POST", "/connections/drop"): APINotFoundError("Cannot POST")})
     assert await panel.disconnect_user("104") is True
-    assert panel.endpoints == ["/users/104/actions/disconnect"]
+    assert panel.endpoints == ["/connections/drop", "/users/104/actions/disconnect"]
 
 
 async def test_the_flip_runs_when_no_disconnect_endpoint_exists():
@@ -202,3 +213,59 @@ async def test_only_accounts_we_disabled_are_ever_enabled():
     panel = FakePanel()
     await panel.flush_pending_enables()
     assert panel.endpoints == []
+
+
+# -- the endpoint that actually ends a session ------------------------------
+#
+# Taking somebody out of an inbound stops the *next* handshake; a tunnel
+# already up carries on regardless. Current Remnawave keeps the real lever in
+# its own `connections` module, where the node looks up the addresses the user
+# is connected from and destroys those sockets outright.
+
+
+async def test_the_connections_module_is_tried_first():
+    """It is the only one of these that ends a session already in progress."""
+    panel = FakePanel()
+    assert await panel.disconnect_user("104") is True
+    assert panel.endpoints == ["/connections/drop"]
+
+
+async def test_only_the_named_nodes_are_dropped():
+    """
+    A traffic quota is spent on metered nodes. Someone who exhausts it should
+    lose those and keep the ordinary servers their subscription still covers.
+    """
+    panel = FakePanel()
+    await panel.disconnect_user("104", node_uuids=["node-a", "node-b"])
+
+    body = panel.bodies["/connections/drop"]
+    assert body["dropBy"] == {"by": "userIds", "userIds": [104]}
+    assert body["targetNodes"] == {"target": "specificNodes", "nodeUuids": ["node-a", "node-b"]}
+
+
+async def test_no_named_nodes_means_every_node():
+    """What a demotion wants: the subscription has lapsed everywhere."""
+    panel = FakePanel()
+    await panel.disconnect_user("104")
+    assert panel.bodies["/connections/drop"]["targetNodes"] == {"target": "allNodes"}
+
+
+async def test_a_uuid_named_panel_skips_the_module_entirely():
+    """
+    The contract types `userIds` as numbers. A panel that names users by UUID
+    is an older generation with no such module, and asking costs a round trip
+    to be told so.
+    """
+    panel = FakePanel(answers=no_disconnect_endpoints_for("abc-uuid"))
+    await panel.disconnect_user("abc-uuid")
+    assert "/connections/drop" not in panel.endpoints
+
+
+async def test_an_older_panel_falls_through_to_the_flip():
+    panel = FakePanel(answers=no_disconnect_endpoints())
+
+    assert await panel.disconnect_user("104") is True
+    assert panel.endpoints[-2:] == [
+        "/users/104/actions/disable",
+        "/users/104/actions/enable",
+    ]

@@ -302,7 +302,13 @@ async def _notify_user(telegram_id: int, text: str) -> None:
 
 
 async def _apply_squad(
-    client, roles: SquadRoles, user_uuid: str, current: list[str], *, blocked: bool
+    client,
+    roles: SquadRoles,
+    user_uuid: str,
+    current: list[str],
+    *,
+    blocked: bool,
+    nodes: set[str] | None = None,
 ) -> str | None:
     """Add or remove LTE membership. Returns 'blocked', 'unblocked', or None."""
     if not roles.lte_uuid:
@@ -320,7 +326,11 @@ async def _apply_squad(
         #
         # So the membership change goes last, always. The session drop is
         # attempted first and is allowed to fail; the block is not.
-        await client.disconnect_user(user_uuid)
+        #
+        # Only the metered nodes are dropped. The quota is spent there, and a
+        # subscriber who exhausts it still pays for the ordinary servers --
+        # cutting those too would be a bug wearing an enforcement costume.
+        await client.disconnect_user(user_uuid, node_uuids=sorted(nodes or []))
         await client.set_user_squads([user_uuid], [u for u in current if u != roles.lte_uuid])
         return "blocked"
 
@@ -386,7 +396,7 @@ async def _reconcile_user(
     )
 
     outcome = await _apply_squad(
-        client, roles, user_uuid, extract_squad_uuids(user), blocked=blocked
+        client, roles, user_uuid, extract_squad_uuids(user), blocked=blocked, nodes=nodes
     )
 
     consume_kwargs = dict(

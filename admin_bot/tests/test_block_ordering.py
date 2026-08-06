@@ -32,9 +32,11 @@ class RecordingPanel:
         self.drop_fails = drop_fails
         self.calls: list[str] = []
         self.squads: list[list[str]] = []
+        self.dropped_nodes: list[list[str]] = []
 
-    async def disconnect_user(self, user_uuid: str) -> bool:
+    async def disconnect_user(self, user_uuid: str, *, node_uuids=None) -> bool:
         self.calls.append("disconnect")
+        self.dropped_nodes.append(list(node_uuids or []))
         return not self.drop_fails
 
     async def set_user_squads(self, user_uuids: list[str], squad_uuids: list[str]):
@@ -51,6 +53,21 @@ async def test_the_membership_change_is_the_last_thing_the_node_hears():
     assert outcome == "blocked"
     assert panel.calls == ["disconnect", "squads"]
     assert panel.squads == [["int-1"]]
+
+
+@pytest.mark.asyncio
+async def test_only_the_metered_nodes_are_dropped():
+    """
+    The quota is spent on metered nodes. A subscriber who exhausts it still
+    pays for the ordinary servers, and cutting those too would be a bug
+    wearing an enforcement costume.
+    """
+    panel = RecordingPanel()
+
+    await _apply_squad(
+        panel, ROLES, "104", ["int-1", "lte-1"], blocked=True, nodes={"node-b", "node-a"}
+    )
+    assert panel.dropped_nodes == [["node-a", "node-b"]]
 
 
 @pytest.mark.asyncio

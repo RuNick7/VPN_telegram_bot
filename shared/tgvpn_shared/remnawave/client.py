@@ -356,23 +356,72 @@ class RemnawaveClient:
                 return
             page += 1
 
-    async def disconnect_user(self, user_uuid: str) -> bool:
+    async def drop_connections(
+        self, user_uuid: str, *, node_uuids: list[str] | None = None
+    ) -> bool:
+        """
+        Destroy this user's live sockets on the nodes. Returns whether it ran.
+
+        The real answer, and nothing under `/users/*` is: current Remnawave
+        keeps this in its own `connections` module. The node looks up the
+        addresses the user is connected from and destroys those sockets
+        outright, which is the one thing that ends a session already in
+        progress -- taking somebody out of an inbound only stops the *next*
+        handshake, and a tunnel already up carries on regardless.
+
+        `node_uuids` narrows it to particular nodes. Worth passing: a traffic
+        quota is spent on metered nodes, and someone who exhausts it should
+        lose those, not the ordinary servers their subscription still covers.
+
+        Two things must hold on the far side, neither of them ours: the panel
+        has to be new enough to expose the module, and the node's container
+        needs CAP_NET_ADMIN or it cannot destroy a socket it did not open.
+        Both failures are quiet, so this reports rather than raises.
+        """
+        # `userIds` is a list of numbers in the contract. A panel that names
+        # users by UUID is an older generation that has no such module at all.
+        if not is_numeric_ref(user_uuid):
+            return False
+
+        target: dict[str, Any] = (
+            {"target": "specificNodes", "nodeUuids": list(node_uuids)}
+            if node_uuids
+            else {"target": "allNodes"}
+        )
+        try:
+            await self.request(
+                "POST",
+                "/connections/drop",
+                json={
+                    "dropBy": {"by": "userIds", "userIds": [int(str(user_uuid).strip())]},
+                    "targetNodes": target,
+                },
+            )
+            return True
+        except APIError as exc:
+            logger.debug("drop-connections for %s failed: %s", user_uuid, exc)
+            return False
+
+    async def disconnect_user(self, user_uuid: str, *, node_uuids: list[str] | None = None) -> bool:
         """
         Best-effort drop of a user's live sessions. Returns whether it worked.
 
         Demoting someone off a paid squad doesn't kick them off the servers
         they are already connected to, so without this an expired user keeps
         paid access until their client happens to reconnect. Remnawave has
-        renamed this endpoint across versions, so try the known spellings and
-        report failure rather than raising -- a demotion that lands but can't
-        drop the session is still worth keeping.
+        moved and renamed this across versions, so the spellings are tried in
+        turn and failure is reported rather than raised -- a demotion that
+        lands but can't drop the session is still worth keeping.
 
         **Call this before applying a membership change, never after.** The
-        fallback below ends by enabling the account, which tells the panel to
+        last fallback ends by enabling the account, which tells the panel to
         put it back into its node's inbounds -- so a demotion applied first is
         handed straight back. Whichever call runs last decides what the node
         holds, and that has to be ours.
         """
+        if await self.drop_connections(user_uuid, node_uuids=node_uuids):
+            return True
+
         attempts: list[tuple[str, str, dict[str, Any] | None]] = [
             ("POST", f"/users/{user_uuid}/actions/disconnect", None),
             ("POST", f"/users/{user_uuid}/disconnect", None),
