@@ -310,8 +310,14 @@ async def _apply_squad(
 
     has_lte = roles.lte_uuid in current
     if blocked and has_lte:
-        await client.set_user_squads([user_uuid], [u for u in current if u != roles.lte_uuid])
-        await client.disconnect_user(user_uuid)
+        # The membership change is handed to the drop rather than done before
+        # it. What takes somebody off a node is losing the inbound, so stripping
+        # the squad first leaves the drop with nothing left to remove them from
+        # -- which is what the first version did, and it changed nothing.
+        keep = [u for u in current if u != roles.lte_uuid]
+        await client.disconnect_user(
+            user_uuid, while_offline=lambda: client.set_user_squads([user_uuid], keep)
+        )
         return "blocked"
 
     if not blocked and not has_lte:

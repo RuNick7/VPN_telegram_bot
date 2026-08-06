@@ -16,13 +16,22 @@ back.
 
 import pytest
 from tgvpn_shared.remnawave import RemnawaveClient, UserLeftDisabledError
+from tgvpn_shared.remnawave import client as client_module
 from tgvpn_shared.remnawave.client import _pending_enable
 from tgvpn_shared.remnawave.errors import APINotFoundError, APIServerError
 
+# Captured before the fixture below zeroes it, so the one test that cares about
+# the real duration still sees it.
+REAL_HOLD_SECONDS = client_module._DISABLE_HOLD_SECONDS
+
 
 @pytest.fixture(autouse=True)
-def _no_leftovers():
+def _no_leftovers(monkeypatch):
     """The pending set is module state; one test must not seed the next."""
+    # The hold is seconds by design. Paying it in every test here would make
+    # this the slowest file in the suite and prove nothing the constant does
+    # not already say.
+    monkeypatch.setattr(client_module, "_DISABLE_HOLD_SECONDS", 0)
     _pending_enable.clear()
     yield
     _pending_enable.clear()
@@ -193,3 +202,75 @@ async def test_only_accounts_we_disabled_are_ever_enabled():
     panel = FakePanel()
     await panel.flush_pending_enables()
     assert panel.endpoints == []
+
+
+# -- the membership change handed to the drop ------------------------------
+#
+# What takes somebody off a node is losing the inbound, not the account flag.
+# The first version stripped the squad and *then* dropped the session, which
+# left the drop with nothing to remove them from -- it removed an account from
+# inbounds it was already out of, and changed nothing observable.
+
+
+async def test_the_callback_runs_while_the_account_is_out():
+    order: list[str] = []
+
+    class Ordered(FakePanel):
+        async def request(self, method, endpoint, **kwargs):
+            if "disable" in endpoint or "enable" in endpoint:
+                order.append(endpoint.rsplit("/", 1)[-1])
+            return await FakePanel.request(self, method, endpoint, **kwargs)
+
+    panel = Ordered(answers=no_disconnect_endpoints())
+
+    async def change_squads():
+        order.append("squads")
+
+    await panel.disconnect_user("104", while_offline=change_squads)
+    assert order == ["disable", "squads", "enable"]
+
+
+async def test_the_account_is_held_out_long_enough_to_be_noticed():
+    """
+    Node and panel are eventually consistent. A removal and an addition
+    delivered together are applied as their sum, which is nothing -- the first
+    version flipped in 61 milliseconds and the session survived it.
+    """
+    assert REAL_HOLD_SECONDS >= 1.0
+
+
+async def test_the_callback_runs_even_when_no_drop_was_possible():
+    """
+    A session we could not end is a smaller failure than a block that never
+    happened, so the membership change lands either way.
+    """
+    answers = no_disconnect_endpoints()
+    for path in ("/users/104/actions/disable", "/users/disable/104", "/users/104/disable"):
+        answers[("POST", path)] = APINotFoundError("no")
+        answers[("PATCH", path)] = APINotFoundError("no")
+    panel = FakePanel(answers=answers)
+
+    ran = []
+    assert await panel.disconnect_user("104", while_offline=lambda: _record(ran)) is False
+    assert ran == ["ran"]
+
+
+async def test_the_callback_runs_once_when_a_disconnect_endpoint_exists():
+    panel = FakePanel()
+    ran = []
+    assert await panel.disconnect_user("104", while_offline=lambda: _record(ran)) is True
+    assert ran == ["ran"]
+
+
+async def test_the_callback_still_ran_when_the_account_was_left_disabled():
+    """The squad change happened before the enable failed; it must not repeat."""
+    panel = FakePanel(answers=no_disconnect_endpoints(), fail_enable=99)
+    ran = []
+
+    with pytest.raises(UserLeftDisabledError):
+        await panel.disconnect_user("104", while_offline=lambda: _record(ran))
+    assert ran == ["ran"]
+
+
+async def _record(sink: list) -> None:
+    sink.append("ran")
