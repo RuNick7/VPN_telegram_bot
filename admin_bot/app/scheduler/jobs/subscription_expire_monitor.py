@@ -235,12 +235,19 @@ async def _reconcile_user(
         await record_tier(subject, tier)
         return None
 
-    await client.set_user_squads([str(user_uuid)], desired)
-
+    # The drop goes first and the membership change last. Enabling an account
+    # -- which is how a session is dropped, there being no disconnect endpoint
+    # -- tells the panel to put it back into its node's inbounds, so a
+    # demotion applied before it would be handed straight back. See the same
+    # ordering, and the evidence for it, in the traffic monitor.
     if not active:
         # Membership changes don't drop existing connections, so without this
         # a demoted user keeps paid servers until their client reconnects.
         await client.disconnect_user(str(user_uuid))
+
+    await client.set_user_squads([str(user_uuid)], desired)
+
+    if not active:
         await record_tier(subject, "free")
         logger.info("Demoted %s to FREE (was %s)", telegram_id or subject.user_id, current)
         return "demoted"

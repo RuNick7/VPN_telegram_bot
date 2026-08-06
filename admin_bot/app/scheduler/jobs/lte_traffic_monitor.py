@@ -310,14 +310,18 @@ async def _apply_squad(
 
     has_lte = roles.lte_uuid in current
     if blocked and has_lte:
-        # The membership change is handed to the drop rather than done before
-        # it. What takes somebody off a node is losing the inbound, so stripping
-        # the squad first leaves the drop with nothing left to remove them from
-        # -- which is what the first version did, and it changed nothing.
-        keep = [u for u in current if u != roles.lte_uuid]
-        await client.disconnect_user(
-            user_uuid, while_offline=lambda: client.set_user_squads([user_uuid], keep)
-        )
+        # Order matters, and not for the reason it first appears to. Enabling an
+        # account tells the panel to put it back into its node's inbounds, so
+        # whichever call runs last has the final say over what the node holds.
+        # Two earlier versions both ended on `enable` -- one stripped the squad
+        # first, the other stripped it mid-flip -- and both handed access
+        # straight back: eleven minutes after a block, a fresh connection was
+        # accepted and passed traffic.
+        #
+        # So the membership change goes last, always. The session drop is
+        # attempted first and is allowed to fail; the block is not.
+        await client.disconnect_user(user_uuid)
+        await client.set_user_squads([user_uuid], [u for u in current if u != roles.lte_uuid])
         return "blocked"
 
     if not blocked and not has_lte:

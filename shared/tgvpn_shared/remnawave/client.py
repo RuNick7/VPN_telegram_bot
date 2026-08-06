@@ -356,7 +356,7 @@ class RemnawaveClient:
                 return
             page += 1
 
-    async def disconnect_user(self, user_uuid: str, *, while_offline: Any = None) -> bool:
+    async def disconnect_user(self, user_uuid: str) -> bool:
         """
         Best-effort drop of a user's live sessions. Returns whether it worked.
 
@@ -367,50 +367,33 @@ class RemnawaveClient:
         report failure rather than raising -- a demotion that lands but can't
         drop the session is still worth keeping.
 
-        `while_offline` is an awaitable-returning callable run at the point the
-        account is out of every inbound. Membership changes belong there: what
-        removes somebody from a node is losing the inbound, so a squad stripped
-        *before* the drop leaves the drop with nothing to remove them from, and
-        one applied *after* it re-adds them to the node it just cleared.
-
-        It runs exactly once and it always runs, including when no drop was
-        possible at all. A caller handing over a membership change is entitled
-        to have it applied -- a session this could not end is a smaller failure
-        than a block that never happened.
+        **Call this before applying a membership change, never after.** The
+        fallback below ends by enabling the account, which tells the panel to
+        put it back into its node's inbounds -- so a demotion applied first is
+        handed straight back. Whichever call runs last decides what the node
+        holds, and that has to be ours.
         """
-        pending = while_offline
+        attempts: list[tuple[str, str, dict[str, Any] | None]] = [
+            ("POST", f"/users/{user_uuid}/actions/disconnect", None),
+            ("POST", f"/users/{user_uuid}/disconnect", None),
+            ("POST", f"/users/disconnect/{user_uuid}", None),
+            ("POST", "/users/bulk/disconnect", {"uuids": [user_uuid]}),
+        ]
+        for method, endpoint, payload in attempts:
+            try:
+                if payload:
+                    await self.request(method, endpoint, json=payload)
+                else:
+                    await self.request(method, endpoint)
+            except APINotFoundError:
+                continue
+            except APIError as exc:
+                logger.debug("disconnect via %s failed: %s", endpoint, exc)
+                continue
+            return True
+        return await self._disconnect_by_toggling(user_uuid)
 
-        async def once() -> None:
-            nonlocal pending
-            if pending is not None:
-                callback, pending = pending, None
-                await callback()
-
-        try:
-            attempts: list[tuple[str, str, dict[str, Any] | None]] = [
-                ("POST", f"/users/{user_uuid}/actions/disconnect", None),
-                ("POST", f"/users/{user_uuid}/disconnect", None),
-                ("POST", f"/users/disconnect/{user_uuid}", None),
-                ("POST", "/users/bulk/disconnect", {"uuids": [user_uuid]}),
-            ]
-            for method, endpoint, payload in attempts:
-                try:
-                    if payload:
-                        await self.request(method, endpoint, json=payload)
-                    else:
-                        await self.request(method, endpoint)
-                except APINotFoundError:
-                    continue
-                except APIError as exc:
-                    logger.debug("disconnect via %s failed: %s", endpoint, exc)
-                    continue
-                await once()
-                return True
-            return await self._disconnect_by_toggling(user_uuid, once)
-        finally:
-            await once()
-
-    async def _disconnect_by_toggling(self, user_uuid: str, while_offline: Any = None) -> bool:
+    async def _disconnect_by_toggling(self, user_uuid: str) -> bool:
         """
         Drop a session by disabling the account for an instant, then enabling it.
 
@@ -441,8 +424,6 @@ class RemnawaveClient:
                 logger.debug("disable via %s failed: %s", disable(user_uuid)[1], exc)
                 continue
 
-            if while_offline is not None:
-                await while_offline()
             await asyncio.sleep(_DISABLE_HOLD_SECONDS)
 
             if await self._enable_with_retries(user_uuid, enable):
