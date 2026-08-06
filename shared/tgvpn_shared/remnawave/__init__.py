@@ -7,6 +7,7 @@ from .errors import (
     APIRateLimitError,
     APIServerError,
     APIUnauthorizedError,
+    UserLeftDisabledError,
     UserNotFoundError,
     normalize_http_error,
 )
@@ -21,6 +22,7 @@ __all__ = [
     "APIRateLimitError",
     "APIServerError",
     "APIUnauthorizedError",
+    "UserLeftDisabledError",
     "UserNotFoundError",
     "normalize_http_error",
 ]

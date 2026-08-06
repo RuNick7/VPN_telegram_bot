@@ -41,6 +41,7 @@ from app.scheduler.jobs.subscription_expire_monitor import (
     Subject,
     extract_squad_uuids,
     resolve_subject,
+    warn_about_stuck_accounts,
 )
 
 logger = logging.getLogger(__name__)
@@ -414,6 +415,8 @@ async def _run() -> tuple[int, int, int]:
         if not roles.lte_uuid:
             logger.info("LTE squad not present in the panel; nothing to enforce")
             return 0, 0, 0
+
+        await warn_about_stuck_accounts(client)
 
         nodes = resolve_lte_nodes(await client.list_nodes())
         if not nodes:

@@ -28,11 +28,35 @@ from .errors import (
     APIError,
     APINotFoundError,
     APIUnauthorizedError,
+    UserLeftDisabledError,
     UserNotFoundError,
     normalize_http_error,
 )
 
 logger = logging.getLogger(__name__)
+
+# How to take an account out of every inbound and put it straight back, newest
+# spelling first. Each generation's pair is kept together, so a panel that
+# answers one half is never handed the other half from a different API.
+_TOGGLE_SPELLINGS: tuple[tuple[Any, Any], ...] = (
+    (
+        lambda ref: ("POST", f"/users/{ref}/actions/disable"),
+        lambda ref: ("POST", f"/users/{ref}/actions/enable"),
+    ),
+    (
+        lambda ref: ("PATCH", f"/users/disable/{ref}"),
+        lambda ref: ("PATCH", f"/users/enable/{ref}"),
+    ),
+    (
+        lambda ref: ("PATCH", f"/users/{ref}/disable"),
+        lambda ref: ("PATCH", f"/users/{ref}/enable"),
+    ),
+)
+
+# Accounts this process disabled and could not put back. Retried once per
+# monitor pass by `flush_pending_enables`, so a panel that was unreachable for
+# a moment does not cost a customer their access until somebody reads an alert.
+_pending_enable: set[str] = set()
 
 # Hard ceiling on connection setup so an unreachable panel (dead DNS, dropped
 # route) fails in seconds instead of hanging on the OS default. Carried over
@@ -351,8 +375,88 @@ class RemnawaveClient:
             except APIError as exc:
                 logger.debug("disconnect via %s failed: %s", endpoint, exc)
                 continue
+        return await self._disconnect_by_toggling(user_uuid)
+
+    async def _disconnect_by_toggling(self, user_uuid: str) -> bool:
+        """
+        Drop a session by disabling the account for an instant, then enabling it.
+
+        Current Remnawave has no per-user disconnect at all -- every spelling
+        above 404s and its own API exposes none -- so this is the only lever
+        left short of restarting the node's xray, which would drop everyone on
+        it. Taking the account out of every inbound and putting it straight
+        back is what tears the tunnel down; the user reconnects into whichever
+        squads they still have, which is the point.
+
+        The risk is the obvious one, and `legacy-main` shipped this without
+        guarding it: if `enable` does not land after `disable` did, the account
+        has no access at all and nothing puts it back. So the enable is retried,
+        and a user still disabled afterwards is both remembered for the next
+        pass and raised as its own error rather than counted among ordinary
+        per-user failures.
+        """
+        for disable, enable in _TOGGLE_SPELLINGS:
+            try:
+                await self.request(*disable(user_uuid))
+            except APIError as exc:
+                logger.debug("disable via %s failed: %s", disable(user_uuid)[1], exc)
+                continue
+
+            if await self._enable_with_retries(user_uuid, enable):
+                _pending_enable.discard(user_uuid)
+                return True
+
+            _pending_enable.add(user_uuid)
+            raise UserLeftDisabledError(
+                f"Отключил пользователя {user_uuid}, но не смог включить обратно. "
+                "Доступа нет до повторной попытки или ручного включения в панели."
+            )
+
         logger.warning("Could not disconnect user %s: no known endpoint accepted it", user_uuid)
         return False
+
+    async def _enable_with_retries(self, user_uuid: str, enable: Any, attempts: int = 4) -> bool:
+        """Put an account back, trying harder than once. True if it is enabled."""
+        for attempt in range(attempts):
+            try:
+                await self.request(*enable(user_uuid))
+                return True
+            except APIError as exc:
+                # "Already enabled" is the panel disagreeing about wording, not
+                # a failure: the account is in the state we want it in.
+                if "already enabled" in str(exc).lower():
+                    return True
+                logger.warning(
+                    "Re-enabling %s failed (attempt %d/%d): %s",
+                    user_uuid, attempt + 1, attempts, exc,
+                )
+                if attempt + 1 < attempts:
+                    await asyncio.sleep(0.5 * (attempt + 1))
+        return False
+
+    async def flush_pending_enables(self) -> list[str]:
+        """
+        Re-enable anyone an earlier flip left disabled. Returns those still stuck.
+
+        Only accounts this process disabled itself are touched, which is what
+        keeps it from quietly undoing an operator who disabled someone in the
+        panel on purpose. A monitor calls this once per pass, so a panel that
+        was briefly unreachable heals on its own within one interval instead of
+        leaving a customer with nothing until somebody reads an alert.
+        """
+        if not _pending_enable:
+            return []
+
+        stuck: list[str] = []
+        for user_uuid in sorted(_pending_enable):
+            for _, enable in _TOGGLE_SPELLINGS:
+                if await self._enable_with_retries(user_uuid, enable, attempts=1):
+                    _pending_enable.discard(user_uuid)
+                    logger.info("Re-enabled %s after an earlier failure", user_uuid)
+                    break
+            else:
+                stuck.append(user_uuid)
+        return stuck
 
     # -- subscriptions -----------------------------------------------------
 

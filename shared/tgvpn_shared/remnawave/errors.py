@@ -37,6 +37,17 @@ class UserNotFoundError(APINotFoundError):
     """
 
 
+class UserLeftDisabledError(APIError):
+    """
+    A user was disabled to drop their session, and re-enabling them failed.
+
+    The one failure in this codebase that is worse than the problem it was
+    solving: the account has no access at all until it is enabled again. It is
+    its own type so callers can alert on it specifically rather than counting
+    it among ordinary per-user failures.
+    """
+
+
 def normalize_http_error(exc: httpx.HTTPStatusError) -> APIError:
     """Map an httpx status error onto the error hierarchy above."""
     status_code = exc.response.status_code

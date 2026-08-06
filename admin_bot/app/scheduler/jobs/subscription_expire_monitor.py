@@ -168,6 +168,29 @@ def plan_membership(
     return None if set(desired) == set(current) else desired
 
 
+async def warn_about_stuck_accounts(client) -> list[str]:
+    """
+    Put back anyone an earlier session-drop left disabled, and shout if it fails.
+
+    Dropping a session means disabling the account for an instant, because the
+    panel offers nothing narrower -- see `RemnawaveClient.disconnect_user`. When
+    the second half of that does not land, the customer has no access at all,
+    which is why both monitors call this *before* their pass rather than after:
+    putting somebody back costs one call and matters more than reconciliation.
+
+    It lives here rather than beside the traffic monitor only because that
+    module already imports this one, and the reverse would be a cycle.
+    """
+    stuck = await client.flush_pending_enables()
+    if stuck:
+        await send_admin_message(
+            "❗️ Не удалось включить обратно в панели: "
+            + ", ".join(stuck)
+            + "\nУ этих аккаунтов сейчас нет доступа. Включите вручную."
+        )
+    return stuck
+
+
 async def _reconcile_user(
     client,
     roles: SquadRoles,
@@ -239,6 +262,11 @@ async def _run(reason: str) -> tuple[int, int, list[str]]:
             lte_name=settings.lte_squad_name if settings.lte_enabled else None,
             paid_name=settings.paid_squad_name,
         )
+
+        # Before anything else: a demotion drops the session by disabling the
+        # account for an instant, and an account left disabled has no access at
+        # all. Recovering one matters more than this pass's reconciliation.
+        await warn_about_stuck_accounts(client)
 
         ends_by_telegram_id = await _users.get_subscription_ends_map()
         # Second index, by panel UUID, so accounts with no Telegram ID -- a
