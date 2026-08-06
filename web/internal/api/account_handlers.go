@@ -169,6 +169,7 @@ func (s *Server) handleTraffic(w http.ResponseWriter, r *http.Request, user *sto
 		PaidBalanceBytes: user.LTEPaidBalanceBytes,
 		CycleStart:       user.LTECycleStart,
 		LastUsageBytes:   user.LTELastUsageBytes,
+		CycleSpentBytes:  user.LTECycleSpentBytes,
 		FreeGBOverride:   user.LTEFreeGBOverride,
 	}
 	cycle := time.Duration(s.cfg.LTECycleDays) * 24 * time.Hour
@@ -180,6 +181,11 @@ func (s *Server) handleTraffic(w http.ResponseWriter, r *http.Request, user *sto
 		"remaining_bytes": quota.Remaining(state, s.cfg.LTEFreeGBPerCycle, cycle, now),
 		"free_bytes":      quota.FreeBytes(state, s.cfg.LTEFreeGBPerCycle),
 		"purchased_bytes": user.LTEPaidBalanceBytes,
+		// Both stated rather than left for the page to subtract one from the
+		// other: purchased traffic sits in the balance and in the total at
+		// once, so a derived "used" cancels out and stops moving.
+		"used_bytes":  quota.Used(state, cycle, now),
+		"total_bytes": quota.Total(state, s.cfg.LTEFreeGBPerCycle, cycle, now),
 		// Only meaningful with an active subscription: the metered squad is
 		// paid-tier only, so a lapsed user cannot spend any of it.
 		"available": user.SubscriptionActive(),

@@ -30,8 +30,13 @@ type User struct {
 	LTEPaidBalanceBytes int64
 	LTECycleStart       *time.Time
 	LTELastUsageBytes   int64
-	LTEFreeGBOverride   *int
-	SquadTier           string
+	// How much of the purchased balance this cycle has already eaten. Needed
+	// to state the allowance as it was rather than as it is left: without it
+	// the only total available is "free + what remains", which shrinks as
+	// traffic is charged and freezes the figure derived from it.
+	LTECycleSpentBytes int64
+	LTEFreeGBOverride  *int
+	SquadTier          string
 
 	// The two halves of the free period, each granted at most once. See
 	// migration 0009: one bit could not describe two grants, and the second one
@@ -53,7 +58,7 @@ func (u *User) SubscriptionActive() bool { return u.SubscriptionEnds.After(time.
 const userColumns = `
 	id, telegram_id, telegram_tag, COALESCE(email, ''), subscription_ends,
 	COALESCE(referrer_tag, ''), referred_people, gifted_subscriptions, created_at,
-	lte_paid_balance_bytes, lte_cycle_start, lte_last_usage_bytes,
+	lte_paid_balance_bytes, lte_cycle_start, lte_last_usage_bytes, lte_cycle_spent_bytes,
 	lte_free_gb_override, squad_tier, remnawave_uuid, COALESCE(remnawave_username, ''),
 	trial_signup_granted, trial_link_granted, bonus_offer_dismissed
 `
@@ -63,7 +68,7 @@ func scanUser(row pgx.Row) (*User, error) {
 	err := row.Scan(
 		&u.ID, &u.TelegramID, &u.TelegramTag, &u.Email, &u.SubscriptionEnds,
 		&u.ReferrerTag, &u.ReferredPeople, &u.GiftedSubs, &u.CreatedAt,
-		&u.LTEPaidBalanceBytes, &u.LTECycleStart, &u.LTELastUsageBytes,
+		&u.LTEPaidBalanceBytes, &u.LTECycleStart, &u.LTELastUsageBytes, &u.LTECycleSpentBytes,
 		&u.LTEFreeGBOverride, &u.SquadTier, &u.RemnawaveUUID, &u.RemnawaveUsername,
 		&u.TrialSignupGranted, &u.TrialLinkGranted, &u.BonusOfferDismissed,
 	)

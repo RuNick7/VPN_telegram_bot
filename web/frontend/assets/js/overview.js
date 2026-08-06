@@ -112,9 +112,13 @@ function renderTraffic(traffic) {
   cell.hidden = false;
   setText("[data-traffic-label]", traffic.label || "Трафик");
 
-  const total = (traffic.free_bytes || 0) + (traffic.purchased_bytes || 0);
+  // All three come from the server. This used to derive `used` by subtracting
+  // what is left from free + purchased -- and purchased traffic appears in both
+  // halves of that, so once the free allowance ran out the two cancelled and
+  // the counter sat at exactly 1 ГБ while the traffic drained underneath it.
+  const total = Math.max(0, traffic.total_bytes || 0);
   const remaining = Math.max(0, traffic.remaining_bytes || 0);
-  const used = Math.max(0, total - remaining);
+  const used = Math.max(0, traffic.used_bytes || 0);
 
   setText("[data-traffic-used]", formatTraffic(used));
   setText("[data-traffic-total]", `/ ${formatTraffic(total)}`);

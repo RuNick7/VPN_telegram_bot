@@ -120,3 +120,98 @@ func TestTrafficLabelMatchesTheBot(t *testing.T) {
 		t.Errorf("label = %q", TrafficLabel)
 	}
 }
+
+// -- what the screen shows -------------------------------------------------
+//
+// `used` and `total` are stated by the server rather than worked out from
+// `remaining`. The overview used to derive `used = free + purchased -
+// remaining`, and purchased traffic appears in both halves of that: once the
+// free allowance ran out the two cancelled and the counter froze at exactly the
+// free allowance while the traffic drained underneath it. These pin the figures
+// against the real readings taken while that was happening.
+
+func spending(usage, spent, paid int64) State {
+	return State{
+		PaidBalanceBytes: paid,
+		CycleStart:       at(-time.Hour),
+		LastUsageBytes:   usage,
+		CycleSpentBytes:  spent,
+	}
+}
+
+func TestUsedKeepsMovingPastTheFreeAllowance(t *testing.T) {
+	// Two consecutive monitor passes off the live deployment, one gigabyte
+	// free. The old derivation reported exactly 1 GB for both.
+	first := spending(1_641_282_279, 567_540_455, 583_483_218)
+	second := spending(1_749_617_762, 675_875_938, 475_147_735)
+
+	if got := Used(first, cycle, now); got != 1_641_282_279 {
+		t.Errorf("used = %d, want the usage reading", got)
+	}
+	if Used(second, cycle, now) <= Used(first, cycle, now) {
+		t.Error("used must rise between passes; it froze before this")
+	}
+	if Remaining(second, 1, cycle, now) >= Remaining(first, 1, cycle, now) {
+		t.Error("remaining must fall between passes")
+	}
+}
+
+func TestTotalDoesNotShrinkAsTrafficIsCharged(t *testing.T) {
+	first := Total(spending(1_641_282_279, 567_540_455, 583_483_218), 1, cycle, now)
+	second := Total(spending(1_749_617_762, 675_875_938, 475_147_735), 1, cycle, now)
+
+	if first != second {
+		t.Errorf("total moved between passes: %d then %d", first, second)
+	}
+	if want := int64(BytesPerGB) + 567_540_455 + 583_483_218; first != want {
+		t.Errorf("total = %d, want %d (free + spent + held)", first, want)
+	}
+}
+
+func TestUsedAndRemainingAddUpToTotal(t *testing.T) {
+	// The property the screen depends on: the bar, the counter and the
+	// "осталось" line are three views of one number and must agree.
+	//
+	// It holds for states the monitor actually leaves behind -- where overage
+	// past the free gigabyte has been charged to the balance. Overage that
+	// could not be charged is the exception below, on purpose.
+	for _, s := range []State{
+		spending(0, 0, 0),
+		spending(400*int64(BytesPerMB), 0, 0),
+		spending(3*gb, 2*gb, 5*gb),
+		spending(1_749_617_762, 675_875_938, 475_147_735),
+	} {
+		if got, want := Used(s, cycle, now)+Remaining(s, 1, cycle, now), Total(s, 1, cycle, now); got != want {
+			t.Errorf("used+remaining = %d, total = %d, for %+v", got, want, s)
+		}
+	}
+}
+
+func TestUnpaidOverageReadsAsAFullBarNotAsNegativeUse(t *testing.T) {
+	// Blocked with nothing bought: 200 MB was spent past the allowance and
+	// never charged to anything. Used exceeding total is the honest reading,
+	// and the bar clamps.
+	s := spending(gb+200*int64(BytesPerMB), 0, 0)
+
+	if Used(s, cycle, now) <= Total(s, 1, cycle, now) {
+		t.Error("used should exceed the allowance when overage went unpaid")
+	}
+	if got := Remaining(s, 1, cycle, now); got != 0 {
+		t.Errorf("remaining = %d, want 0", got)
+	}
+}
+
+func TestARolledCycleShowsNothingUsedYet(t *testing.T) {
+	s := State{
+		PaidBalanceBytes: 2 * gb,
+		CycleStart:       at(-2 * cycle),
+		LastUsageBytes:   9 * gb,
+		CycleSpentBytes:  4 * gb,
+	}
+	if got := Used(s, cycle, now); got != 0 {
+		t.Errorf("used = %d, want 0 -- last cycle's reading means nothing here", got)
+	}
+	if got, want := Total(s, 1, cycle, now), int64(BytesPerGB)+2*gb; got != want {
+		t.Errorf("total = %d, want %d -- spend from the old cycle must not inflate it", got, want)
+	}
+}

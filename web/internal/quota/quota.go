@@ -24,7 +24,29 @@ type State struct {
 	PaidBalanceBytes int64
 	CycleStart       *time.Time
 	LastUsageBytes   int64
+	CycleSpentBytes  int64
 	FreeGBOverride   *int
+}
+
+// settled returns the readings corrected for a window that has already rolled.
+//
+// A usage reading only means anything inside the cycle it was taken in. Once
+// the window rolls the allowance is fresh and nothing has been measured against
+// it yet, so both figures read as zero until the monitor's next pass. Without
+// this, a page loaded after a rollover would show last cycle's exhausted
+// balance against this cycle's allowance.
+func settled(state State, cycle time.Duration, now time.Time) (usage, spent int64) {
+	usage, spent = state.LastUsageBytes, state.CycleSpentBytes
+	if usage < 0 {
+		usage = 0
+	}
+	if spent < 0 {
+		spent = 0
+	}
+	if state.CycleStart != nil && cycle > 0 && now.Sub(*state.CycleStart) >= cycle {
+		return 0, 0
+	}
+	return usage, spent
 }
 
 // FreeBytes is this user's allowance per cycle.
@@ -56,13 +78,7 @@ func FreeBytes(state State, globalFreeGB int) int64 {
 // this, a page loaded after a rollover but before the monitor's next pass
 // would show last cycle's exhausted balance against this cycle's allowance.
 func Remaining(state State, globalFreeGB int, cycle time.Duration, now time.Time) int64 {
-	usage := state.LastUsageBytes
-	if usage < 0 {
-		usage = 0
-	}
-	if state.CycleStart != nil && cycle > 0 && now.Sub(*state.CycleStart) >= cycle {
-		usage = 0
-	}
+	usage, _ := settled(state, cycle, now)
 
 	free := FreeBytes(state, globalFreeGB)
 	unused := free - usage
@@ -74,6 +90,36 @@ func Remaining(state State, globalFreeGB int, cycle time.Duration, now time.Time
 		paid = 0
 	}
 	return unused + paid
+}
+
+// Used is what has gone against the allowance this cycle.
+//
+// Simply the usage reading, and it is stated rather than left to be worked out
+// from the other two. A screen that derived it as `total - remaining` showed a
+// figure that stopped moving the moment the free allowance ran out: past that
+// point every byte comes off the purchased balance, which sits in *both* of the
+// other numbers and cancels itself out. The counter froze at exactly the free
+// allowance and stayed there while the traffic drained -- which is the only
+// number on the page anyone actually watches.
+func Used(state State, cycle time.Duration, now time.Time) int64 {
+	usage, _ := settled(state, cycle, now)
+	return usage
+}
+
+// Total is the whole allowance this cycle: the free part, plus purchased
+// traffic both spent and still held.
+//
+// The spent part has to be in here. Counting only what remains makes the
+// allowance shrink every time traffic is charged, so the bar a customer reads
+// as "how much of my traffic is gone" would move for two different reasons at
+// once and never agree with either number beside it.
+func Total(state State, globalFreeGB int, cycle time.Duration, now time.Time) int64 {
+	_, spent := settled(state, cycle, now)
+	paid := state.PaidBalanceBytes
+	if paid < 0 {
+		paid = 0
+	}
+	return FreeBytes(state, globalFreeGB) + spent + paid
 }
 
 // CycleEnds is when the current allowance refreshes, or nil if the user has
