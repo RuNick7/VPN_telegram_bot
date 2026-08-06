@@ -31,6 +31,7 @@ from typing import Any
 
 from tgvpn_shared.db import JobRunRepository, LteRepository, UserRepository
 from tgvpn_shared.free_tier import plan_panel_update
+from tgvpn_shared.remnawave.client import panel_ref
 from tgvpn_shared.squads import (
     SquadResolutionError,
     SquadRoles,
@@ -106,7 +107,7 @@ def resolve_subject(
     if telegram_id is not None and telegram_id in ends_by_telegram_id:
         return Subject(telegram_id, None, ends_by_telegram_id[telegram_id])
 
-    row = rows_by_panel_uuid.get(str(user.get("uuid") or ""))
+    row = rows_by_panel_uuid.get(panel_ref(user))
     if row is not None:
         return Subject(
             row.get("telegram_id"),
@@ -175,7 +176,11 @@ async def _reconcile_user(
     now: int,
 ) -> str | None:
     """Apply the plan for one user. Returns 'demoted', 'promoted', or None."""
-    user_uuid = user.get("uuid")
+    # `panel_ref`, not `user["uuid"]`. A newer panel names accounts with a
+    # numeric `id` and carries no `uuid` at all, and reading that key returned
+    # None for every user -- nobody demoted when their subscription lapsed,
+    # nobody promoted when they paid, and no sign of it anywhere.
+    user_uuid = panel_ref(user)
     if not user_uuid:
         return None
 

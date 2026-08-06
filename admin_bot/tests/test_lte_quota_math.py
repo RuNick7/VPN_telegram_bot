@@ -261,6 +261,18 @@ def test_traffic_is_formatted_for_a_customer(byte_count, expected):
     assert format_traffic(byte_count) == expected
 
 
+@pytest.mark.parametrize("byte_count, expected", [(126_406, "123 КБ"), (500 * 1024, "500 КБ")])
+def test_a_reading_below_a_megabyte_is_shown_rather_than_rounded_away(byte_count, expected):
+    """
+    Why the kilobyte branch exists.
+
+    126 406 bytes was the real figure sitting in the panel while the cabinet
+    said the allowance was untouched -- and at megabyte precision a meter that
+    works and one that does not look exactly the same.
+    """
+    assert format_traffic(byte_count) == expected
+
+
 def test_a_negative_amount_never_reaches_a_user():
     assert format_traffic(-5) == "0 МБ"
 

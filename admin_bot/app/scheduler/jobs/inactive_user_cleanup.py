@@ -24,6 +24,7 @@ import time
 from app.notify.admin import send_admin_message
 from app.services.users import user_service
 from tgvpn_shared.db import UserRepository
+from tgvpn_shared.remnawave.client import panel_ref
 from tgvpn_shared.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -55,8 +56,10 @@ async def resolve_panel_uuid(row: dict) -> str | None:
         if not name:
             continue
         found = await user_service.get_user_by_username(name)
-        if found and found.get("uuid"):
-            return str(found["uuid"])
+        # `panel_ref`: a newer panel answers with a numeric `id` and no `uuid`,
+        # and reading that key alone found nothing to delete on such a panel.
+        if found and panel_ref(found):
+            return panel_ref(found)
     return None
 
 

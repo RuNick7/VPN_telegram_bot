@@ -10,7 +10,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-const { promoCodeFrom, safePath, plural, daysLabel, formatGB } = await import(
+const { promoCodeFrom, safePath, plural, daysLabel, formatTraffic } = await import(
   "../frontend/assets/js/core.js"
 );
 
@@ -71,11 +71,21 @@ test("Russian plurals pick the right form", () => {
   assert.equal(plural(3, "человек", "человека", "человек"), "человека");
 });
 
-test("gigabytes read the way a person would say them", () => {
+test("traffic reads the way a person would say it", () => {
   const GB = 1024 ** 3;
-  assert.equal(formatGB(0), "0");
-  assert.equal(formatGB(-5), "0", "a negative balance is zero, not a minus sign");
-  assert.equal(formatGB(GB), "1");
-  assert.equal(formatGB(1.5 * GB), "1.5");
-  assert.equal(formatGB(15 * GB), "15");
+  const MB = 1024 ** 2;
+  assert.equal(formatTraffic(0), "0 МБ");
+  assert.equal(formatTraffic(-5), "0 МБ", "a negative balance is zero, not a minus sign");
+  assert.equal(formatTraffic(GB), "1 ГБ");
+  assert.equal(formatTraffic(1.5 * GB), "1.5 ГБ");
+  assert.equal(formatTraffic(15 * GB), "15 ГБ");
+  assert.equal(formatTraffic(350 * MB), "350 МБ");
+});
+
+test("a reading below a megabyte is shown, not rounded away", () => {
+  // The point of the kilobyte branch: 123 КБ spent on a metered node has to
+  // look different from nothing spent at all, or a working meter and a broken
+  // one are indistinguishable on screen.
+  assert.equal(formatTraffic(126406), "123 КБ");
+  assert.equal(formatTraffic(1), "0 КБ", "still not zero megabytes");
 });

@@ -174,6 +174,23 @@ def test_a_telegram_account_with_no_row_is_treated_as_expired():
     assert subject.subscription_ends == 0
 
 
+def test_a_website_account_is_matched_on_a_numerically_named_panel():
+    """
+    The regression that made this whole job a no-op.
+
+    A newer Remnawave identifies accounts by a numeric `id` and sends no
+    `uuid` at all. Matching on that key alone found nothing, so nobody was
+    demoted when their subscription lapsed and nobody promoted when they paid
+    -- for months, with the job recording success on every pass.
+    """
+    rows = {"104": {"id": "user-1", "telegram_id": None, "subscription_ends": 900}}
+    subject = resolve_subject({"id": 104, "username": "u-abc"}, {}, rows)
+
+    assert subject is not None
+    assert subject.user_id == "user-1"
+    assert subject.subscription_ends == 900
+
+
 def test_the_telegram_index_wins_over_the_uuid_index():
     """Cheaper, and it is the identity the bot will look them up by anyway."""
     rows = {"p1": {"id": "user-1", "telegram_id": 555, "subscription_ends": 1}}

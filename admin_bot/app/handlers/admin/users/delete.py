@@ -5,6 +5,7 @@ from __future__ import annotations
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
+from tgvpn_shared.remnawave.client import panel_ref
 
 from app.handlers.admin.pagination import (
     PagedView,
@@ -122,7 +123,7 @@ async def delete_account_from_list(callback: CallbackQuery):
         label = account_label(row)
         user, name = await find_panel_user(row.get("remnawave_username") or row_id, row)
         where = await delete_user_everywhere(
-            (user or {}).get("uuid"),
+            panel_ref(user) or None,
             str(name or row_id),
             row.get("telegram_id"),
             row_id=row_id,
@@ -167,7 +168,7 @@ async def delete_by_username(message: Message, state: FSMContext):
     try:
         row = await find_db_row(needle)
         user, name = await find_panel_user(needle, row)
-        user_uuid = (user or {}).get("uuid")
+        user_uuid = panel_ref(user) or None
         note = "" if user_uuid else "\nℹ️ Аккаунт в Remnawave не найден."
 
         where = await delete_user_everywhere(

@@ -9,6 +9,7 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from tgvpn_shared.db import LteRepository
+from tgvpn_shared.remnawave.client import panel_ref
 from tgvpn_shared.settings import get_settings
 
 from app.handlers.admin.pagination import (
@@ -84,7 +85,7 @@ async def _open_field_menu(target: Message, state: FSMContext, user: dict, usern
         await find_db_row(str(telegram_id)) if telegram_id else None
     )
     await state.update_data(
-        user_uuid=user.get("uuid"),
+        user_uuid=panel_ref(user) or None,
         username=username,
         telegram_id=telegram_id,
         row_id=str(row["id"]) if row else None,

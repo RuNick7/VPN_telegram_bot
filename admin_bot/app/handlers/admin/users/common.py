@@ -8,6 +8,7 @@ from typing import Any
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from tgvpn_shared.db import UserRepository
+from tgvpn_shared.remnawave.client import panel_ref
 
 from app.services.users import user_service
 
@@ -198,7 +199,7 @@ async def find_panel_user(needle: str, row: dict | None) -> tuple[dict | None, s
     """
     for name in panel_names_for(needle, row):
         found = await user_service.get_user_by_username(name)
-        if found and found.get("uuid"):
+        if found and panel_ref(found):
             return found, name
     return None, None
 

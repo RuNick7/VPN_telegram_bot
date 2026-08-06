@@ -12,6 +12,7 @@ from __future__ import annotations
 
 BYTES_PER_GB = 1024**3
 BYTES_PER_MB = 1024**2
+BYTES_PER_KB = 1024
 
 # Warn at these remaining amounts, in megabytes, tightest last. Two levels so
 # a user gets a heads-up with room to act and a final warning right before
@@ -33,11 +34,23 @@ TRAFFIC_LABEL = "Трафик белых списков"
 
 
 def format_traffic(byte_count: int) -> str:
-    """Bytes as an amount a customer reads at a glance: '4.7 ГБ', '350 МБ'."""
+    """
+    Bytes as an amount a customer reads at a glance: '4.7 ГБ', '350 МБ', '120 КБ'.
+
+    Kilobytes are worth the extra branch. Rounding everything below a megabyte
+    to "0 МБ" makes a meter that works look exactly like one that does not --
+    which is how a metering bug here stayed invisible while the panel had the
+    figure all along.
+
+    Zero keeps the megabyte spelling: it is an empty balance, not a very small
+    one, and "0 КБ" reads like a rounding artefact.
+    """
     byte_count = max(0, int(byte_count))
     if byte_count >= BYTES_PER_GB:
         return f"{byte_count / BYTES_PER_GB:.1f} ГБ"
-    return f"{byte_count / BYTES_PER_MB:.0f} МБ"
+    if byte_count >= BYTES_PER_MB or byte_count == 0:
+        return f"{byte_count / BYTES_PER_MB:.0f} МБ"
+    return f"{byte_count / BYTES_PER_KB:.0f} КБ"
 
 
 def remaining_bytes(*, usage_bytes: int, free_bytes: int, paid_balance: int) -> int:

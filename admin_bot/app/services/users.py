@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 from remnawave_api.models.users import CreateUserRequestDto
 from tgvpn_shared.db import UserRepository
 from tgvpn_shared.remnawave import UserNotFoundError
+from tgvpn_shared.remnawave.client import panel_ref
 from tgvpn_shared.squads import resolve_paid_squad_uuid
 
 from app.api.client import RemnawaveClient
@@ -63,9 +64,9 @@ class UserService:
         payload = body.model_dump(mode="json", by_alias=True, exclude_none=True)
         user = await self.client.create_user(payload)
 
-        user_uuid = user.get("uuid")
+        user_uuid = panel_ref(user)
         if user_uuid:
-            await self._assign_internal_squad(str(user_uuid), username)
+            await self._assign_internal_squad(user_uuid, username)
 
         # Our own row, so the account exists to the rest of the system and not
         # only to the panel.

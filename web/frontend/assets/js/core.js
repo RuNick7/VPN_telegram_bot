@@ -217,10 +217,30 @@ export function formatRub(amount) {
   return new Intl.NumberFormat("ru-RU").format(amount) + " ₽";
 }
 
-export function formatGB(bytes) {
-  if (!bytes || bytes <= 0) return "0";
-  const gb = bytes / 1024 ** 3;
-  return gb >= 10 ? Math.round(gb).toString() : gb.toFixed(1).replace(/\.0$/, "");
+/**
+ * Bytes as an amount a customer reads at a glance, unit included: "4.7 ГБ",
+ * "350 МБ", "120 КБ".
+ *
+ * The unit belongs in here rather than beside each call, because it is no
+ * longer always the same one. Kilobytes earn their branch: rounding everything
+ * under a megabyte to zero makes a meter that works look exactly like one that
+ * does not, which is how a metering bug stayed invisible while the panel had
+ * the figure all along.
+ *
+ * Zero keeps the megabyte spelling — an empty balance, not a very small one.
+ *
+ * Matches `format_traffic` in shared/tgvpn_shared/lte_quota.py, so the site and
+ * the bot do not quote one balance two ways.
+ */
+export function formatTraffic(bytes) {
+  const value = Number(bytes);
+  if (!Number.isFinite(value) || value <= 0) return "0 МБ";
+  if (value >= 1024 ** 3) {
+    const gb = value / 1024 ** 3;
+    return `${gb >= 10 ? Math.round(gb) : gb.toFixed(1).replace(/\.0$/, "")} ГБ`;
+  }
+  if (value >= 1024 ** 2) return `${Math.round(value / 1024 ** 2)} МБ`;
+  return `${Math.round(value / 1024)} КБ`;
 }
 
 /** "5 дней" — Russian needs three forms, and "5 день" reads as broken. */

@@ -15,7 +15,7 @@ import {
   el,
   flash,
   formatDate,
-  formatGB,
+  formatTraffic,
   plural,
   setText,
   show,
@@ -116,8 +116,8 @@ function renderTraffic(traffic) {
   const remaining = Math.max(0, traffic.remaining_bytes || 0);
   const used = Math.max(0, total - remaining);
 
-  setText("[data-traffic-used]", formatGB(used));
-  setText("[data-traffic-total]", `/ ${formatGB(total)} ГБ`);
+  setText("[data-traffic-used]", formatTraffic(used));
+  setText("[data-traffic-total]", `/ ${formatTraffic(total)}`);
 
   const share = total > 0 ? Math.min(100, (used / total) * 100) : 0;
   const meter = $("[data-traffic-meter]");
@@ -126,7 +126,7 @@ function renderTraffic(traffic) {
   // the former is not what `style-src` polices, so the strict CSP holds.
   meter.firstElementChild.style.width = share.toFixed(1) + "%";
 
-  const parts = [`Осталось ${formatGB(remaining)} ГБ`];
+  const parts = [`Осталось ${formatTraffic(remaining)}`];
   if (traffic.cycle_ends_at) parts.push(`обновится ${formatDate(traffic.cycle_ends_at)}`);
   if (!traffic.available) parts.push("расходуется только при активной подписке");
   setText("[data-traffic-note]", parts.join(" · "));

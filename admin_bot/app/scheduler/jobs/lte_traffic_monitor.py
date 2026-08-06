@@ -22,6 +22,7 @@ from typing import Any
 
 from aiogram import Bot
 from tgvpn_shared.db import JobRunRepository, LteRepository, UserRepository
+from tgvpn_shared.remnawave.client import panel_ref
 from tgvpn_shared.lte_quota import (
     TRAFFIC_LABEL,
     format_traffic,
@@ -59,6 +60,10 @@ _USAGE_ENDPOINTS = (
     "/bandwidth-stats/users/{uuid}",
 )
 _working_endpoint: str | None = None
+
+# Said once per process, not once per user per pass -- the monitor runs every
+# few minutes and would otherwise write the same line hundreds of times a day.
+_warned_unattributed = False
 
 
 def _iso_date(ts: int) -> str:
@@ -100,6 +105,42 @@ def _usage_rows(payload: Any) -> list[dict[str, Any]]:
     return []
 
 
+# Where a chart-shaped answer keeps its per-node totals. `series` first: it and
+# `topNodes` carry the same figures, and counting both would double every
+# reading.
+_NODE_SERIES_KEYS = ("series", "topNodes")
+
+
+def usage_by_node(payload: Any) -> list[tuple[str | None, int]]:
+    """
+    Usage as `(node ref, bytes)` pairs, however this panel version reports it.
+
+    Two shapes exist and which one arrives is not ours to choose. Remnawave
+    answers `/bandwidth-stats` with a chart -- `series`, one entry per node,
+    naming the node under plain `uuid` and carrying its `total`. The older
+    endpoints answer with a flat list whose rows name their node under one of
+    the `node*` spellings.
+
+    Reading them apart rather than through one key list is what makes the
+    plain `uuid` safe to trust: in a chart series it is always a node, while in
+    a flat usage row it may well be the user the row belongs to, and charging
+    a quota against a misread identifier is worse than reading nothing.
+
+    A `None` node means the payload did not say; the caller decides what an
+    unattributed reading is worth.
+    """
+    if isinstance(payload, dict):
+        for key in _NODE_SERIES_KEYS:
+            series = payload.get(key)
+            if isinstance(series, list):
+                return [
+                    (str(entry.get("uuid") or entry.get("id") or "") or None, _row_bytes(entry))
+                    for entry in series
+                    if isinstance(entry, dict)
+                ]
+    return [(_row_node_uuid(row), _row_bytes(row)) for row in _usage_rows(payload)]
+
+
 def resolve_lte_nodes(nodes: list[dict[str, Any]]) -> set[str]:
     """
     Which nodes count against the quota.
@@ -117,9 +158,9 @@ def resolve_lte_nodes(nodes: list[dict[str, Any]]) -> set[str]:
     if not keywords:
         return set()
     return {
-        str(node["uuid"])
+        panel_ref(node)
         for node in nodes
-        if node.get("uuid")
+        if panel_ref(node)
         and any(keyword in str(node.get("name") or "").lower() for keyword in keywords)
     }
 
@@ -145,15 +186,39 @@ async def fetch_usage_bytes(client, user_uuid: str, since: int, until: int, node
             last_error = exc
             continue
         _working_endpoint = template
-        rows = _usage_rows(payload.get("response", payload))
-        return sum(
-            _row_bytes(row)
-            for row in rows
-            if (_row_node_uuid(row) or "") in nodes or _row_node_uuid(row) is None
-        )
+        return sum_metered(usage_by_node(payload.get("response", payload)), nodes)
     if last_error:
         raise last_error
     return 0
+
+
+def sum_metered(rows: list[tuple[str | None, int]], nodes: set[str]) -> int:
+    """
+    Add up only what was spent on metered nodes.
+
+    When the payload attributes its readings, unmatched nodes are dropped --
+    otherwise a user's traffic on ordinary servers would be charged against
+    their LTE allowance, which is the opposite of what the squad is for.
+
+    When nothing is attributed the whole total is counted, because a panel
+    that reports one undifferentiated figure would otherwise be metered at
+    zero forever -- silently, which is exactly how this was broken. That
+    compromise is stated in the log rather than left to be discovered.
+    """
+    global _warned_unattributed
+
+    attributed = [(node, count) for node, count in rows if node]
+    if attributed:
+        return sum(count for node, count in attributed if node in nodes)
+
+    total = sum(count for _, count in rows)
+    if total and not _warned_unattributed:
+        _warned_unattributed = True
+        logger.warning(
+            "Panel usage reports no per-node breakdown; every node counts "
+            "against the LTE quota"
+        )
+    return total
 
 
 
@@ -268,7 +333,7 @@ async def _reconcile_user(
     nodes: set[str],
     now: int,
 ) -> str | None:
-    user_uuid = str(user["uuid"])
+    user_uuid = panel_ref(user)
     telegram_id = subject.telegram_id
 
     if telegram_id is not None:
@@ -365,7 +430,11 @@ async def _run() -> tuple[int, int, int]:
         now = int(time.time())
 
         async for user in client.iter_all_users():
-            if not user.get("uuid"):
+            # `panel_ref`, not `user["uuid"]`. A newer panel identifies
+            # accounts by a numeric `id` and has no `uuid` field at all, so
+            # reading that key skipped every single user -- no metering, no
+            # blocking, and a run that recorded success either way.
+            if not panel_ref(user):
                 continue
             subject = resolve_subject(user, ends_by_telegram_id, rows_by_panel_uuid)
             if subject is None:
