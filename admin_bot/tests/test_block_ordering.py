@@ -130,3 +130,41 @@ async def test_lte_is_never_handed_to_someone_sitting_on_free():
 
     assert await _apply_squad(panel, ROLES, "104", ["free-1"], blocked=False) is None
     assert panel.calls == []
+
+
+# -- drift -----------------------------------------------------------------
+#
+# A block looks applied when the membership is right, so an account the node
+# is still holding is skipped every pass, forever. Traffic moving on a metered
+# node is the evidence, and it is already fetched.
+
+
+@pytest.mark.asyncio
+async def test_a_blocked_user_still_passing_traffic_is_cut_again():
+    panel = RecordingPanel()
+
+    outcome = await _apply_squad(
+        panel, ROLES, "104", ["int-1"], blocked=True, nodes={"node-a"}, still_flowing=True
+    )
+
+    assert outcome == "recut"
+    assert panel.calls == ["disconnect"]
+    assert panel.dropped_nodes == [["node-a"]]
+
+
+@pytest.mark.asyncio
+async def test_a_recut_does_not_touch_membership():
+    """It is already right. Re-sending it would be a write with nothing to say."""
+    panel = RecordingPanel()
+
+    await _apply_squad(panel, ROLES, "104", ["int-1"], blocked=True, still_flowing=True)
+    assert panel.squads == []
+
+
+@pytest.mark.asyncio
+async def test_a_quiet_blocked_user_costs_nothing():
+    """The common case, every pass, for every blocked account."""
+    panel = RecordingPanel()
+
+    assert await _apply_squad(panel, ROLES, "104", ["int-1"], blocked=True) is None
+    assert panel.calls == []

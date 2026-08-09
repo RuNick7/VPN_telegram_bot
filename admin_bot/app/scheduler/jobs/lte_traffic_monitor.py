@@ -309,8 +309,13 @@ async def _apply_squad(
     *,
     blocked: bool,
     nodes: set[str] | None = None,
+    still_flowing: bool = False,
 ) -> str | None:
-    """Add or remove LTE membership. Returns 'blocked', 'unblocked', or None."""
+    """
+    Add or remove LTE membership.
+
+    Returns 'blocked', 'unblocked', 'recut', or None.
+    """
     if not roles.lte_uuid:
         return None
 
@@ -342,6 +347,23 @@ async def _apply_squad(
         # cutting those too would be a bug wearing an enforcement costume.
         await client.disconnect_user(user_uuid, node_uuids=sorted(nodes or []))
         return "blocked"
+
+    if blocked and still_flowing:
+        # Out of the squad already, and still moving bytes on a metered node.
+        # That can only mean the node is holding an entitlement the panel no
+        # longer records, and nothing above will notice: the membership is
+        # what it should be, so the block looks applied and this user is
+        # skipped every pass, forever.
+        #
+        # Every account blocked by the version before this one can be sitting
+        # in exactly that state, because stripping a squad was never pushed.
+        # Cutting again is what pushes it.
+        logger.warning(
+            "%s is blocked and still passing traffic on a metered node; cutting again",
+            user_uuid,
+        )
+        await client.disconnect_user(user_uuid, node_uuids=sorted(nodes or []))
+        return "recut"
 
     if not blocked and not has_lte:
         # Never hand LTE to someone sitting on FREE only: the expiry monitor
@@ -404,8 +426,17 @@ async def _reconcile_user(
         subscription_active=subject.subscription_ends > now,
     )
 
+    # Usage on the metered nodes moved since the last pass. For somebody who
+    # should already be cut off, that is the only evidence available that the
+    # node disagrees -- and it costs nothing, the figure is fetched anyway.
     outcome = await _apply_squad(
-        client, roles, user_uuid, extract_squad_uuids(user), blocked=blocked, nodes=nodes
+        client,
+        roles,
+        user_uuid,
+        extract_squad_uuids(user),
+        blocked=blocked,
+        nodes=nodes,
+        still_flowing=usage > max(0, int(state.get("lte_last_usage_bytes") or 0)),
     )
 
     consume_kwargs = dict(
