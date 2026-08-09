@@ -9,6 +9,7 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from tgvpn_shared.db import LteRepository
+from tgvpn_shared.lte_quota import TRAFFIC_LABEL
 from tgvpn_shared.remnawave.client import panel_ref
 from tgvpn_shared.settings import get_settings
 
@@ -328,7 +329,13 @@ async def choose_field(callback: CallbackQuery, state: FSMContext):
     await state.set_state(UserEditState.value)
 
     prompts = {
-        "traffic_limit_bytes": "Введите лимит трафика в ГБ (например 1 или 1.5):",
+        "traffic_limit_bytes": (
+            "Введите лимит трафика в ГБ (например 1 или 1.5):\n\n"
+            "⚠️ Это собственный лимит Remnawave на весь аккаунт. Он <b>не</b> "
+            f"управляет квотой «{TRAFFIC_LABEL}» — для неё кнопки ГБ/мес и "
+            "баланс.\nЕсли поставить меньше уже потраченного, панель сразу "
+            "переведёт аккаунт в LIMITED."
+        ),
         "hwid_device_limit": "Введите лимит устройств HWID:",
         "referrer_tag": (
             "Введите @ник пригласившего (или <code>-</code>, чтобы очистить).\n\n"

@@ -9,6 +9,7 @@ from typing import Any
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from tgvpn_shared.db import UserRepository
 from tgvpn_shared.identity import looks_like_user_id
+from tgvpn_shared.lte_quota import TRAFFIC_LABEL
 from tgvpn_shared.remnawave.client import panel_ref
 
 from app.services.users import user_service
@@ -327,7 +328,8 @@ def edit_field_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="Срок (expire)", callback_data="admin:edit_user:field:expire_at")],
             [
                 InlineKeyboardButton(
-                    text="Лимит (ГБ)", callback_data="admin:edit_user:field:traffic_limit_bytes"
+                    text="Лимит Remnawave (ГБ)",
+                    callback_data="admin:edit_user:field:traffic_limit_bytes",
                 ),
                 InlineKeyboardButton(text="Tag", callback_data="admin:edit_user:field:tag"),
             ],
@@ -348,12 +350,19 @@ def edit_field_keyboard() -> InlineKeyboardMarkup:
                     text="🔢 Приглашено", callback_data="admin:edit_user:field:referred_people"
                 ),
             ],
+            # Three buttons on this keyboard are measured in gigabytes and they
+            # are three different numbers. Naming them apart is not cosmetic:
+            # an operator lowered "Лимит (ГБ)" to throttle someone's whitelist
+            # quota, watched the figure they meant sit unchanged, and put a
+            # live account into LIMITED in the panel instead.
             [
                 InlineKeyboardButton(
-                    text="📶 Бесплатно ГБ/мес", callback_data="admin:edit_user:field:lte_free_gb"
+                    text=f"📶 {TRAFFIC_LABEL}: ГБ/мес",
+                    callback_data="admin:edit_user:field:lte_free_gb",
                 ),
                 InlineKeyboardButton(
-                    text="💾 Баланс трафика", callback_data="admin:edit_user:field:lte_balance_gb"
+                    text=f"💾 {TRAFFIC_LABEL}: баланс",
+                    callback_data="admin:edit_user:field:lte_balance_gb",
                 ),
             ],
         ]

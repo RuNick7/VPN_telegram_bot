@@ -138,21 +138,28 @@ async def _check_jobs(jobs: JobRunRepository) -> list[str]:
     if settings.lte_enabled:
         watched.append(lte_traffic_monitor.JOB_NAME)
 
-    # A job that has never run gets until the threshold to have its first tick.
-    # Beyond that, silence really is a fault -- but complaining inside that
-    # window turns every deploy that enables a feature into a false alarm.
-    young = (time.time() - _started_at) < threshold
+    # Nothing counts as stale until this process has had the threshold to prove
+    # itself, whether or not the job ever ran before.
+    #
+    # A job cannot succeed while the process is not running, so a gap that
+    # predates start-up is not evidence of a fault -- it is the restart that
+    # made it. `job_runs` outlives the container, so after a rebuild the last
+    # success is as old as the downtime, and the first tick reads it as death:
+    # one false alarm per deploy, in the chat whose only job is to be believed.
+    #
+    # This used to be narrower -- it forgave only a job with no attempt ever
+    # recorded -- which covered enabling a feature for the first time and
+    # nothing else. Measuring from start-up instead covers both, and the
+    # never-ran case falls out of it for free.
+    age = time.time() - _started_at
+    if age < threshold:
+        logger.info("Process is %.0fs old (threshold %ds); not judging jobs yet", age, threshold)
+        return []
 
     issues = []
     for job_name in watched:
         state = await jobs.find_stale(job_name, threshold)
         if state is None:
-            continue
-        if young and not state.get("last_attempt_at"):
-            logger.info(
-                "%s has not run yet and this process is %.0fs old; not alerting",
-                job_name, time.time() - _started_at,
-            )
             continue
         issues.append(format_stale_job(job_name, state, threshold))
     return issues

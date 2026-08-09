@@ -35,6 +35,29 @@ def stale_state(*, minutes_ago: int | None, failures: int = 0, error: str | None
     }
 
 
+@pytest.fixture(autouse=True)
+def process_has_been_up_a_while(monkeypatch):
+    """
+    Judge jobs the way a long-running process does, unless a test says otherwise.
+
+    `_started_at` is set when the module is imported, so under pytest the
+    process is always seconds old and every check falls inside the start-up
+    grace window. Several tests here quietly depended on that not mattering.
+    Pinning it makes each test say which of the two situations it is about.
+    """
+    from app.scheduler.jobs import service_health_monitor
+
+    monkeypatch.setattr(service_health_monitor, "_started_at", time.time() - 3600)
+
+
+@pytest.fixture
+def just_started(monkeypatch):
+    """The other situation: a process that came up moments ago."""
+    from app.scheduler.jobs import service_health_monitor
+
+    monkeypatch.setattr(service_health_monitor, "_started_at", time.time())
+
+
 @pytest.fixture
 def free_tier_on(monkeypatch):
     from app.config.settings import settings
@@ -145,31 +168,25 @@ def never_ran() -> dict:
     }
 
 
-async def test_a_job_that_has_not_run_yet_is_not_reported_right_after_a_start(free_tier_on):
+async def test_a_job_that_has_not_run_yet_is_not_reported_right_after_a_start(
+    free_tier_on, just_started
+):
     """
-    The false alarm this fixes.
-
     Both monitors run on the same interval, so whichever fires first sees an
     empty `job_runs` and calls the other dead. Switching LTE_ENABLED on
     produced exactly that: an alert for a job that ran fine four minutes later.
     """
-    from app.scheduler.jobs import service_health_monitor
-
-    service_health_monitor._started_at = time.time()
     jobs = AsyncMock()
     jobs.find_stale = AsyncMock(return_value=never_ran())
 
     assert await _check_jobs(jobs) == []
 
 
-async def test_a_job_that_has_still_not_run_much_later_is_reported(free_tier_on, monkeypatch):
+async def test_a_job_that_has_still_not_run_much_later_is_reported(free_tier_on):
     """
     Past the threshold, silence really is a fault -- a job that was never
     registered looks identical to one that is working until somebody checks.
     """
-    from app.scheduler.jobs import service_health_monitor
-
-    monkeypatch.setattr(service_health_monitor, "_started_at", time.time() - 3600)
     jobs = AsyncMock()
     jobs.find_stale = AsyncMock(return_value=never_ran())
 
@@ -177,14 +194,28 @@ async def test_a_job_that_has_still_not_run_much_later_is_reported(free_tier_on,
     assert "ни одного успешного прохода" in issues[0]
 
 
-async def test_a_job_that_has_run_and_failed_is_reported_immediately(free_tier_on):
+async def test_a_gap_the_restart_itself_created_is_not_a_fault(free_tier_on, just_started):
     """
-    The grace period is only for jobs with no attempt at all. One that has run
-    and never succeeded is broken now, whatever the process uptime.
-    """
-    from app.scheduler.jobs import service_health_monitor
+    The false alarm this fixes, reported from production.
 
-    service_health_monitor._started_at = time.time()
+    `job_runs` outlives the container, so a rebuild leaves a last success as
+    old as the downtime -- and the first tick after start read that as death:
+    "последний успешный проход 2 мин назад (порог 2 мин)", for a job that went
+    on to run fine every minute. A job cannot succeed while its process is not
+    running, so a gap that predates start-up says nothing about its health.
+    """
+    jobs = AsyncMock()
+    jobs.find_stale = AsyncMock(return_value=stale_state(minutes_ago=3))
+
+    assert await _check_jobs(jobs) == []
+
+
+async def test_a_job_still_silent_after_the_grace_window_is_reported(free_tier_on):
+    """
+    The other half: forgiving the start-up gap must not forgive the job
+    forever. Once the process has been up longer than the threshold, its own
+    silence is its own fault.
+    """
     jobs = AsyncMock()
     jobs.find_stale = AsyncMock(return_value=stale_state(minutes_ago=None, error="boom"))
 
