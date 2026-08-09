@@ -42,7 +42,6 @@ USERNAME_RE = re.compile(r"^(?:\d{6,20}|u-[0-9a-f]{6,32})$")
 # Deliberately loose: anything stricter rejects real addresses, and the point
 # here is to catch a typed-in name rather than to validate a mailbox.
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]{2,}$")
-BYTES_PER_GB = 1024**3
 
 
 async def _advance(target: Message, state: FSMContext, step: State, prompt: str, skip: str) -> None:
@@ -127,29 +126,12 @@ async def receive_expire(callback: CallbackQuery, state: FSMContext):
     await state.update_data(
         expire_at=presets.get(action, datetime.now(timezone.utc) + timedelta(days=1))
     )
-    await _advance(
-        callback.message,
-        state,
-        UserCreateState.traffic_limit_bytes,
-        "Введите лимит трафика в ГБ (например: 1 или 1.5):",
-        "traffic",
-    )
-    await callback.answer()
-
-
-@router.message(UserCreateState.traffic_limit_bytes)
-async def receive_traffic(message: Message, state: FSMContext):
-    try:
-        gigabytes = float((message.text or "").strip().replace(",", "."))
-    except ValueError:
-        await message.answer("❌ Введите число в ГБ (например 1 или 1.5) или нажмите Пропустить.")
-        return
-    await state.update_data(traffic_limit_bytes=int(gigabytes * BYTES_PER_GB))
-    await _ask_tag(message, state)
-
-
-@router.callback_query(F.data == "admin:new_user:skip:traffic")
-async def skip_traffic(callback: CallbackQuery, state: FSMContext):
+    # Straight to the tag: this form no longer asks for Remnawave's own traffic
+    # limit. Nothing in the project reads it, our per-cycle quota is what
+    # enforces traffic, and an account created with a panel limit is one the
+    # panel can cut off early for a reason no screen here would explain -- the
+    # edit menu deliberately can't set it either. Left unsent, the panel
+    # defaults to unlimited, which is the state the quota assumes.
     await _ask_tag(callback.message, state)
     await callback.answer()
 
@@ -242,7 +224,6 @@ async def _finalize(message: Message, state: FSMContext) -> None:
         user = await user_service.create_user(
             username=data["username"],
             expire_at=data.get("expire_at"),
-            traffic_limit_bytes=data.get("traffic_limit_bytes"),
             tag=data.get("tag"),
             telegram_id=telegram_id,
             hwid_device_limit=data.get("hwid_device_limit"),

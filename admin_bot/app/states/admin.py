@@ -44,7 +44,6 @@ class UserCreateState(StatesGroup):
     """States for user creation."""
     username = State()
     expire_at = State()
-    traffic_limit_bytes = State()
     tag = State()
     telegram_id = State()
     # Optional, like every step after the username. An account created here can

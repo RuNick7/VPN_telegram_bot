@@ -64,14 +64,67 @@ class PromoRepository:
         value: int,
         one_time: bool,
         is_active: bool = True,
+        creator_id: int | None = None,
     ) -> None:
+        """
+        Record a code an operator made by hand.
+
+        `creator_id` is the operator's Telegram ID. It used to be left null,
+        which made every admin-created code anonymous: a list of them could say
+        what each one grants but never who is answerable for it, and with
+        several operators sharing the panel that is the question actually asked
+        before deleting one. Null stays valid -- codes made before this was
+        recorded keep it.
+        """
         pool = await get_pool()
         await pool.execute(
             """
-            INSERT INTO promo_codes (code, type, value, is_active, one_time)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO promo_codes (code, type, value, is_active, one_time, creator_id)
+            VALUES ($1, $2, $3, $4, $5, $6)
             """,
-            code, promo_type, value, bool(is_active), bool(one_time),
+            code, promo_type, value, bool(is_active), bool(one_time), creator_id,
+        )
+
+    async def count_promo_codes(self) -> int:
+        pool = await get_pool()
+        return int(await pool.fetchval("SELECT COUNT(*) FROM promo_codes") or 0)
+
+    async def list_promo_codes_page(self, limit: int, offset: int) -> list[asyncpg.Record]:
+        """
+        One page of every promo code, newest first, with its creator and use.
+
+        The creator is resolved from either handle, because codes arrive from
+        two places: an operator makes one in admin_bot and is identified by
+        Telegram ID, while a gift is bought by a customer who may have only an
+        internal id. Resolving both here means the caller renders one field
+        rather than reimplementing the identity rules (see
+        `shared/tgvpn_shared/identity.py`).
+
+        `used_count` comes from `promo_usage`, the table the redemption path
+        actually writes -- the same reason `recent_gifts` reads it there.
+        """
+        pool = await get_pool()
+        return await pool.fetch(
+            """
+            SELECT
+                p.code,
+                p.type,
+                p.value,
+                p.one_time,
+                p.is_active,
+                p.created_at,
+                p.creator_id,
+                COALESCE(by_uuid.telegram_tag, by_tg.telegram_tag)  AS creator_tag,
+                COALESCE(by_uuid.email, by_tg.email)                AS creator_email,
+                COALESCE(by_uuid.telegram_id, by_tg.telegram_id)    AS creator_telegram_id,
+                (SELECT COUNT(*) FROM promo_usage u WHERE u.code = p.code) AS used_count
+            FROM promo_codes p
+            LEFT JOIN users by_uuid ON by_uuid.id = p.creator_user_id
+            LEFT JOIN users by_tg   ON by_tg.telegram_id = p.creator_id
+            ORDER BY p.created_at DESC, p.id DESC
+            LIMIT $1 OFFSET $2
+            """,
+            limit, offset,
         )
 
     async def recent_gifts(self, limit: int = 20) -> list[asyncpg.Record]:

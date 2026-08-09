@@ -9,7 +9,6 @@ from typing import Any
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from tgvpn_shared.db import UserRepository
 from tgvpn_shared.identity import looks_like_user_id
-from tgvpn_shared.lte_quota import TRAFFIC_LABEL
 from tgvpn_shared.remnawave.client import panel_ref
 
 from app.services.users import user_service
@@ -257,16 +256,26 @@ def skip_keyboard(step: str) -> InlineKeyboardMarkup:
     )
 
 
-def _expire_presets(prefix: str, *, with_custom: bool) -> InlineKeyboardMarkup:
+def _expire_presets(prefix: str, *, editing: bool) -> InlineKeyboardMarkup:
     """
     The expiry picker, shared by the create and edit flows.
 
-    They differ only in the last row: creation offers "skip", editing offers
-    "type a number of days".
+    Editing offers two things creation does not: typing a day count, and
+    ending the subscription now. Neither belongs on the creation form -- an
+    account created already expired can't connect to anything, so the only way
+    to reach that state is deliberately, on an account that exists.
     """
+    week_row = [InlineKeyboardButton(text="📅 Неделя", callback_data=f"{prefix}:week")]
+    if editing:
+        # "Платная подписка закончилась" as one button. It was reachable by
+        # typing 0 into "Ввести дни", which nothing said and nobody guessed.
+        week_row.append(
+            InlineKeyboardButton(text="⛔️ Закончилась", callback_data=f"{prefix}:expired")
+        )
+
     last_row = (
         InlineKeyboardButton(text="✍️ Ввести дни", callback_data=f"{prefix}:custom")
-        if with_custom
+        if editing
         else InlineKeyboardButton(text="⏭️ Пропустить", callback_data=f"{prefix}:skip")
     )
     return InlineKeyboardMarkup(
@@ -275,18 +284,18 @@ def _expire_presets(prefix: str, *, with_custom: bool) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="♾️ Навсегда", callback_data=f"{prefix}:forever"),
                 InlineKeyboardButton(text="🗓️ Месяц", callback_data=f"{prefix}:month"),
             ],
-            [InlineKeyboardButton(text="📅 Неделя", callback_data=f"{prefix}:week")],
+            week_row,
             [last_row],
         ]
     )
 
 
 def create_expire_keyboard() -> InlineKeyboardMarkup:
-    return _expire_presets("admin:new_user:expire", with_custom=False)
+    return _expire_presets("admin:new_user:expire", editing=False)
 
 
 def edit_expire_keyboard() -> InlineKeyboardMarkup:
-    return _expire_presets("admin:edit_user:expire", with_custom=True)
+    return _expire_presets("admin:edit_user:expire", editing=True)
 
 
 def _search_mode_keyboard(prefix: str) -> InlineKeyboardMarkup:
@@ -322,46 +331,47 @@ def edit_field_keyboard() -> InlineKeyboardMarkup:
 
     The split matters: the top group is pushed to Remnawave, the bottom group
     only exists in our own database (see `DB_ONLY_FIELDS` in `edit.py`).
+
+    Remnawave's own `trafficLimitBytes` is deliberately not among them. It is a
+    second, competing traffic budget that nothing in this project reads: quota
+    is ours, enforced per cycle by the LTE monitor, and the panel's figure can
+    only ever cut a user off earlier than the number an operator actually set.
+    Offering both meant an operator lowering "gigabytes" had to know which of
+    two identical-looking buttons was the live one -- and the wrong guess put a
+    working account into LIMITED with no visible cause. There is now one
+    meaning of "ГБ" here, and `lte_free_gb` clears the panel's limit so the
+    number typed is the number that applies.
     """
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="Срок (expire)", callback_data="admin:edit_user:field:expire_at")],
             [
-                InlineKeyboardButton(
-                    text="Лимит Remnawave (ГБ)",
-                    callback_data="admin:edit_user:field:traffic_limit_bytes",
-                ),
                 InlineKeyboardButton(text="Tag", callback_data="admin:edit_user:field:tag"),
-            ],
-            [
                 InlineKeyboardButton(
                     text="HWID лимит", callback_data="admin:edit_user:field:hwid_device_limit"
                 ),
+            ],
+            [
                 # The one field here that decides whether the account can be
                 # signed into at all. "Я опечатался при регистрации" had no
                 # answer before this button.
                 InlineKeyboardButton(text="✉️ Почта", callback_data="admin:edit_user:field:email"),
-            ],
-            [
                 InlineKeyboardButton(
                     text="👥 Пригласивший", callback_data="admin:edit_user:field:referrer_tag"
                 ),
+            ],
+            [
                 InlineKeyboardButton(
                     text="🔢 Приглашено", callback_data="admin:edit_user:field:referred_people"
                 ),
             ],
-            # Three buttons on this keyboard are measured in gigabytes and they
-            # are three different numbers. Naming them apart is not cosmetic:
-            # an operator lowered "Лимит (ГБ)" to throttle someone's whitelist
-            # quota, watched the figure they meant sit unchanged, and put a
-            # live account into LIMITED in the panel instead.
             [
                 InlineKeyboardButton(
-                    text=f"📶 {TRAFFIC_LABEL}: ГБ/мес",
+                    text="📶 Трафик: ГБ в месяц",
                     callback_data="admin:edit_user:field:lte_free_gb",
                 ),
                 InlineKeyboardButton(
-                    text=f"💾 {TRAFFIC_LABEL}: баланс",
+                    text="💾 Трафик: докупленный",
                     callback_data="admin:edit_user:field:lte_balance_gb",
                 ),
             ],

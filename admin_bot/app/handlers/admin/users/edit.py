@@ -9,7 +9,7 @@ from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from tgvpn_shared.db import LteRepository
-from tgvpn_shared.lte_quota import TRAFFIC_LABEL
+from tgvpn_shared.lte_quota import BYTES_PER_GB, TRAFFIC_LABEL
 from tgvpn_shared.remnawave.client import panel_ref
 from tgvpn_shared.settings import get_settings
 
@@ -48,7 +48,17 @@ PREFIX = "admin:edit_user:list"
 GOTO = "admin:edit_user:list:goto"
 PAGE_SIZE = 10
 
-BYTES_PER_GB = 1024**3
+# Fields the menu no longer offers, and why. Keyed by the callback an old
+# keyboard still sends; see `edit_field_keyboard` for the reasoning.
+RETIRED_FIELDS = {
+    "traffic_limit_bytes": (
+        "ℹ️ Лимит трафика Remnawave больше не редактируется отсюда — он "
+        "конкурировал с нашей квотой и мог отрезать пользователя раньше "
+        "выставленного числа.\n\n"
+        "Нажмите <b>📶 Трафик: ГБ в месяц</b> в обновлённом меню: панельный "
+        "лимит при этом снимается."
+    ),
+}
 
 
 async def render(target: Message, page: int, size: int, edit: bool) -> None:
@@ -325,17 +335,20 @@ async def select_by_username(message: Message, state: FSMContext):
 @router.callback_query(F.data.startswith("admin:edit_user:field:"))
 async def choose_field(callback: CallbackQuery, state: FSMContext):
     field = callback.data.rsplit(":", 1)[-1]
+
+    if field in RETIRED_FIELDS:
+        # An inline keyboard sent before this button was removed still works
+        # forever in Telegram's history, so a stale one has to be answered
+        # rather than silently accepted and then rejected after the operator
+        # has typed a value.
+        await callback.message.answer(RETIRED_FIELDS[field], parse_mode="HTML")
+        await callback.answer()
+        return
+
     await state.update_data(field=field)
     await state.set_state(UserEditState.value)
 
     prompts = {
-        "traffic_limit_bytes": (
-            "Введите лимит трафика в ГБ (например 1 или 1.5):\n\n"
-            "⚠️ Это собственный лимит Remnawave на весь аккаунт. Он <b>не</b> "
-            f"управляет квотой «{TRAFFIC_LABEL}» — для неё кнопки ГБ/мес и "
-            "баланс.\nЕсли поставить меньше уже потраченного, панель сразу "
-            "переведёт аккаунт в LIMITED."
-        ),
         "hwid_device_limit": "Введите лимит устройств HWID:",
         "referrer_tag": (
             "Введите @ник пригласившего (или <code>-</code>, чтобы очистить).\n\n"
@@ -401,15 +414,18 @@ async def _lte_prompt(data: dict, field: str) -> str:
             else f"{get_settings().lte_free_gb_per_cycle} ГБ (общая настройка)"
         )
         return (
-            f"Бесплатных ГБ в месяц сейчас: <b>{current}</b>\n\n"
+            f"Свободного трафика в месяц сейчас: <b>{current}</b>\n\n"
             "Введите число ГБ для этого пользователя,\n"
             "или <code>-</code> чтобы вернуть общую настройку.\n\n"
-            "<i>0 — это тоже значение: значит без бесплатного трафика.</i>"
+            f"<i>Считается на серверах «{TRAFFIC_LABEL}» и обнуляется каждый "
+            "цикл. Собственный лимит Remnawave при этом снимается, чтобы "
+            "панель не отрезала раньше.</i>\n"
+            "<i>0 — это тоже значение: значит без свободного трафика.</i>"
         )
 
     balance = int(state["lte_paid_balance_bytes"] or 0) if state else 0
     return (
-        f"Купленный трафик белых списков сейчас: <b>{balance / 1024**3:.2f} ГБ</b>\n\n"
+        f"Купленный трафик белых списков сейчас: <b>{balance / BYTES_PER_GB:.2f} ГБ</b>\n\n"
         "Введите, сколько ГБ начислить:\n"
         "• <code>+10</code> — добавить 10 ГБ\n"
         "• <code>0</code> — обнулить баланс\n\n"
@@ -441,11 +457,20 @@ async def choose_expire_preset(callback: CallbackQuery, state: FSMContext):
         "forever": DATE_FOREVER,
         "month": datetime.now(timezone.utc) + timedelta(days=30),
         "week": datetime.now(timezone.utc) + timedelta(days=7),
+        # Now, not a moment before it. A date in the past would read the same
+        # to every check we make (`sub_ends > now`), but the panel is entitled
+        # to reject one, and this has to be the reliable way to end a
+        # subscription rather than the clever one.
+        "expired": datetime.now(timezone.utc),
     }
     if action in presets:
         await apply_update(callback.message, state, {"expire_at": presets[action]})
     else:
-        await callback.message.answer("Введите количество дней до окончания:")
+        await callback.message.answer(
+            "Введите количество дней до окончания (<code>0</code> — подписка "
+            "заканчивается сейчас):",
+            parse_mode="HTML",
+        )
     await callback.answer()
 
 
@@ -454,15 +479,6 @@ async def receive_value(message: Message, state: FSMContext):
     data = await state.get_data()
     field = data.get("field")
     text = (message.text or "").strip()
-
-    if field == "traffic_limit_bytes":
-        try:
-            gigabytes = float(text.replace(",", "."))
-        except ValueError:
-            await message.answer("❌ Введите число в ГБ (например 1 или 1.5).")
-            return
-        await apply_update(message, state, {"traffic_limit_bytes": int(gigabytes * BYTES_PER_GB)})
-        return
 
     if field == "hwid_device_limit":
         if not text.isdigit():
@@ -573,6 +589,58 @@ async def _apply_email_update(message: Message, data: dict, text: str) -> None:
     await message.answer(f"✅ Почта: {email}", reply_markup=edit_again_keyboard())
 
 
+async def _clear_panel_limit(user_uuid: str | None) -> str:
+    """
+    Hand traffic accounting back to us alone, reporting what changed.
+
+    Remnawave enforces `trafficLimitBytes` itself, and whichever budget runs
+    out first wins -- so a leftover panel limit silently overrides the number
+    an operator just typed. Setting the monthly allowance is the point at which
+    that intent is unambiguous, so this is where the competing figure goes.
+    `0` is the panel's own spelling of unlimited.
+
+    Raising the limit is not enough on its own. An account whose limit fell
+    below its usage was moved to `LIMITED`, and that status is derived rather
+    than recomputed on demand -- so it can outlive the limit that caused it,
+    leaving the account cut off for a reason no longer visible anywhere.
+    `status` is writable but only accepts ACTIVE and DISABLED, so ACTIVE is
+    both the fix and the only thing to say.
+
+    Written strictly when the panel reports `LIMITED`. A `DISABLED` account is
+    disabled on purpose -- that is the middle of `disconnect_user`'s
+    disable/drop/enable cycle, among other things -- and re-enabling one from
+    here would undo somebody else's decision.
+
+    Returns a fragment to append to the success line, empty when there was
+    nothing to do: a change in another system is worth one clause, not a
+    paragraph.
+    """
+    if not user_uuid:
+        return ""
+    try:
+        user = await user_service.get_user_by_uuid(user_uuid)
+        current = int(user.get("trafficLimitBytes") or user.get("traffic_limit_bytes") or 0)
+        limited = str(user.get("status") or "").upper() == "LIMITED"
+        if current <= 0 and not limited:
+            return ""
+
+        payload: dict = {"traffic_limit_bytes": 0}
+        if limited:
+            payload["status"] = "ACTIVE"
+        await user_service.update_user(user_uuid, payload)
+
+        notes = []
+        if current > 0:
+            notes.append(f"снят лимит Remnawave ({current / BYTES_PER_GB:.2f} ГБ)")
+        if limited:
+            notes.append("аккаунт выведен из LIMITED")
+        return "; " + ", ".join(notes)
+    except Exception as exc:
+        # Reported, not raised: the allowance itself is already stored, and
+        # losing that write to a panel error would be the worse outcome.
+        return f"\n⚠️ Не удалось снять лимит Remnawave: {exc}"
+
+
 async def _apply_db_only_update(
     message: Message, state: FSMContext, field: str, text: str
 ) -> None:
@@ -624,10 +692,11 @@ async def _apply_db_only_update(
                 await message.answer(NO_ROW)
                 return
             result = (
-                f"бесплатно {gigabytes} ГБ/мес"
+                f"свободный трафик {gigabytes} ГБ/мес"
                 if gigabytes is not None
-                else f"бесплатные ГБ по общей настройке ({get_settings().lte_free_gb_per_cycle})"
+                else f"свободный трафик по общей настройке ({get_settings().lte_free_gb_per_cycle} ГБ/мес)"
             )
+            result += await _clear_panel_limit(data.get("user_uuid"))
 
         elif field == "lte_balance_gb":
             parsed = parse_count_input(text)
@@ -638,13 +707,13 @@ async def _apply_db_only_update(
                 return
             value, relative = parsed
             if relative:
-                new_bytes = await lte_repo.credit_balance_by_user_id(row_id, value * 1024**3)
+                new_bytes = await lte_repo.credit_balance_by_user_id(row_id, value * BYTES_PER_GB)
             else:
-                new_bytes = await lte_repo.set_balance_by_user_id(row_id, value * 1024**3)
+                new_bytes = await lte_repo.set_balance_by_user_id(row_id, value * BYTES_PER_GB)
             if new_bytes is None:
                 await message.answer(NO_ROW)
                 return
-            result = f"трафик белых списков: {new_bytes / 1024**3:.2f} ГБ"
+            result = f"трафик белых списков: {new_bytes / BYTES_PER_GB:.2f} ГБ"
 
         else:
             parsed = parse_count_input(text)
