@@ -32,6 +32,15 @@ LOW_TRAFFIC_THRESHOLDS_MB = (500, 150)
 # at the few places that need them.
 TRAFFIC_LABEL = "Трафик белых списков"
 
+# The callback that opens the traffic packs.
+#
+# Shared because it crosses a process boundary: user_bot registers the
+# handler, and admin_bot's traffic monitor puts the button on the warnings it
+# sends *through user_bot's token*. A literal on each side would be a contract
+# nothing checks, and a button that answers nothing looks to a customer like a
+# broken bot rather than a typo.
+TRAFFIC_TOPUP_CALLBACK = "lte_packs"
+
 
 def format_traffic(byte_count: int) -> str:
     """

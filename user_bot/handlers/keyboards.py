@@ -1,5 +1,5 @@
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
-from tgvpn_shared.lte_quota import TRAFFIC_LABEL
+from tgvpn_shared.lte_quota import TRAFFIC_LABEL, TRAFFIC_TOPUP_CALLBACK
 from tgvpn_shared.settings import get_settings
 
 _settings = get_settings()
@@ -61,7 +61,7 @@ def renew_menu_keyboard(*, with_traffic: bool) -> InlineKeyboardMarkup:
     ]
     if with_traffic:
         rows.append(
-            [InlineKeyboardButton(text=f"📶 {TRAFFIC_LABEL}", callback_data="lte_packs")]
+            [InlineKeyboardButton(text=f"📶 {TRAFFIC_LABEL}", callback_data=TRAFFIC_TOPUP_CALLBACK)]
         )
     rows.append([InlineKeyboardButton(text="🔙 В меню", callback_data="main_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -168,7 +168,7 @@ def tariff_menu_keyboard(
     rows = [[InlineKeyboardButton(text=text, callback_data=cb)] for text, cb in buttons]
     if with_traffic:
         rows.append(
-            [InlineKeyboardButton(text=f"📶 {TRAFFIC_LABEL}", callback_data="lte_packs")]
+            [InlineKeyboardButton(text=f"📶 {TRAFFIC_LABEL}", callback_data=TRAFFIC_TOPUP_CALLBACK)]
         )
     rows.append([InlineKeyboardButton(text="🔙 В меню", callback_data="main_menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -227,6 +227,6 @@ def lte_payment_keyboard(url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="💳 Перейти к оплате", url=url)],
-            [InlineKeyboardButton(text="🔙 Назад", callback_data="lte_packs")],
+            [InlineKeyboardButton(text="🔙 Назад", callback_data=TRAFFIC_TOPUP_CALLBACK)],
         ]
     )

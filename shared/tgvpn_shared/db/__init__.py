@@ -6,6 +6,7 @@ from .events import EventRepository
 from .admin_operators import AdminOperatorRepository
 from .lte import LteRepository
 from .jobs import JobRunRepository
+from .enforcement import EnforcementRepository
 from .account_links import AccountLinkRepository
 from .email_verifications import EmailVerificationRepository
 
@@ -22,4 +23,5 @@ __all__ = [
     "AdminOperatorRepository",
     "LteRepository",
     "JobRunRepository",
+    "EnforcementRepository",
 ]

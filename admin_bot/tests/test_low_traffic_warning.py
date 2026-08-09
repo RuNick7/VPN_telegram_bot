@@ -18,6 +18,7 @@ from tgvpn_shared.lte_quota import (
 from app.scheduler.jobs.lte_traffic_monitor import (
     _maybe_warn_low_traffic,
     format_low_traffic_warning,
+    traffic_topup_keyboard,
 )
 from app.scheduler.jobs.subscription_expire_monitor import Subject
 
@@ -139,22 +140,63 @@ async def test_a_blocked_user_does_not_stop_the_monitor():
 # -- message ---------------------------------------------------------------
 
 
-def test_the_warning_states_how_much_is_left_and_where_to_top_up():
-    message = format_low_traffic_warning(500, 300 * MB)
-    assert "300" in message
-    assert "/traffic" in message
+def test_the_warning_states_how_much_is_left():
+    assert "300" in format_low_traffic_warning(500, 300 * MB)
 
 
 def test_exhausted_traffic_says_so_rather_than_quoting_a_threshold():
     """"Under 150 MB left" reads wrong when the real answer is zero."""
-    message = format_low_traffic_warning(150, 0)
-    assert "закончился" in message
-    assert "/traffic" in message
+    assert "закончился" in format_low_traffic_warning(150, 0)
 
 
 def test_the_warning_reassures_that_other_servers_still_work():
     """Running out of metered traffic is not losing the VPN."""
     assert "серверы работают" in format_low_traffic_warning(150, 0)
+
+
+@pytest.mark.parametrize("remaining", [0, 300 * MB])
+def test_the_warning_names_no_command(remaining):
+    """
+    It used to end with "Докупить трафик: /traffic". Telling somebody to go
+    and type something is the worst option available in a chat that has the
+    message open -- the button below does it in one tap.
+    """
+    assert "/traffic" not in format_low_traffic_warning(150, remaining)
+
+
+# -- the button ------------------------------------------------------------
+
+
+def test_the_topup_button_is_the_callback_user_bot_handles():
+    """
+    The cross-process contract. This warning is composed in admin_bot and sent
+    with *user_bot's* token, so the callback comes back to user_bot -- and a
+    button naming something no handler is registered for would look to a
+    customer like a broken bot rather than a typo.
+
+    Pinned against the shared constant rather than the literal, because the
+    two bots cannot be collected in one pytest process and this is the only
+    place the agreement can be checked from.
+    """
+    from tgvpn_shared.lte_quota import TRAFFIC_TOPUP_CALLBACK
+
+    button = traffic_topup_keyboard().inline_keyboard[0][0]
+    assert button.callback_data == TRAFFIC_TOPUP_CALLBACK
+    assert button.url is None
+
+
+async def test_the_warning_goes_out_with_the_button_attached():
+    """A message without it is the version this replaced."""
+    repo = AsyncMock()
+    notify = AsyncMock()
+    with patch("app.scheduler.jobs.lte_traffic_monitor._lte", repo), patch(
+        "app.scheduler.jobs.lte_traffic_monitor._notify_user", notify
+    ):
+        await _maybe_warn_low_traffic(
+            telegram_subject(), remaining=100 * MB, already_notified_mb=0
+        )
+
+    assert notify.await_args.kwargs["reply_markup"].inline_keyboard
 
 
 # -- users with no Telegram account ----------------------------------------

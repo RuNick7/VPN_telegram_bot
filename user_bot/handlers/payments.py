@@ -9,7 +9,12 @@ from aiogram.types import CallbackQuery, Message
 
 from tgvpn_shared.settings import get_settings
 from tgvpn_shared.db import LteRepository, UserRepository
-from tgvpn_shared.lte_quota import TRAFFIC_LABEL, format_traffic, remaining_now
+from tgvpn_shared.lte_quota import (
+    TRAFFIC_LABEL,
+    TRAFFIC_TOPUP_CALLBACK,
+    format_traffic,
+    remaining_now,
+)
 from handlers.constants import LTE_TRAFFIC_PACKS
 from handlers.keyboards import (
     gift_payment_keyboard,
@@ -258,7 +263,10 @@ async def lte_packs_cmd(message: types.Message) -> None:
     await _send_lte_packs(message)
 
 
-@router.callback_query(F.data == "lte_packs")
+# Registered from the shared constant because admin_bot's traffic monitor
+# sends this same callback on its low-traffic warnings, through this bot's
+# token. Renaming it on one side only would leave a button that does nothing.
+@router.callback_query(F.data == TRAFFIC_TOPUP_CALLBACK)
 async def lte_packs_cb(cb: CallbackQuery) -> None:
     await _send_lte_packs(cb)
 

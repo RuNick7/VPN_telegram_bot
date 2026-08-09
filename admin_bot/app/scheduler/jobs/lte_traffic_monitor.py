@@ -21,10 +21,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 from aiogram import Bot
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from tgvpn_shared.db import JobRunRepository, LteRepository, UserRepository
 from tgvpn_shared.remnawave.client import panel_ref
 from tgvpn_shared.lte_quota import (
     TRAFFIC_LABEL,
+    TRAFFIC_TOPUP_CALLBACK,
     format_traffic,
     free_bytes_for,
     low_traffic_threshold,
@@ -40,6 +42,7 @@ from app.notify.admin import send_admin_message
 from app.scheduler.jobs.subscription_expire_monitor import (
     Subject,
     extract_squad_uuids,
+    record_action,
     resolve_subject,
     warn_about_stuck_accounts,
 )
@@ -224,18 +227,43 @@ def sum_metered(rows: list[tuple[str | None, int]], nodes: set[str]) -> int:
 
 
 def format_low_traffic_warning(threshold_mb: int, remaining: int) -> str:
-    """The message a user gets as their metered traffic runs low."""
+    """
+    The message a user gets as their metered traffic runs low.
+
+    It used to end by naming the `/traffic` command. Telling somebody to go
+    and type something is the worst of both worlds in a chat that already has
+    the message open -- the button below does it in one tap, so the text says
+    what happened and nothing about how to act on it.
+    """
     if remaining <= 0:
         return (
             f"🚫 <b>{TRAFFIC_LABEL} закончился</b>\n\n"
-            "Остальные серверы работают как обычно.\n"
-            "Докупить трафик: /traffic"
+            "Остальные серверы работают как обычно."
         )
     return (
         f"⚠️ <b>Заканчивается {TRAFFIC_LABEL.lower()}</b>\n\n"
         f"Осталось примерно <b>{format_traffic(remaining)}</b> "
-        f"(порог {threshold_mb} МБ).\n\n"
-        "Докупить трафик: /traffic"
+        f"(порог {threshold_mb} МБ)."
+    )
+
+
+def traffic_topup_keyboard() -> InlineKeyboardMarkup:
+    """
+    The button under the warning above.
+
+    The callback is handled in user_bot, which is whose token these warnings
+    are sent with -- hence the shared constant rather than a literal on each
+    side.
+    """
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=f"📶 Докупить {TRAFFIC_LABEL.lower()}",
+                    callback_data=TRAFFIC_TOPUP_CALLBACK,
+                )
+            ]
+        ]
     )
 
 
@@ -272,7 +300,9 @@ async def _maybe_warn_low_traffic(
     if subject.telegram_id is not None:
         try:
             await _notify_user(
-                subject.telegram_id, format_low_traffic_warning(threshold, remaining)
+                subject.telegram_id,
+                format_low_traffic_warning(threshold, remaining),
+                reply_markup=traffic_topup_keyboard(),
             )
         except Exception as exc:
             # A user who blocked the bot must not stop the monitor, but the
@@ -284,19 +314,26 @@ async def _maybe_warn_low_traffic(
     await _set_notified(subject, threshold)
 
 
-async def _notify_user(telegram_id: int, text: str) -> None:
+async def _notify_user(
+    telegram_id: int, text: str, *, reply_markup: InlineKeyboardMarkup | None = None
+) -> None:
     """
     Message a customer from user_bot, which is the bot they actually talk to.
 
     A fresh Bot per send: this fires rarely, and a long-lived session owned by
     the scheduler would outlive the job and leak on shutdown.
+
+    Sending with user_bot's token is also what makes an inline button work:
+    the callback comes back to user_bot, where the handler for it lives.
     """
     if not settings.user_bot_token:
         logger.warning("USER_BOT_TOKEN не задан; предупреждение о трафике не отправлено")
         return
     bot = Bot(token=settings.user_bot_token.strip())
     try:
-        await bot.send_message(telegram_id, text, parse_mode="HTML")
+        await bot.send_message(
+            telegram_id, text, parse_mode="HTML", reply_markup=reply_markup
+        )
     finally:
         await bot.session.close()
 
@@ -512,6 +549,10 @@ async def _run() -> tuple[int, int, int]:
                     nodes=nodes,
                     now=now,
                 )
+                if outcome:
+                    # Written down rather than messaged. The daily report adds
+                    # a pass's worth of these up; see `enforcement_events`.
+                    await record_action(JOB_NAME, outcome, telegram_id)
                 if outcome == "blocked":
                     blocked += 1
                 elif outcome == "unblocked":
@@ -559,15 +600,22 @@ async def _run_and_report() -> None:
         return
 
     await _jobs.record_success(JOB_NAME, int((time.monotonic() - started) * 1000))
-    if blocked or unblocked or failed:
-        lines = [
-            # The failure alerts below stay on the technical name on purpose --
-            # they are read next to `lte_traffic_monitor` in the logs.
-            "📶 Монитор трафика белых списков:",
-            f"• заблокировано: {blocked}",
-            f"• разблокировано: {unblocked}",
-            f"• окно: {settings.lte_cycle_days} дн., бесплатно {settings.lte_free_gb_per_cycle} ГБ",
-        ]
-        if failed:
-            lines.append(f"• ошибок по пользователям: {failed}")
-        await send_admin_message("\n".join(lines))
+
+    # Blocks and unblocks are not news, one pass at a time. They are recorded
+    # as they happen and counted once a day by `daily_squad_report`; a message
+    # every few minutes about a routine cut-off is how the alerts beside it
+    # stopped being read.
+    #
+    # Failures still go out at once. They are rare, and each one is a user the
+    # quota is not being enforced for -- exactly the thing a daily total would
+    # bury.
+    if failed:
+        await send_admin_message(
+            # The technical name on purpose: it is read next to
+            # `lte_traffic_monitor` in the logs.
+            f"⚠️ Монитор трафика белых списков: ошибок по пользователям — {failed}.\n"
+            "Подробности в логах; счётчики за сутки — в ежедневном отчёте."
+        )
+    logger.info(
+        "LTE monitor: blocked=%d unblocked=%d failed=%d", blocked, unblocked, failed
+    )

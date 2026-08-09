@@ -65,11 +65,16 @@ async def test_usage_and_purchases_are_both_reflected(monkeypatch, lte_on):
     assert "5.0 ГБ" in await menu._traffic_line(1, subscription_active=True)
 
 
-async def test_an_exhausted_balance_points_at_the_top_up_command(monkeypatch, lte_on):
+async def test_an_exhausted_balance_says_so_without_naming_a_command(monkeypatch, lte_on):
+    """
+    The menu this line sits in already carries a traffic button. Telling
+    somebody to type `/traffic` a centimetre above the thing that does it was
+    the wordier of two ways to say the same thing.
+    """
     _repo(monkeypatch, _state(lte_last_usage_bytes=99 * GB))
     line = await menu._traffic_line(1, subscription_active=True)
     assert "закончился" in line
-    assert "/traffic" in line
+    assert "/traffic" not in line
 
 
 async def test_the_line_ends_with_a_blank_line(monkeypatch, lte_on):

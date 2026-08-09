@@ -97,6 +97,7 @@ Anything used by both bots belongs here, not duplicated on each side. Four modul
 - `PaymentRepository` — YooKassa payment status. `claim_payment_processing` is an atomic `INSERT ... ON CONFLICT ... WHERE ...` claim that prevents a retried/duplicate webhook delivery from crediting a payment twice.
 - `PromoRepository` — promo codes. `try_claim_promo_usage`/`release_promo_usage` atomically claim a code before crediting, and roll back the claim if crediting fails, so a one-time code can't be redeemed by two users racing each other.
 - `EventRepository` — click telemetry (`bot_events`).
+- `EnforcementRepository` — what the squad monitors did (`enforcement_events`), so the daily report can total a day's blocks and demotions. The monitors used to message the admin chat on every pass that changed anything, which at a five-minute interval is a notification per routine cut-off; only failures interrupt now. A table rather than in-process counters because admin_bot restarts on every deploy.
 - `AdminOperatorRepository` — admin-panel roles (table `admin_operators`; historically called `users` in admin_bot's own SQLite file — renamed to stop colliding with the customer-identity `users` table).
 
 Repository methods take/return **Unix epoch seconds (`int`)** for timestamp fields even though the underlying columns are `TIMESTAMPTZ` — this matches the arithmetic used throughout both bots' handlers (`now_ts + N * 86400`, `sub_ends > now_ts`, ...). Conversion happens in the SQL itself (`to_timestamp($1)` / `EXTRACT(EPOCH FROM ...)::bigint`), not in Python.

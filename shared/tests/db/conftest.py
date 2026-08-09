@@ -22,7 +22,10 @@ os.environ.setdefault("DATABASE_URL", DEFAULT_TEST_DSN)
 # Every table any test writes to. Missing one here is not a harmless
 # oversight: state leaks into the next test and makes it pass or fail for
 # reasons that have nothing to do with what it is checking.
-_TABLES = "promo_usage, promo_codes, payments, bot_events, admin_operators, job_runs, users"
+_TABLES = (
+    "promo_usage, promo_codes, payments, bot_events, admin_operators, "
+    "job_runs, enforcement_events, users"
+)
 
 # These tests TRUNCATE every table before each one, so the target database has
 # to be disposable. Requiring the name to say so is what stops a stray

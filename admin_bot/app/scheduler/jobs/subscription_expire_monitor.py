@@ -29,7 +29,12 @@ import logging
 import time
 from typing import Any
 
-from tgvpn_shared.db import JobRunRepository, LteRepository, UserRepository
+from tgvpn_shared.db import (
+    EnforcementRepository,
+    JobRunRepository,
+    LteRepository,
+    UserRepository,
+)
 from tgvpn_shared.free_tier import plan_panel_update
 from tgvpn_shared.remnawave.client import panel_ref
 from tgvpn_shared.squads import (
@@ -49,9 +54,9 @@ JOB_NAME = "subscription_expire_monitor"
 _users = UserRepository()
 _lte = LteRepository()
 _jobs = JobRunRepository()
+_enforcement = EnforcementRepository()
 
-# Only report a run that actually changed something or hit errors; a quiet
-# reconciliation every five minutes is not news.
+# How many failing users to name in the alert before summarising the rest.
 _REPORT_PREVIEW_LIMIT = 5
 
 
@@ -191,6 +196,27 @@ async def warn_about_stuck_accounts(client) -> list[str]:
     return stuck
 
 
+async def record_action(job: str, action: str, subject: Any) -> None:
+    """
+    Note what a monitor just did, for the daily report to count.
+
+    Swallows its own failures, and that is the point: the panel change has
+    already happened by the time this is called. Letting a failed note count
+    as a failed reconciliation would report a user as unenforced when they
+    were enforced perfectly well -- and since failures are now the only thing
+    that still messages the admin chat immediately, it would be a false alarm
+    with nothing beside it to give it context.
+
+    Shared by both monitors. It lives here for the same reason
+    `warn_about_stuck_accounts` does: the traffic monitor already imports this
+    module, and the reverse would be a cycle.
+    """
+    try:
+        await _enforcement.record(job, action, subject)
+    except Exception as exc:
+        logger.warning("Could not record %s for %s: %s", action, subject, exc)
+
+
 async def _reconcile_user(
     client,
     roles: SquadRoles,
@@ -290,6 +316,10 @@ async def _run(reason: str) -> tuple[int, int, list[str]]:
             label = subject.telegram_id or subject.user_id
             try:
                 outcome = await _reconcile_user(client, roles, user, subject, now)
+                if outcome:
+                    # Recorded, not messaged. The daily report counts a day's
+                    # worth; see `enforcement_events`.
+                    await record_action(JOB_NAME, outcome, label)
                 if outcome == "demoted":
                     demoted += 1
                 elif outcome == "promoted":
@@ -309,17 +339,22 @@ async def _run(reason: str) -> tuple[int, int, list[str]]:
         await client.close()
 
 
-def _format_report(reason: str, demoted: int, promoted: int, failures: list[str]) -> str:
+def _format_failures(reason: str, failures: list[str]) -> str:
+    """
+    The alert for users this pass could not reconcile.
+
+    Demotions and promotions are not in it. They happen every few minutes all
+    day, and a notification each time is what taught an operator to swipe this
+    chat away -- they are recorded instead and totalled by the daily report.
+    A failure is different: it is a user whose expiry is not being enforced
+    right now, and it is rare enough to be worth interrupting for.
+    """
     lines = [
-        f"🛡 Монитор подписок ({reason}):",
-        f"• понижено в FREE: {demoted}",
-        f"• возвращено в платный: {promoted}",
+        f"⚠️ Монитор подписок ({reason}): не удалось обработать {len(failures)}.",
+        *(f"  — {item}" for item in failures[:_REPORT_PREVIEW_LIMIT]),
     ]
-    if failures:
-        lines.append(f"• ошибок: {len(failures)}")
-        lines.extend(f"  — {item}" for item in failures[:_REPORT_PREVIEW_LIMIT])
-        if len(failures) > _REPORT_PREVIEW_LIMIT:
-            lines.append(f"  … и ещё {len(failures) - _REPORT_PREVIEW_LIMIT}")
+    if len(failures) > _REPORT_PREVIEW_LIMIT:
+        lines.append(f"  … и ещё {len(failures) - _REPORT_PREVIEW_LIMIT}")
     return "\n".join(lines)
 
 
@@ -345,7 +380,9 @@ async def _run_and_report(reason: str) -> None:
 
     started = time.monotonic()
     try:
-        demoted, promoted, failures = await _run(reason)
+        # The counts are logged by `_run` and totalled by the daily report;
+        # only the failures still reach the admin chat from here.
+        _demoted, _promoted, failures = await _run(reason)
     except SquadResolutionError as exc:
         # Configuration is wrong, not a transient failure. Say so plainly:
         # without a FREE squad there is nowhere to demote anyone to, and every
@@ -364,8 +401,8 @@ async def _run_and_report(reason: str) -> None:
         return
 
     await _jobs.record_success(JOB_NAME, int((time.monotonic() - started) * 1000))
-    if demoted or promoted or failures:
-        await send_admin_message(_format_report(reason, demoted, promoted, failures))
+    if failures:
+        await send_admin_message(_format_failures(reason, failures))
 
 
 async def run_catchup_sweep() -> None:

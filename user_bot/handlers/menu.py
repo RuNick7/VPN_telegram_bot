@@ -84,7 +84,9 @@ async def _traffic_line(telegram_id: int, *, subscription_active: bool) -> str:
         now=int(time.time()),
     )
     if left <= 0:
-        return f"📶 <b>{TRAFFIC_LABEL}:</b> закончился — докупить /traffic\n\n"
+        # No command named here: the menu this line sits in already carries a
+        # "📶 {TRAFFIC_LABEL}" button that opens the packs.
+        return f"📶 <b>{TRAFFIC_LABEL}:</b> закончился\n\n"
     return f"📶 <b>{TRAFFIC_LABEL}:</b> {format_traffic(left)}\n\n"
 
 
