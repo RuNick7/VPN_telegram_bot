@@ -1,20 +1,21 @@
 """
 What the node is left holding after a block.
 
-There is no per-user disconnect on this panel, so a session is dropped by
-disabling the account and enabling it straight back -- and `enable` means "put
-this account into its node's inbounds". Whichever call touches the node last
-therefore decides what the node holds, and it has to be ours.
+A node is told what a user may reach only when the panel pushes it, and taking
+somebody out of a squad is recorded *without* being pushed. Measured against a
+live client: strip the LTE squad and the session ran on untouched for two
+minutes; add `/connections/drop` and the socket died but the client, still
+listed in the node's inbound, was back inside five seconds.
 
-Two shipped versions got this wrong in different ways and failed identically.
-One stripped the squad and then dropped the session; the other stripped it
-midway through the drop. Both ended on `enable`, and both handed access back:
-eleven minutes after a block, a fresh connection was accepted and passed
-traffic through the metered node the user was no longer entitled to.
+`disconnect_user` is what pushes -- it disables the account, drops the
+sockets, and enables it again -- and the enable re-pushes whatever squads the
+user holds *at that moment*. So the membership change goes first now, and the
+cut second. Both orders were tried against the same live client; only this one
+held, and the client reconnected within five seconds of the squad being handed
+back, so the block was the block and not a broken client.
 
-So the membership change goes last, always. The drop is attempted first and is
-allowed to fail -- a session that outlives its block is a smaller problem than
-a block that never happened.
+The cut is still allowed to fail. A session that outlives its block is a
+smaller problem than a block that never happened.
 """
 
 import pytest
@@ -45,14 +46,27 @@ class RecordingPanel:
 
 
 @pytest.mark.asyncio
-async def test_the_membership_change_is_the_last_thing_the_node_hears():
+async def test_the_membership_is_in_place_before_the_node_is_re_pushed():
     panel = RecordingPanel()
 
     outcome = await _apply_squad(panel, ROLES, "104", ["int-1", "lte-1"], blocked=True)
 
     assert outcome == "blocked"
-    assert panel.calls == ["disconnect", "squads"]
+    assert panel.calls == ["squads", "disconnect"]
     assert panel.squads == [["int-1"]]
+
+
+@pytest.mark.asyncio
+async def test_a_user_holding_nothing_but_lte_lands_on_free():
+    """
+    The panel rejects an empty squad list outright -- HTTP 500, errorCode A088
+    -- so "take LTE away" cannot be spelled as "hold nothing". FREE is what no
+    entitlement left means everywhere else here.
+    """
+    panel = RecordingPanel()
+
+    assert await _apply_squad(panel, ROLES, "104", ["lte-1"], blocked=True) == "blocked"
+    assert panel.squads == [["free-1"]]
 
 
 @pytest.mark.asyncio

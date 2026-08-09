@@ -58,7 +58,8 @@ _TOGGLE_SPELLINGS: tuple[tuple[Any, Any], ...] = (
 # a moment does not cost a customer their access until somebody reads an alert.
 _pending_enable: set[str] = set()
 
-# How long an account stays out of every inbound before being put back.
+# How long an account stays out of every inbound before being put back, when
+# the panel cannot say whether its sockets are gone yet.
 #
 # Long enough for the panel to push the removal to a node, short enough that
 # somebody whose *other* servers are unaffected barely notices. The first
@@ -66,6 +67,20 @@ _pending_enable: set[str] = set()
 # are eventually consistent, so a removal and an addition delivered together
 # are applied as their sum.
 _DISABLE_HOLD_SECONDS = 3.0
+
+# Waits between a drop and re-asking whether anything survived it.
+#
+# `/connections/drop` answers 202 and does the work on the node afterwards, so
+# the answer is never ready immediately -- but it is quick: measured against a
+# live client, the session was gone within the first half-second. The later
+# waits exist for a node that is busy or briefly unreachable, not for the
+# normal case.
+_DROP_VERIFY_DELAYS: tuple[float, ...] = (0.5, 1.0, 2.0, 4.0)
+
+# The panel answers "who is connected" by asking its nodes, so the query is a
+# job: it is started, then polled by the id it hands back.
+_CONNECTION_JOB_POLLS = 20
+_CONNECTION_JOB_INTERVAL = 0.4
 
 # Hard ceiling on connection setup so an unreachable panel (dead DNS, dropped
 # route) fails in seconds instead of hanging on the OS default. Carried over
@@ -402,69 +417,115 @@ class RemnawaveClient:
             logger.debug("drop-connections for %s failed: %s", user_uuid, exc)
             return False
 
+    async def active_connections(
+        self, user_uuid: str, *, node_uuids: list[str] | None = None
+    ) -> list[str] | None:
+        """
+        The addresses this user currently holds a session from, or None.
+
+        The panel does not know this from its own state -- it asks the nodes --
+        so the question is a job: a POST starts it and a GET polls it by the id
+        that comes back. Both halves are spelled `by-user`, which reads like a
+        mistake and is not: the GET's path parameter is the job, not the user.
+
+        `None` means the question could not be answered: a panel with no
+        `connections` module, or a job that never finished. That is not the
+        same answer as "nobody is connected" and must not be read as one --
+        the caller decides what to do about not knowing.
+        """
+        if not is_numeric_ref(user_uuid):
+            return None
+
+        wanted = set(node_uuids or ())
+        try:
+            started = unwrap(await self.request("POST", f"/connections/by-user/{user_uuid}")) or {}
+            job_id = started.get("jobId")
+            if not job_id:
+                return None
+            for _ in range(_CONNECTION_JOB_POLLS):
+                await asyncio.sleep(_CONNECTION_JOB_INTERVAL)
+                job = unwrap(await self.request("GET", f"/connections/by-user/{job_id}")) or {}
+                if not job.get("isCompleted"):
+                    continue
+                nodes = (job.get("result") or {}).get("nodes") or []
+                return [
+                    address["ip"]
+                    for node in nodes
+                    # A quota is spent on the metered nodes, so a session on
+                    # any other one is legitimate and must not count as
+                    # something that survived the drop.
+                    if not wanted or node.get("nodeUuid") in wanted
+                    for address in node.get("ips") or []
+                    if address.get("ip")
+                ]
+        except APIError as exc:
+            logger.debug("connections/by-user for %s failed: %s", user_uuid, exc)
+        return None
+
+    async def _drop_until_gone(
+        self, user_uuid: str, *, node_uuids: list[str] | None = None
+    ) -> bool:
+        """
+        Drop, ask whether it worked, drop again. True once nothing is left.
+
+        `drop` answers 202 the instant the panel has queued it, which proves
+        only that the panel accepted the instruction -- never that a socket
+        died. Checking is the whole point of this method.
+        """
+        if not await self.drop_connections(user_uuid, node_uuids=node_uuids):
+            # An older panel with no connections module. Nothing here can
+            # destroy a socket, so the only lever left is time: hold the
+            # account out long enough for the node to be handed the removal.
+            await asyncio.sleep(_DISABLE_HOLD_SECONDS)
+            return False
+
+        for delay in _DROP_VERIFY_DELAYS:
+            await asyncio.sleep(delay)
+            live = await self.active_connections(user_uuid, node_uuids=node_uuids)
+            if live is None:
+                # Can't tell. Fall back to waiting, rather than reporting a
+                # success nobody measured.
+                await asyncio.sleep(_DISABLE_HOLD_SECONDS)
+                return True
+            if not live:
+                return True
+            logger.info(
+                "Session for %s survived a drop (%s); dropping again",
+                user_uuid, ", ".join(live),
+            )
+            await self.drop_connections(user_uuid, node_uuids=node_uuids)
+        return False
+
     async def disconnect_user(self, user_uuid: str, *, node_uuids: list[str] | None = None) -> bool:
         """
-        Best-effort drop of a user's live sessions. Returns whether it worked.
+        End this user's live sessions so that they stay ended.
 
-        Demoting someone off a paid squad doesn't kick them off the servers
-        they are already connected to, so without this an expired user keeps
-        paid access until their client happens to reconnect. Remnawave has
-        moved and renamed this across versions, so the spellings are tried in
-        turn and failure is reported rather than raised -- a demotion that
-        lands but can't drop the session is still worth keeping.
+        **Call this after applying a membership change, never before** -- the
+        opposite of what this method used to ask for, and the reason a blocked
+        user kept browsing.
 
-        **Call this before applying a membership change, never after.** The
-        last fallback ends by enabling the account, which tells the panel to
-        put it back into its node's inbounds -- so a demotion applied first is
-        handed straight back. Whichever call runs last decides what the node
-        holds, and that has to be ours.
-        """
-        if await self.drop_connections(user_uuid, node_uuids=node_uuids):
-            return True
+        A node learns what a user is entitled to only when the panel pushes it,
+        and the panel pushes on a *status* change. Taking somebody out of a
+        squad is recorded and not pushed: measured against a live client, the
+        session ran on for two minutes afterwards, and `/connections/drop`
+        alone did not help -- the socket died and the client, still listed in
+        the inbound, reconnected inside five seconds. Disabling the account is
+        what removes it from every inbound the node holds; the drop is what
+        ends the tunnel that is already up. Neither is sufficient alone.
 
-        attempts: list[tuple[str, str, dict[str, Any] | None]] = [
-            ("POST", f"/users/{user_uuid}/actions/disconnect", None),
-            ("POST", f"/users/{user_uuid}/disconnect", None),
-            ("POST", f"/users/disconnect/{user_uuid}", None),
-            ("POST", "/users/bulk/disconnect", {"uuids": [user_uuid]}),
-        ]
-        for method, endpoint, payload in attempts:
-            try:
-                if payload:
-                    await self.request(method, endpoint, json=payload)
-                else:
-                    await self.request(method, endpoint)
-            except APINotFoundError:
-                continue
-            except APIError as exc:
-                logger.debug("disconnect via %s failed: %s", endpoint, exc)
-                continue
-            return True
-        return await self._disconnect_by_toggling(user_uuid)
+        So: disable, drop, check the sockets are gone, enable. The enable
+        re-pushes whatever squads the user has *now*, which is why the
+        membership change has to be in place before this is called. Measured
+        against the same live client, that combination held for two minutes
+        with the client retrying, and it reconnected within five seconds of the
+        squad being handed back -- so the block was the block, not a broken
+        client.
 
-    async def _disconnect_by_toggling(self, user_uuid: str) -> bool:
-        """
-        Drop a session by disabling the account for an instant, then enabling it.
-
-        Current Remnawave has no per-user disconnect at all -- every spelling
-        above 404s and its own API exposes none -- so this is the only lever
-        left short of restarting the node's xray, which would drop everyone on
-        it. Taking the account out of every inbound and putting it straight
-        back is what tears the tunnel down; the user reconnects into whichever
-        squads they still have, which is the point.
-
-        The panel pushes membership to nodes rather than the node asking, so
-        the account is held out for `_DISABLE_HOLD_SECONDS` before being put
-        back. The first version of this flipped in 61 milliseconds and changed
-        nothing observable: the node was handed a removal and an addition
-        together and applied the sum of them, which is nothing.
-
-        The risk is the obvious one, and `legacy-main` shipped this without
-        guarding it: if `enable` does not land after `disable` did, the account
-        has no access at all and nothing puts it back. So the enable is retried,
-        and a user still disabled afterwards is both remembered for the next
-        pass and raised as its own error rather than counted among ordinary
-        per-user failures.
+        The risk is the obvious one, and `legacy-main` shipped it unguarded: if
+        `enable` does not land after `disable` did, the account has no access at
+        all and nothing puts it back. So the enable is retried, and a user still
+        disabled afterwards is both remembered for the next pass and raised as
+        its own error rather than counted among ordinary per-user failures.
         """
         for disable, enable in _TOGGLE_SPELLINGS:
             try:
@@ -473,17 +534,21 @@ class RemnawaveClient:
                 logger.debug("disable via %s failed: %s", disable(user_uuid)[1], exc)
                 continue
 
-            await asyncio.sleep(_DISABLE_HOLD_SECONDS)
+            try:
+                dropped = await self._drop_until_gone(user_uuid, node_uuids=node_uuids)
+            finally:
+                # Whatever the drop did, the account has to come back. This is
+                # the half whose failure costs a customer their access.
+                restored = await self._enable_with_retries(user_uuid, enable)
 
-            if await self._enable_with_retries(user_uuid, enable):
-                _pending_enable.discard(user_uuid)
-                return True
-
-            _pending_enable.add(user_uuid)
-            raise UserLeftDisabledError(
-                f"Отключил пользователя {user_uuid}, но не смог включить обратно. "
-                "Доступа нет до повторной попытки или ручного включения в панели."
-            )
+            if not restored:
+                _pending_enable.add(user_uuid)
+                raise UserLeftDisabledError(
+                    f"Отключил пользователя {user_uuid}, но не смог включить обратно. "
+                    "Доступа нет до повторной попытки или ручного включения в панели."
+                )
+            _pending_enable.discard(user_uuid)
+            return dropped
 
         logger.warning("Could not disconnect user %s: no known endpoint accepted it", user_uuid)
         return False

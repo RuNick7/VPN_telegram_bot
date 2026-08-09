@@ -316,22 +316,31 @@ async def _apply_squad(
 
     has_lte = roles.lte_uuid in current
     if blocked and has_lte:
-        # Order matters, and not for the reason it first appears to. Enabling an
-        # account tells the panel to put it back into its node's inbounds, so
-        # whichever call runs last has the final say over what the node holds.
-        # Two earlier versions both ended on `enable` -- one stripped the squad
-        # first, the other stripped it mid-flip -- and both handed access
-        # straight back: eleven minutes after a block, a fresh connection was
-        # accepted and passed traffic.
+        # Membership first, and the cut second. A node is told what a user may
+        # reach only when the panel pushes it, and dropping somebody from a
+        # squad is recorded without being pushed -- so a block on its own left
+        # the tunnel running, and dropping the session on its own let the
+        # client, still listed in the node's inbound, back in within five
+        # seconds. `disconnect_user` re-pushes the membership as its last act,
+        # which is why the membership has to be right before it is called.
         #
-        # So the membership change goes last, always. The session drop is
-        # attempted first and is allowed to fail; the block is not.
-        #
+        # Earlier versions had this the other way round for a reason that
+        # turned out to be about the old disable/enable flip, not about the
+        # drop. Both orders were tried against a live client; only this one
+        # held. See `RemnawaveClient.disconnect_user`.
+        remaining = [u for u in current if u != roles.lte_uuid]
+        # The panel rejects an empty squad list outright -- HTTP 500, errorCode
+        # A088 -- so somebody holding nothing but LTE cannot simply have it
+        # taken away. FREE is what "no entitlement left" means everywhere else
+        # here, so it is the floor.
+        if not remaining and roles.free_uuid:
+            remaining = [roles.free_uuid]
+        await client.set_user_squads([user_uuid], remaining)
+
         # Only the metered nodes are dropped. The quota is spent there, and a
         # subscriber who exhausts it still pays for the ordinary servers --
         # cutting those too would be a bug wearing an enforcement costume.
         await client.disconnect_user(user_uuid, node_uuids=sorted(nodes or []))
-        await client.set_user_squads([user_uuid], [u for u in current if u != roles.lte_uuid])
         return "blocked"
 
     if not blocked and not has_lte:
