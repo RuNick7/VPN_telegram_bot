@@ -76,6 +76,25 @@ async def test_metadata_naming_nobody_resolves_to_nothing(monkeypatch):
     assert await webhook._resolve_payer({"telegram_id": "not-a-number"}) is None
 
 
+async def test_an_unusable_id_falls_back_instead_of_raising(monkeypatch):
+    """
+    `users.id` is a `uuid` column, so looking one up by a malformed value
+    raises in the driver rather than coming back empty. Here that exception
+    would leave the handler answering YooKassa with a 500 -- and every retry
+    hits the same line, so a payment carrying a perfectly good `telegram_id`
+    beside the bad id is never credited at all. Unusable has to mean the same
+    as unknown.
+    """
+    users = AsyncMock()
+    users.get_user_by_uuid = AsyncMock(side_effect=AssertionError("must not be asked"))
+    users.get_user_by_id = AsyncMock(return_value=telegram_payer())
+    monkeypatch.setattr(webhook, "_users", users)
+
+    payer = await webhook._resolve_payer({"user_id": "u-3f2504e04f8911d3", "telegram_id": "555"})
+
+    assert payer["telegram_id"] == 555
+
+
 # -- crediting traffic -----------------------------------------------------
 
 

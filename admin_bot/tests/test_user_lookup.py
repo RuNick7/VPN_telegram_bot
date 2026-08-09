@@ -9,6 +9,7 @@ after anything they would recognise.
 """
 
 from unittest.mock import AsyncMock, patch
+from uuid import UUID
 
 import pytest
 
@@ -16,6 +17,7 @@ from app.handlers.admin.users.common import find_db_row, find_panel_user, panel_
 from app.handlers.admin.users.search import build_summary
 
 WEB_ID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
+PANEL_NAME = "u-3f2504e04f8911d3"
 
 
 def row(**kwargs) -> dict:
@@ -28,6 +30,25 @@ def row(**kwargs) -> dict:
         remnawave_username=None,
     )
     return {**base, **kwargs}
+
+
+def uuid_lookup(result=None):
+    """
+    A `get_user_by_uuid` that fails where the real one fails.
+
+    `users.id` is a `uuid` column, so asyncpg types the parameter from it and
+    rejects a malformed value before the query is sent -- looking a user up by
+    something that is not an id *raises*. An `AsyncMock` returning None instead
+    is more forgiving than the driver, and that gap is not academic: it is why
+    the fallback below was asserted to work for two releases while an admin
+    searching by panel username got `invalid UUID 'u-1ac936fdf3f94140'`.
+    """
+
+    async def lookup(value):
+        UUID(str(value))
+        return result
+
+    return lookup
 
 
 # -- which lookup a handle triggers ----------------------------------------
@@ -74,22 +95,57 @@ async def test_an_at_prefixed_name_falls_back_to_the_tag():
 
 
 @pytest.mark.asyncio
-async def test_anything_else_tries_uuid_then_panel_name_then_tag():
+async def test_our_own_id_is_tried_before_the_other_handles():
     repo = AsyncMock()
-    repo.get_user_by_uuid.return_value = None
-    repo.get_user_by_panel_username.return_value = row(remnawave_username="u-3f2504e04f8911d3")
+    repo.get_user_by_uuid = uuid_lookup(row())
 
     with patch("app.handlers.admin.users.common.users_repo", repo):
-        found = await find_db_row("u-3f2504e04f8911d3")
+        found = await find_db_row(WEB_ID)
 
-    assert found["remnawave_username"] == "u-3f2504e04f8911d3"
+    assert found["id"] == WEB_ID
+    repo.get_user_by_panel_username.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_a_panel_username_is_not_offered_to_the_id_lookup():
+    """
+    The reported bug. `u-1ac936fdf3f94140` is minted from an id and reads like
+    one, but it is not one, and asking anyway raises instead of returning
+    nothing -- so the panel-name lookup that would have found the user never
+    ran and the admin saw a driver error instead of a customer.
+    """
+    repo = AsyncMock()
+    repo.get_user_by_uuid = uuid_lookup()
+    repo.get_user_by_panel_username.return_value = row(remnawave_username=PANEL_NAME)
+
+    with patch("app.handlers.admin.users.common.users_repo", repo):
+        found = await find_db_row(PANEL_NAME)
+
+    assert found["remnawave_username"] == PANEL_NAME
     repo.get_user_by_tag.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_a_bare_nickname_reaches_the_tag_lookup():
+    """
+    Same crash, quieter: an admin who typed a nickname without its `@` was
+    never told the user was missing either.
+    """
+    repo = AsyncMock()
+    repo.get_user_by_uuid = uuid_lookup()
+    repo.get_user_by_panel_username.return_value = None
+    repo.get_user_by_tag.return_value = row(telegram_tag="nickname")
+
+    with patch("app.handlers.admin.users.common.users_repo", repo):
+        found = await find_db_row("nickname")
+
+    assert found["telegram_tag"] == "nickname"
 
 
 @pytest.mark.asyncio
 async def test_nothing_found_is_none_rather_than_an_error():
     repo = AsyncMock()
-    repo.get_user_by_uuid.return_value = None
+    repo.get_user_by_uuid = uuid_lookup()
     repo.get_user_by_panel_username.return_value = None
     repo.get_user_by_tag.return_value = None
 

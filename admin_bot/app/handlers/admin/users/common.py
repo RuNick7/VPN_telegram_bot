@@ -8,6 +8,7 @@ from typing import Any
 
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from tgvpn_shared.db import UserRepository
+from tgvpn_shared.identity import looks_like_user_id
 from tgvpn_shared.remnawave.client import panel_ref
 
 from app.services.users import user_service
@@ -153,11 +154,15 @@ async def find_db_row(needle: str) -> dict | None:
         row = await users_repo.get_user_by_tag(needle.lstrip("@"))
         return dict(row) if row else None
 
-    for lookup in (
-        users_repo.get_user_by_uuid,
-        users_repo.get_user_by_panel_username,
-        users_repo.get_user_by_tag,
-    ):
+    # Our own id is only worth trying when the string could be one. Asking
+    # anyway does not come back "not found" -- it raises, before the query is
+    # even sent (see `looks_like_user_id`), and the panel-username attempt that
+    # would have succeeded never happens. That is not hypothetical: a panel
+    # username is the likeliest thing to be pasted here and never parses.
+    lookups = (users_repo.get_user_by_uuid,) if looks_like_user_id(needle) else ()
+    lookups += (users_repo.get_user_by_panel_username, users_repo.get_user_by_tag)
+
+    for lookup in lookups:
         row = await lookup(needle)
         if row:
             return dict(row)

@@ -13,6 +13,7 @@ from tgvpn_shared.identity import (
     choose_survivor,
     days_from,
     legacy_panel_username,
+    looks_like_user_id,
     panel_username_for,
     plan_merge,
     resolve_panel_identity,
@@ -77,6 +78,42 @@ def test_legacy_accounts_keep_their_telegram_name():
     """They are deliberately never renamed, so resolution must still find them."""
     assert legacy_panel_username(555) == "555"
     assert legacy_panel_username(None) is None
+
+
+# -- telling an id from something that merely looks like one ---------------
+#
+# `users.id` is a `uuid` column, so a lookup by a malformed value raises in the
+# driver instead of coming back empty. Anywhere a string might be an id or
+# might be some other handle, guessing wrong is a crash rather than a miss.
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        WEB_ID,
+        WEB_ID.upper(),
+        f"  {WEB_ID}  ",
+        WEB_ID.replace("-", ""),
+    ],
+)
+def test_an_id_is_recognised_however_it_was_pasted(value):
+    assert looks_like_user_id(value)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        panel_username_for(WEB_ID),  # the handle an operator actually has
+        "555",  # a legacy panel name, and a Telegram id
+        "nickname",
+        "customer@example.com",
+        WEB_ID[:-1],  # a truncated paste
+        "",
+        None,
+    ],
+)
+def test_anything_that_is_not_an_id_is_rejected_rather_than_attempted(value):
+    assert not looks_like_user_id(value)
 
 
 def test_lookup_prefers_the_stored_uuid():

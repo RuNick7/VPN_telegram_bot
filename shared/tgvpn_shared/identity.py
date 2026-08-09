@@ -15,12 +15,37 @@ The rest of the rework is plumbing: `UserRepository` gains id-based lookups,
 from __future__ import annotations
 
 from dataclasses import dataclass
+from uuid import UUID
 
 SECONDS_IN_DAY = 86400
 
 # Prefix for panel usernames we mint ourselves. Short, and obviously ours when
 # an operator is scanning a list of accounts in Remnawave.
 PANEL_USERNAME_PREFIX = "u-"
+
+
+def looks_like_user_id(value: str | None) -> bool:
+    """
+    Whether `value` could be one of our internal ids at all.
+
+    `users.id` is a real `uuid` column, so asyncpg types any parameter compared
+    against it as a UUID and rejects a malformed one *before the query is sent*.
+    A lookup by something that is not an id therefore raises rather than
+    returning no rows -- which makes "try the id, fall back to the other
+    handles" quietly wrong, because the fallback never runs.
+
+    So anyone holding a string that merely *might* be an id has to ask first.
+    The panel username is exactly such a string: `u-1ac936fdf3f94140` is minted
+    from an id, looks like one to a human, and is the handle an operator is
+    most likely to paste in.
+    """
+    if not value:
+        return False
+    try:
+        UUID(str(value).strip())
+    except ValueError:
+        return False
+    return True
 
 
 def panel_username_for(user_id: str) -> str:

@@ -13,6 +13,7 @@ from tgvpn_shared.db import (
     UserRepository,
     generate_gift_code,
 )
+from tgvpn_shared.identity import looks_like_user_id
 from tgvpn_shared.settings import get_settings
 from handlers.utils import escape_markdown_v2
 from payments.yookassa_client import fetch_payment
@@ -48,7 +49,13 @@ async def _resolve_payer(metadata: dict) -> dict | None:
     """
     user_id = (metadata.get("user_id") or "").strip() if metadata.get("user_id") else None
     if user_id:
-        row = await _users.get_user_by_uuid(user_id)
+        # A malformed id is treated exactly like an unknown one: fall through to
+        # `telegram_id`. Looking it up regardless would raise instead of
+        # returning nothing (see `looks_like_user_id`), and an exception here
+        # answers YooKassa with a 500 -- so the retry hits the same line, and a
+        # payment that had a perfectly good `telegram_id` beside it is never
+        # credited at all.
+        row = await _users.get_user_by_uuid(user_id) if looks_like_user_id(user_id) else None
         if row is not None:
             return dict(row)
         logger.warning("В metadata указан неизвестный user_id=%s", user_id)
