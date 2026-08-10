@@ -34,6 +34,15 @@ _EPOCH_SELECT = """
     reminded,
     nurture_stage,
     lte_paid_balance_bytes,
+    -- The rest of the LTE reading, not only the purchased balance. Without
+    -- these an admin looking a customer up could see what they had bought but
+    -- not what the last monitor pass actually measured them spending -- which
+    -- is the half a "why was I blocked" ticket is actually about.
+    lte_last_usage_bytes,
+    lte_cycle_spent_bytes,
+    lte_blocked,
+    lte_free_gb_override,
+    EXTRACT(EPOCH FROM lte_cycle_start)::bigint AS lte_cycle_start,
     -- Which squad the account actually sits in, which is what decides what it
     -- can reach. The column has existed since 0002 and the website has always
     -- read it; leaving it out here meant a test asserting `clear_panel_identity`

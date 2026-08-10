@@ -236,3 +236,76 @@ def test_a_lapsed_subscription_says_so_instead_of_showing_zero():
 
     text = "\n".join(build_summary(row(subscription_ends=int(time.time()) - 86400)))
     assert "истекла" in text
+
+
+# -- traffic, the part search used to leave out ------------------------------
+
+
+def test_an_account_the_metered_squad_never_touched_shows_no_traffic_line():
+    """
+    `lte_cycle_start` unset means no reading exists -- not "spent nothing".
+    Fabricating a zero would say the wrong thing about 900+ legacy accounts
+    that have never been near the metered squad.
+    """
+    text = "\n".join(build_summary(row()))
+    assert "Трафик белых списков" not in text
+
+
+def test_an_account_the_squad_has_touched_shows_spent_and_remaining():
+    import time
+
+    text = "\n".join(
+        build_summary(
+            row(
+                lte_cycle_start=int(time.time()) - 3600,
+                lte_last_usage_bytes=500 * 1024**2,
+                lte_paid_balance_bytes=0,
+            ),
+            lte_free_gb_per_cycle=1,
+            lte_cycle_seconds=30 * 86400,
+        )
+    )
+    assert "потрачено" in text
+    assert "500 МБ" in text
+    assert "осталось" in text
+
+
+def test_spent_is_the_raw_reading_not_a_total_minus_remaining():
+    """
+    An admin chasing "why was I blocked" needs the number the monitor actually
+    measured -- not one reconstructed from the balance, which is exactly the
+    derivation the site's own traffic tile stopped using for the same reason.
+    """
+    import time
+
+    text = "\n".join(
+        build_summary(
+            row(
+                lte_cycle_start=int(time.time()) - 3600,
+                lte_last_usage_bytes=3 * 1024**3,
+                lte_paid_balance_bytes=0,
+            ),
+            lte_free_gb_per_cycle=1,
+            lte_cycle_seconds=30 * 86400,
+        )
+    )
+    assert "3.0 ГБ" in text
+    assert "осталось <b>0" in text
+
+
+def test_a_blocked_account_says_so_in_the_traffic_line():
+    import time
+
+    text = "\n".join(
+        build_summary(
+            row(
+                lte_cycle_start=int(time.time()) - 3600,
+                lte_last_usage_bytes=2 * 1024**3,
+                lte_paid_balance_bytes=0,
+                lte_blocked=True,
+            ),
+            lte_free_gb_per_cycle=1,
+            lte_cycle_seconds=30 * 86400,
+        )
+    )
+    assert "заблокирован" in text

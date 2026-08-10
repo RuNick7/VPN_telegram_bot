@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timezone
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
+from tgvpn_shared.lte_quota import format_traffic, remaining_now
 
+from app.config.settings import settings
 from app.handlers.admin.users.common import (
     HANDLE_PROMPT,
     days_left,
@@ -39,16 +42,51 @@ def _days_from_epoch(subscription_ends: int | None) -> str:
     return str(max(0, remaining // 86400)) if remaining > 0 else "истекла"
 
 
-def build_summary(row: dict) -> list[str]:
+def _traffic_line(
+    row: dict, *, free_gb_per_cycle: int, cycle_seconds: int, now: int | None = None
+) -> str | None:
     """
-    The four things an admin actually opened this search to see.
+    Spent and remaining on the metered squad, or None if there is nothing to
+    say -- an account `lte_cycle_start` has never touched has no reading to
+    show, and showing a fabricated zero for it would read as "spent nothing"
+    rather than "was never metered", which is a different fact.
+
+    "Spent" is the raw `lte_last_usage_bytes` the last monitor pass measured,
+    not a total minus `remaining_now` -- an admin chasing a "why was I
+    blocked" ticket needs the number the monitor actually saw, not one
+    reconstructed from it.
+    """
+    if not row.get("lte_cycle_start"):
+        return None
+    now = int(now if now is not None else time.time())
+    spent = max(0, int(row.get("lte_last_usage_bytes") or 0))
+    remaining = remaining_now(
+        state=row, global_free_gb=free_gb_per_cycle, cycle_seconds=cycle_seconds, now=now
+    )
+    blocked = " (заблокирован)" if row.get("lte_blocked") else ""
+    return (
+        f"Трафик белых списков: потрачено <b>{escape(format_traffic(spent))}</b>, "
+        f"осталось <b>{escape(format_traffic(remaining))}</b>{blocked}"
+    )
+
+
+def build_summary(
+    row: dict,
+    *,
+    lte_free_gb_per_cycle: int = 10,
+    lte_cycle_seconds: int = 30 * 86400,
+) -> list[str]:
+    """
+    The things an admin actually opened this search to see.
 
     Everything below in the report is a comparison between two systems, which
     is what you read when something is wrong. This is what you read when
-    nothing is: who this is, how to reach them, and how long they have left.
+    nothing is: who this is, how to reach them, how long they have left, and
+    -- when the metered squad has ever touched them -- what their traffic
+    looks like.
     """
     ends = row.get("subscription_ends")
-    return [
+    lines = [
         "<b>Кратко</b>",
         f"Telegram ID: <code>{escape(row.get('telegram_id') or '—')}</code>",
         f"Ник: <code>{'@' + str(row['telegram_tag']) if row.get('telegram_tag') else '—'}</code>",
@@ -56,6 +94,12 @@ def build_summary(row: dict) -> list[str]:
         f"Осталось дней: <b>{escape(_days_from_epoch(ends))}</b>"
         + (f" (до {_fmt_ts_utc(ends)})" if ends else ""),
     ]
+    traffic = _traffic_line(
+        row, free_gb_per_cycle=lte_free_gb_per_cycle, cycle_seconds=lte_cycle_seconds
+    )
+    if traffic:
+        lines.append(traffic)
+    return lines
 
 
 def build_report(needle: str, panel_user: dict | None, db_rows: list[dict]) -> str:
@@ -70,7 +114,13 @@ def build_report(needle: str, panel_user: dict | None, db_rows: list[dict]) -> s
     lines = [f"🔎 Поиск пользователя: <code>{escape(needle)}</code>", ""]
 
     if db_rows:
-        lines.extend(build_summary(db_rows[0]))
+        lines.extend(
+            build_summary(
+                db_rows[0],
+                lte_free_gb_per_cycle=settings.lte_free_gb_per_cycle,
+                lte_cycle_seconds=settings.lte_cycle_seconds,
+            )
+        )
         lines.append("")
 
     lines.append("<b>Remnawave</b>")
