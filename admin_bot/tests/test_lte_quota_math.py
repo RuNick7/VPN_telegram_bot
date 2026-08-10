@@ -22,7 +22,6 @@ def plan(**kwargs):
         free_bytes=10 * GB,
         cycle_spent=0,
         paid_balance=0,
-        subscription_active=True,
     )
     return plan_quota(**{**defaults, **kwargs})
 
@@ -94,10 +93,14 @@ def test_a_topup_between_passes_is_spendable_not_lost():
     assert blocked_2 is False
 
 
-def test_lapsed_subscription_blocks_even_with_traffic_left():
-    """Free mode means free servers; metered ones are not among them."""
-    spend, _, blocked = plan(usage_bytes=1 * GB, paid_balance=100 * GB, subscription_active=False)
-    assert blocked is True
+def test_a_lapsed_subscription_does_not_block_while_traffic_remains():
+    """
+    LTE eligibility is about balance, not paid-subscription status -- the
+    expiry monitor decides whether LTE membership is worth keeping through a
+    demotion; this only ever decides whether the quota itself is exhausted.
+    """
+    spend, _, blocked = plan(usage_bytes=1 * GB, paid_balance=100 * GB)
+    assert blocked is False
     assert spend == 0
 
 

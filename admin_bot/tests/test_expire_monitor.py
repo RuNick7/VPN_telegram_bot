@@ -34,17 +34,21 @@ def test_expired_paid_user_is_moved_to_free():
     assert plan(["int-1"], active=False) == {"free-1"}
 
 
-def test_expired_user_loses_lte_too():
-    """Free mode means free servers, whatever traffic they had left."""
-    assert plan(["int-1", "lte-1"], active=False) == {"free-1"}
+def test_expired_user_keeps_lte_they_already_had():
+    """
+    LTE eligibility is about remaining balance, not paid-subscription status
+    -- whether the quota is exhausted is the traffic monitor's call
+    (`plan_quota`), not this job's.
+    """
+    assert plan(["int-1", "lte-1"], active=False) == {"free-1", "lte-1"}
 
 
 def test_expired_user_already_on_free_needs_no_call():
     assert plan(["free-1"], active=False) is None
 
 
-def test_expired_user_on_free_plus_lte_still_needs_fixing():
-    assert plan(["free-1", "lte-1"], active=False) == {"free-1"}
+def test_expired_user_already_on_free_plus_lte_needs_no_call():
+    assert plan(["free-1", "lte-1"], active=False) is None
 
 
 # -- promotion -------------------------------------------------------------

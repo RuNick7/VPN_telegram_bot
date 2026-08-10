@@ -163,7 +163,6 @@ async def test_bought_traffic_survives_a_cycle_rollover_end_to_end():
         free_bytes=free_bytes,
         cycle_spent=cycle_spent,
         paid_balance=int(state["lte_paid_balance_bytes"]),
-        subscription_active=True,
     )
     await lte.consume_balance(
         tg, spent_delta_bytes=delta, cycle_spent_bytes=cycle_spent, blocked=blocked,

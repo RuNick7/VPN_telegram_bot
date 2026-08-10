@@ -121,14 +121,25 @@ async def test_a_user_already_blocked_is_left_alone():
 
 
 @pytest.mark.asyncio
-async def test_lte_is_never_handed_to_someone_sitting_on_free():
+async def test_lte_is_granted_on_free_when_quota_allows():
     """
-    The expiry monitor owns that state and would strip it again on its next
-    pass, leaving the two jobs fighting each other every few minutes.
+    LTE eligibility is about remaining balance, not paid-subscription status.
+    The expiry monitor now preserves LTE membership through a demotion
+    instead of stripping it, so there is no fight between the two jobs to
+    guard against here any more.
     """
     panel = RecordingPanel()
 
-    assert await _apply_squad(panel, ROLES, "104", ["free-1"], blocked=False) is None
+    assert await _apply_squad(panel, ROLES, "104", ["free-1"], blocked=False) == "unblocked"
+    assert panel.squads == [["free-1", "lte-1"]]
+
+
+@pytest.mark.asyncio
+async def test_lte_is_withheld_from_an_unmanaged_account():
+    """An account in neither FREE nor paid is not ours to touch."""
+    panel = RecordingPanel()
+
+    assert await _apply_squad(panel, ROLES, "104", ["vip"], blocked=False) is None
     assert panel.calls == []
 
 

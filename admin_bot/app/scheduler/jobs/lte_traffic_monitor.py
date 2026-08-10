@@ -403,10 +403,13 @@ async def _apply_squad(
         return "recut"
 
     if not blocked and not has_lte:
-        # Never hand LTE to someone sitting on FREE only: the expiry monitor
-        # owns that state and would strip it again on its next pass, leaving
-        # the two jobs fighting each other every few minutes.
-        if roles.tier_of(current) != "paid":
+        # Granted on FREE as readily as on paid: LTE eligibility is about
+        # remaining balance, not paid-subscription status, and the expiry
+        # monitor now preserves LTE membership through a demotion rather than
+        # stripping it -- so there is no fight between the two jobs to guard
+        # against here any more. Only a truly unmanaged account (neither FREE
+        # nor paid) is left alone, because it is not ours to touch.
+        if roles.tier_of(current) == "unknown":
             return None
         await client.set_user_squads([user_uuid], [*current, roles.lte_uuid])
         return "unblocked"
@@ -460,7 +463,6 @@ async def _reconcile_user(
         free_bytes=free_bytes_for(state, settings.lte_free_gb_per_cycle),
         cycle_spent=cycle_spent,
         paid_balance=paid_balance,
-        subscription_active=subject.subscription_ends > now,
     )
 
     # Usage on the metered nodes moved since the last pass. For somebody who

@@ -159,9 +159,14 @@ def plan_membership(
     preserved = roles.strip_managed(current)
 
     if not subscription_active:
-        # Expired: FREE only. LTE goes too -- free mode means free servers,
-        # regardless of any purchased traffic left over.
+        # Expired: always FREE. LTE is preserved when the user already holds
+        # it -- this job only ever demotes the paid squad; whether LTE itself
+        # keeps flowing is the traffic monitor's call, made from remaining
+        # balance (see `plan_quota`), not from paid-subscription status.
+        keep_lte = bool(roles.lte_uuid and roles.lte_uuid in current)
         desired = [*preserved, roles.free_uuid]
+        if keep_lte:
+            desired.append(roles.lte_uuid)
     else:
         if not paid_squad_uuid:
             return None

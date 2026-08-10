@@ -183,7 +183,6 @@ def plan_quota(
     free_bytes: int,
     cycle_spent: int,
     paid_balance: int,
-    subscription_active: bool,
 ) -> tuple[int, int, bool]:
     """
     Work out what this pass costs. Returns `(spend_delta, cycle_spent, blocked)`.
@@ -193,11 +192,13 @@ def plan_quota(
     subtracts exactly that from the live balance, never a recomputed total.
     That is what keeps a purchase landing mid-pass from being erased.
 
-    A lapsed subscription blocks regardless of remaining balance: free mode
-    means free servers, and metered ones are not among them.
+    Blocking is about balance alone, not paid-subscription status: a lapsed
+    subscription still leaves LTE membership in place (see the expiry
+    monitor's `plan_membership`), so whether the quota itself is exhausted is
+    the only thing this decides.
     """
     over_free = max(0, usage_bytes - free_bytes)
     newly_charged = max(0, min(over_free - cycle_spent, paid_balance))
     cycle_spent_after = cycle_spent + newly_charged
     unpaid = max(0, over_free - cycle_spent_after)
-    return newly_charged, cycle_spent_after, bool(unpaid > 0 or not subscription_active)
+    return newly_charged, cycle_spent_after, bool(unpaid > 0)
