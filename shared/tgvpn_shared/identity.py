@@ -131,8 +131,9 @@ class MergePlan:
     # trial arrive at 7 + 7 by addition; paying the bonus on top would make
     # 21 days reachable by registering twice on purpose.
     trial_link_granted: bool
-    # Set when the survivor had no panel account and should adopt the absorbed
-    # one instead of leaving it orphaned.
+    # Set when the survivor was *found* to have no panel account and should
+    # adopt the absorbed one instead of leaving it orphaned. Found, not
+    # assumed: see `survivor_has_panel_account` in `plan_merge`.
     adopt_panel_uuid: str | None
     adopt_panel_username: str | None
     # Set when the absorbed account's panel profile stays behind and must be
@@ -153,7 +154,14 @@ def choose_survivor(telegram_account: dict, web_account: dict) -> tuple[dict, di
     return telegram_account, web_account
 
 
-def plan_merge(*, survivor: dict, absorbed: dict, now: int, trial_days: int = 0) -> MergePlan:
+def plan_merge(
+    *,
+    survivor: dict,
+    absorbed: dict,
+    now: int,
+    trial_days: int = 0,
+    survivor_has_panel_account: bool | None = None,
+) -> MergePlan:
     """
     Fold `absorbed` into `survivor`.
 
@@ -184,6 +192,9 @@ def plan_merge(*, survivor: dict, absorbed: dict, now: int, trial_days: int = 0)
     `absorbed_releases_email` says: the column is UNIQUE. Where the survivor
     keeps its own address the absorbed row keeps its one too, and both go on
     working as sign-in routes because the lookup follows `merged_into`.
+
+    `survivor_has_panel_account` is the caller's answer to "did you look?", and
+    it exists because `remnawave_uuid` cannot answer it -- see below.
     """
     survivor_left = max(0, int(survivor.get("subscription_ends") or 0) - now)
     absorbed_left = max(0, int(absorbed.get("subscription_ends") or 0) - now)
@@ -197,12 +208,34 @@ def plan_merge(*, survivor: dict, absorbed: dict, now: int, trial_days: int = 0)
     survivor_uuid = survivor.get("remnawave_uuid")
     absorbed_uuid = absorbed.get("remnawave_uuid")
 
-    # The survivor adopts the absorbed panel account only when it has none of
-    # its own. Otherwise that account is left over, and it has to be expired:
-    # its days were just added to the survivor, so leaving it live would hand
-    # the user the same period twice on two different links.
-    adopt = absorbed_uuid if (not survivor_uuid and absorbed_uuid) else None
-    expire = absorbed_uuid if (survivor_uuid and absorbed_uuid) else None
+    # Does the survivor already have a panel account of its own?
+    #
+    # `remnawave_uuid` cannot be trusted to answer that, and this is the one
+    # place where believing it does real damage. A legacy account is named
+    # `str(telegram_id)` in the panel and its UUID is recorded only the first
+    # time something looks it up -- so an empty column means "nobody has looked
+    # yet" at least as often as it means "there is nothing there". At a
+    # rollout it means the former for *every* pre-existing user at once.
+    #
+    # Adopting on the strength of it pointed the survivor at the absorbed
+    # account's profile and left its own running. Nothing expires that one: the
+    # expiry monitor finds it by the very `telegram_id` the survivor still
+    # carries, reads the survivor's freshly merged expiry, and keeps it in the
+    # paid squad with `expireAt` pushed ten years out, forever. One person, two
+    # live paid accounts, because a column had not been filled in.
+    #
+    # So the caller looks and says. `None` means it could not find out, and the
+    # answer is then deliberately pessimistic for anyone carrying a Telegram
+    # ID: a survivor that turns out to have no profile gets a fresh one built
+    # from the days now on its row, automatically, on its next request. A wrong
+    # adoption is not recoverable by anything.
+    if survivor_has_panel_account is None:
+        survivor_has_panel_account = bool(survivor_uuid) or survivor.get("telegram_id") is not None
+
+    # Adopted or retired, never left running. Its days are on the survivor now,
+    # so a live leftover is the same period on two working links.
+    adopt = absorbed_uuid if (absorbed_uuid and not survivor_has_panel_account) else None
+    expire = absorbed_uuid if (absorbed_uuid and not adopt) else None
 
     return MergePlan(
         survivor_id=str(survivor["id"]),

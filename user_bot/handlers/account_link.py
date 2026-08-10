@@ -69,6 +69,43 @@ async def _expire_leftover_panel_account(uuid: str) -> None:
         logger.error("[LINK] Could not expire leftover panel account %s: %s", uuid, exc)
 
 
+async def _survivor_has_panel_account(survivor: dict) -> bool | None:
+    """
+    Whether the surviving account already has a panel profile -- looked up,
+    not read off `remnawave_uuid`.
+
+    That column is empty for every account created before the identity rework
+    until something resolves it, and those accounts are named
+    `str(telegram_id)` in the panel. Believing the column here is what made a
+    merge hand the survivor the *other* account's profile while its own kept
+    running; see `plan_merge`.
+
+    `resolve_panel_user` is the same lookup the rest of the bot uses, so a hit
+    also backfills the row -- one legacy account retired per merge. The dict is
+    updated too, because `plan_merge` reads it a few lines later.
+
+    Returns None when the panel could not be asked, which is not the same as
+    "no" and is not treated as one.
+    """
+    from app.services.remnawave.vpn_service import resolve_panel_user
+    from tgvpn_shared.remnawave.client import panel_ref
+
+    try:
+        profile = await resolve_panel_user(survivor)
+    except Exception as exc:
+        # Not fatal. The merge still happens; it just declines to adopt, which
+        # is the recoverable side of the choice.
+        logger.warning("[LINK] Could not resolve the survivor's panel account: %s", exc)
+        return None
+
+    if profile is None:
+        return False
+    if ref := panel_ref(profile):
+        survivor["remnawave_uuid"] = ref
+        survivor["remnawave_username"] = profile.get("username")
+    return True
+
+
 async def link_account(token: str, telegram_id: int, telegram_tag: str) -> str:
     """
     Redeem a link token for this Telegram user. Returns a message for them.
@@ -128,8 +165,16 @@ async def link_account(token: str, telegram_id: int, telegram_tag: str) -> str:
     now = int(time.time())
     survivor, absorbed = choose_survivor(dict(existing_row), web_account)
     # The trial length is passed in so the merge can refuse to hand the same
-    # person a second free period; see `plan_merge`.
-    plan = plan_merge(survivor=survivor, absorbed=absorbed, now=now, trial_days=trial_days())
+    # person a second free period; the panel answer so it does not mistake an
+    # unfilled column for an account that isn't there. Both are things
+    # `plan_merge` cannot work out on its own.
+    plan = plan_merge(
+        survivor=survivor,
+        absorbed=absorbed,
+        now=now,
+        trial_days=trial_days(),
+        survivor_has_panel_account=await _survivor_has_panel_account(survivor),
+    )
 
     await _users.apply_merge(plan)
     if plan.expire_panel_uuid:

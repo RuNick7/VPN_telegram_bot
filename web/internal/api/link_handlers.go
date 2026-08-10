@@ -89,6 +89,9 @@ func (s *Server) linkStatus(user *store.User, pending bool) map[string]any {
 // side. What changes is who can sign in as this account, which is why it is
 // refused outright when no address has been confirmed: the customer would be
 // deleting their own last key.
+//
+// "Panel profile stays" is not free, though: for a legacy account the Telegram
+// ID is the only handle to it, so it has to be pinned down first.
 func (s *Server) handleUnlinkTelegram(w http.ResponseWriter, r *http.Request, user *store.User) {
 	if user.TelegramID == nil {
 		writeError(w, http.StatusConflict, "not_linked", "Telegram и так не привязан.")
@@ -97,6 +100,28 @@ func (s *Server) handleUnlinkTelegram(w http.ResponseWriter, r *http.Request, us
 	if user.Email == "" {
 		writeError(w, http.StatusConflict, "no_other_login",
 			"Сначала добавьте почту — иначе войти в аккаунт будет нечем.")
+		return
+	}
+
+	// Pin the panel profile down before the Telegram ID goes, because for an
+	// account created before the identity rework that ID *is* the only handle
+	// to it: the profile is named `str(telegram_id)` and `remnawave_uuid` is
+	// filled in lazily, on first lookup. Detaching first cleared the last way
+	// to find it -- the next request found nothing, built a second profile, and
+	// the customer's configured link quietly stopped being the one we manage.
+	//
+	// EnsureProfile is the ordinary resolution every cabinet page already runs,
+	// and it records what it finds, so this costs a lookup and settles the
+	// question for good.
+	ctx, cancel := contextWithTimeout(r, panelTimeout)
+	defer cancel()
+	if _, err := s.account.EnsureProfile(ctx, user); err != nil {
+		// Refused rather than risked. Unlinking is never urgent, and doing it
+		// while we cannot see the panel is exactly how the profile is lost.
+		s.log.Error("unlink: panel profile not resolved", "err", err, "user", user.ID)
+		writeError(w, http.StatusBadGateway, "panel_unavailable",
+			"Панель сейчас недоступна, а без неё отвязка может потерять ваш профиль. "+
+				"Попробуйте через несколько минут.")
 		return
 	}
 

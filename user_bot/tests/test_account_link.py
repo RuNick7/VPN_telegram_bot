@@ -40,6 +40,11 @@ def row(**kwargs) -> dict:
     return {**base, **kwargs}
 
 
+# "The panel found exactly what the row claimed." The default, because most of
+# these tests are about the arithmetic and have no opinion about the panel.
+AGREES_WITH_THE_ROW = object()
+
+
 @pytest.fixture
 def repos(monkeypatch):
     users = AsyncMock()
@@ -51,12 +56,23 @@ def repos(monkeypatch):
     # bonus. The ones that are about it set a real expiry.
     users.grant_link_bonus = AsyncMock(return_value=None)
 
+    # What looking the survivor up in the panel turns out to find. Stubbed
+    # rather than left to run, because the real one reaches the panel -- and
+    # because the whole point of it is that it can disagree with the row.
+    panel_says = SimpleNamespace(value=AGREES_WITH_THE_ROW)
+
+    async def survivor_has_panel_account(survivor):
+        if panel_says.value is AGREES_WITH_THE_ROW:
+            return bool(survivor.get("remnawave_uuid"))
+        return panel_says.value
+
     monkeypatch.setattr(link, "_users", users)
     monkeypatch.setattr(link, "_links", links)
+    monkeypatch.setattr(link, "_survivor_has_panel_account", survivor_has_panel_account)
     monkeypatch.setattr(
         link, "_expire_leftover_panel_account", AsyncMock(side_effect=lambda u: expired.append(u))
     )
-    return SimpleNamespace(users=users, links=links, expired=expired)
+    return SimpleNamespace(users=users, links=links, expired=expired, panel_says=panel_says)
 
 
 # -- the deep-link payload -------------------------------------------------
@@ -280,6 +296,84 @@ async def test_no_panel_account_is_touched_when_there_is_nothing_left_over(repos
     # The survivor had no profile, so it adopts this one instead of orphaning it.
     assert repos.expired == []
     assert repos.users.apply_merge.await_args.args[0].adopt_panel_uuid == "panel-web"
+
+
+async def test_a_legacy_survivor_keeps_its_own_panel_account(repos):
+    """
+    The row says it has no profile and the panel says otherwise, which is the
+    normal state of every account created before the identity rework: it is
+    named `str(telegram_id)` there and its UUID is recorded only on first
+    lookup. Adopting on the row's word pointed the survivor at the website's
+    profile and left its own running -- and nothing expires that one, because
+    the expiry monitor finds it by the Telegram ID the survivor still has and
+    keeps renewing it against the survivor's merged expiry.
+    """
+    repos.panel_says.value = True
+    repos.links.consume = AsyncMock(return_value=WEB_ID)
+    repos.users.get_user_by_uuid = AsyncMock(
+        return_value=row(id=WEB_ID, telegram_id=None, remnawave_uuid="panel-web")
+    )
+    repos.users.get_user_by_id = AsyncMock(return_value=row(id=TG_ID, remnawave_uuid=None))
+
+    await link.link_account("token", 555, "someone")
+
+    plan = repos.users.apply_merge.await_args.args[0]
+    assert plan.adopt_panel_uuid is None
+    assert repos.expired == ["panel-web"]
+
+
+async def test_an_unreachable_panel_does_not_become_a_no(repos):
+    """
+    "Could not ask" is not "there is nothing there". Declining to adopt costs
+    the user a profile that gets rebuilt from the days now on their row; a
+    wrong adoption costs them a duplicate account nothing will ever retire.
+    """
+    repos.panel_says.value = None
+    repos.links.consume = AsyncMock(return_value=WEB_ID)
+    repos.users.get_user_by_uuid = AsyncMock(
+        return_value=row(id=WEB_ID, telegram_id=None, remnawave_uuid="panel-web")
+    )
+    repos.users.get_user_by_id = AsyncMock(return_value=row(id=TG_ID, remnawave_uuid=None))
+
+    message = await link.link_account("token", 555, "someone")
+
+    assert repos.users.apply_merge.await_args.args[0].adopt_panel_uuid is None
+    assert repos.expired == ["panel-web"]
+    # The merge itself still happened -- the days are the part that matters.
+    assert "объединены" in message
+
+
+async def test_finding_the_legacy_account_records_it_for_the_merge(monkeypatch):
+    """
+    The lookup is the same one the rest of the bot uses, so a hit backfills the
+    row; this keeps the in-memory copy in step, because `plan_merge` reads it
+    immediately afterwards.
+    """
+    monkeypatch.setattr(
+        "app.services.remnawave.vpn_service.resolve_panel_user",
+        AsyncMock(return_value={"uuid": "panel-legacy", "username": "555"}),
+    )
+    survivor = row(remnawave_uuid=None)
+
+    assert await link._survivor_has_panel_account(survivor) is True
+    assert survivor["remnawave_uuid"] == "panel-legacy"
+    assert survivor["remnawave_username"] == "555"
+
+
+async def test_a_survivor_with_no_profile_anywhere_reports_so(monkeypatch):
+    """Which is what lets adoption still happen when it is the right answer."""
+    monkeypatch.setattr(
+        "app.services.remnawave.vpn_service.resolve_panel_user", AsyncMock(return_value=None)
+    )
+    assert await link._survivor_has_panel_account(row(remnawave_uuid=None)) is False
+
+
+async def test_a_panel_failure_is_reported_as_unknown(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.remnawave.vpn_service.resolve_panel_user",
+        AsyncMock(side_effect=RuntimeError("panel down")),
+    )
+    assert await link._survivor_has_panel_account(row(remnawave_uuid=None)) is None
 
 
 async def test_a_token_pointing_at_a_deleted_account_fails_safely(repos):

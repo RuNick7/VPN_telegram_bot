@@ -1,8 +1,18 @@
 package api
 
 import (
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/RuNick7/VPN_telegram_bot/web/internal/account"
+	"github.com/RuNick7/VPN_telegram_bot/web/internal/config"
+	"github.com/RuNick7/VPN_telegram_bot/web/internal/panel"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/store"
 )
 
@@ -56,6 +66,79 @@ func TestLinkingIsNotOfferedWithoutAConfiguredBot(t *testing.T) {
 	if status["can_link"] != false {
 		t.Fatalf("can_link = %v, want false", status["can_link"])
 	}
+}
+
+// -- the panel profile has to be pinned down before the ID goes -------------
+//
+// For an account created before the identity rework, `telegram_id` *is* the
+// handle to its panel profile: the profile is named after it and
+// `remnawave_uuid` is only filled in on first lookup. Clearing the ID first
+// left nothing that could find the account -- the next request built a second
+// profile and the customer's configured link stopped being the managed one.
+
+// deadPanel fails every request and remembers what it was asked for.
+func deadPanel(t *testing.T, asked *[]string, mu *sync.Mutex) *panel.Client {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		*asked = append(*asked, r.URL.Path)
+		mu.Unlock()
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	t.Cleanup(server.Close)
+
+	client, err := panel.New(server.URL, "token", "", "", 2*time.Second)
+	if err != nil {
+		t.Fatalf("panel.New: %v", err)
+	}
+	return client
+}
+
+// unlinkServer wires a handler whose store is nil on purpose: reaching
+// DetachTelegram would panic, so the test cannot pass by accident if the guard
+// is removed.
+func unlinkServer(t *testing.T, asked *[]string, mu *sync.Mutex) *Server {
+	t.Helper()
+	return &Server{
+		cfg:     &config.Config{TelegramBotToken: "123:token", TelegramBotUsername: "KairaBot"},
+		account: account.NewService(nil, deadPanel(t, asked, mu), false, 7, "internal", false, ""),
+		log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+}
+
+func TestUnlinkingIsRefusedWhileThePanelCannotBeReached(t *testing.T) {
+	var asked []string
+	var mu sync.Mutex
+	server := unlinkServer(t, &asked, &mu)
+
+	recorder := httptest.NewRecorder()
+	server.handleUnlinkTelegram(recorder, httptest.NewRequest(http.MethodPost, "/api/me/telegram", nil),
+		&store.User{ID: "user-1", TelegramID: ptrInt64(555), Email: "customer@example.com"})
+
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusBadGateway)
+	}
+}
+
+func TestUnlinkingLooksTheLegacyNameUpBeforeDestroyingIt(t *testing.T) {
+	// `str(telegram_id)` is the name a pre-rework profile carries, and asking
+	// for it is what records the UUID that outlives the unlink.
+	var asked []string
+	var mu sync.Mutex
+	server := unlinkServer(t, &asked, &mu)
+
+	server.handleUnlinkTelegram(httptest.NewRecorder(),
+		httptest.NewRequest(http.MethodPost, "/api/me/telegram", nil),
+		&store.User{ID: "user-1", TelegramID: ptrInt64(555), Email: "customer@example.com"})
+
+	mu.Lock()
+	defer mu.Unlock()
+	for _, path := range asked {
+		if strings.Contains(path, "555") {
+			return
+		}
+	}
+	t.Fatalf("the panel was never asked about the legacy name; asked for %v", asked)
 }
 
 func TestAnUnlinkedAccountReportsNoTag(t *testing.T) {

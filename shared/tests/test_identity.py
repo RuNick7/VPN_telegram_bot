@@ -305,16 +305,65 @@ def test_the_referrer_is_never_overwritten_either():
 # -- panel accounts after a merge ------------------------------------------
 
 
-def test_a_survivor_without_a_panel_account_adopts_the_other_one():
+def test_a_survivor_found_to_have_no_panel_account_adopts_the_other_one():
     """Otherwise the user loses the profile their link already points at."""
     plan = plan_merge(
         survivor=account(remnawave_uuid=None),
         absorbed=account(id=WEB_ID, remnawave_uuid="panel-web", remnawave_username="u-web"),
         now=NOW,
+        survivor_has_panel_account=False,
     )
     assert plan.adopt_panel_uuid == "panel-web"
     assert plan.adopt_panel_username == "u-web"
     assert plan.expire_panel_uuid is None
+
+
+def test_an_empty_uuid_column_is_not_taken_for_an_absent_account():
+    """
+    The legacy shape, and the reason the caller is asked at all: an account
+    created before the identity rework is named `str(telegram_id)` in the panel
+    and carries no UUID until something looks it up. Adopting here pointed the
+    survivor at the *other* profile and left its own running -- and the expiry
+    monitor, which finds that one by Telegram ID, then kept it alive in the
+    paid squad indefinitely.
+    """
+    plan = plan_merge(
+        survivor=account(telegram_id=555, remnawave_uuid=None),
+        absorbed=account(id=WEB_ID, remnawave_uuid="panel-web", remnawave_username="u-web"),
+        now=NOW,
+    )
+    assert plan.adopt_panel_uuid is None
+    assert plan.expire_panel_uuid == "panel-web"
+
+
+def test_an_absorbed_profile_is_never_simply_left_running():
+    """
+    Adopted or expired, with nothing in between, whatever is or isn't known
+    about the survivor. Its days are on the survivor now, so a live leftover is
+    the same period on two working links -- and once the absorbed row carries
+    `merged_into` neither monitor will even look at it again.
+    """
+    for answer in (True, False, None):
+        plan = plan_merge(
+            survivor=account(remnawave_uuid=None),
+            absorbed=account(id=WEB_ID, remnawave_uuid="panel-web"),
+            now=NOW,
+            survivor_has_panel_account=answer,
+        )
+        assert bool(plan.adopt_panel_uuid) != bool(plan.expire_panel_uuid), answer
+
+
+def test_a_survivor_with_no_telegram_id_may_still_adopt_unasked():
+    """
+    Nothing is being hidden by an empty column in that case -- there is no
+    legacy name for the account to be under, so the column is the whole truth.
+    """
+    plan = plan_merge(
+        survivor=account(telegram_id=None, remnawave_uuid=None),
+        absorbed=account(id=WEB_ID, remnawave_uuid="panel-web", remnawave_username="u-web"),
+        now=NOW,
+    )
+    assert plan.adopt_panel_uuid == "panel-web"
 
 
 def test_a_leftover_panel_account_is_marked_for_expiry():
