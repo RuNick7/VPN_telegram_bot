@@ -16,6 +16,16 @@ from app.config.settings import settings
 
 _users_repo = UserRepository()
 
+# The panel refuses any `expireAt` that is not comfortably ahead of its own
+# clock -- confirmed against the API directly: one second ahead was rejected,
+# sixty seconds was accepted. "Expire this account right now", which is
+# exactly what the admin edit menu's own "Истёк" preset asks for, lands on
+# precisely the date that rejects. A generous buffer, not a minimal one: the
+# one-second failure may just as well have been network latency eating the
+# gap before the panel evaluated it, and there is no reason to court that
+# twice.
+_PANEL_EXPIRY_MIN_LEAD_SECONDS = 120
+
 
 class UserService:
     """Service for user operations."""
@@ -139,12 +149,26 @@ class UserService:
         """
         Update user by uuid, translating snake_case field names to the API's.
 
+        Two panel-side quirks live here, both found the same way: reproducing
+        the exact request by hand and reading the full error body rather than
+        the trimmed message an admin sees.
+
         A datetime's plain `.isoformat()` writes `+00:00` for UTC, and the
         panel's own schema rejects that outright with a bare "Validation
         failed (status: 400)" -- no field name, nothing to point at. It wants
         the `Z` form, which is exactly what `format_panel_timestamp` already
         produces for every other write path; this one built its own instead
         and never matched.
+
+        Fixing the format still left the same error, because a second, sharper
+        rejection was under it: "Expiration date cannot be in the past". The
+        panel will not accept an `expireAt` that is not safely ahead of its
+        own clock, under any formatting -- which is exactly the date "mark
+        this subscription as already expired" asks for. Nudged forward by
+        `_PANEL_EXPIRY_MIN_LEAD_SECONDS` here, and only here: the caller's own
+        database write reads the original, unmodified value from the same
+        payload independently, and that column -- not the panel's decorative
+        copy -- is what `subscription_expire_monitor` actually enforces from.
         """
         field_aliases = {
             "expire_at": "expireAt",
@@ -155,11 +179,13 @@ class UserService:
         payload: Dict[str, Any] = {"uuid": user_uuid}
         for key, value in data.items():
             api_key = field_aliases.get(key, key)
-            payload[api_key] = (
-                format_panel_timestamp(int(value.timestamp()))
-                if isinstance(value, datetime)
-                else value
-            )
+            if isinstance(value, datetime):
+                floor = datetime.now(timezone.utc) + timedelta(
+                    seconds=_PANEL_EXPIRY_MIN_LEAD_SECONDS
+                )
+                payload[api_key] = format_panel_timestamp(int(max(value, floor).timestamp()))
+            else:
+                payload[api_key] = value
         return await self.client.update_user(payload)
 
     async def delete_user(self, user_uuid: str) -> Dict[str, Any]:
