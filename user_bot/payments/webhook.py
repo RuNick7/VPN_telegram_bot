@@ -158,6 +158,24 @@ async def _award_referral_for_payer(payer: dict) -> None:
     )
 
 
+def _lte_credit_message(lte_gb: int, new_balance_bytes: int) -> str:
+    """
+    The MarkdownV2 confirmation sent after a traffic purchase.
+
+    Pulled out on its own because the balance is a decimal, and MarkdownV2
+    treats '.' as reserved -- an unescaped one here failed to parse on every
+    single traffic purchase, recovered only by the plain-text fallback below,
+    which is why this needs to be checked directly rather than only through
+    the whole webhook handler.
+    """
+    balance_gb = escape_markdown_v2(f"{new_balance_bytes / 1024**3:.2f}")
+    return (
+        f"✅ Платёж успешно завершён\\!\n"
+        f"Начислено *{lte_gb} ГБ* трафика белых списков\\.\n\n"
+        f"Всего куплено: *{balance_gb} ГБ*"
+    )
+
+
 async def _send_markdown_or_plain(chat_id: int, text: str) -> None:
     """Try MarkdownV2 first; fallback to plain text."""
     try:
@@ -339,11 +357,7 @@ async def yookassa_webhook_handler(request: web.Request):
                         "[LTE] Начислено %s ГБ пользователю %s, баланс: %.2f ГБ",
                         lte_gb, _payer_label(payer), new_balance / 1024**3,
                     )
-                    user_message = (
-                        f"✅ Платёж успешно завершён\\!\n"
-                        f"Начислено *{lte_gb} ГБ* трафика белых списков\\.\n\n"
-                        f"Всего куплено: *{new_balance / 1024**3:.2f} ГБ*"
-                    )
+                    user_message = _lte_credit_message(lte_gb, new_balance)
                     group_message = (
                         f"📶 Куплен трафик белых списков\n"
                         f"Пользователь: {_payer_label(payer)}\n"

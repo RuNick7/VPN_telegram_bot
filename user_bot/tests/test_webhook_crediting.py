@@ -246,3 +246,19 @@ def test_no_admin_notification_can_render_a_payer_as_none():
     source = pathlib.Path(webhook.__file__).read_text(encoding="utf-8")
     assert "Пользователь: {telegram_id}" not in source
     assert source.count("Пользователь: {_payer_label(payer)}") == 5
+
+
+# -- the traffic-purchase confirmation --------------------------------------
+#
+# The balance is a decimal, formatted with `.2f`, and MarkdownV2 treats '.' as
+# reserved. An unescaped one here broke the message's parsing on every single
+# traffic purchase in production -- Telegram rejected it, and the customer's
+# confirmation only reached them because `_send_markdown_or_plain` falls back
+# to plain text. The fallback masked it; nothing failed loudly.
+
+
+@pytest.mark.parametrize("balance_bytes, expected", [(60 * 1024**3, "60\\.00"), (int(0.5 * 1024**3), "0\\.50")])
+def test_the_balance_decimal_point_is_escaped(balance_bytes, expected):
+    text = webhook._lte_credit_message(30, balance_bytes)
+    assert expected in text
+    assert expected.replace("\\", "") not in text.replace(expected, "")
