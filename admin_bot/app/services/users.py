@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 
 from remnawave_api.models.users import CreateUserRequestDto
 from tgvpn_shared.db import UserRepository
+from tgvpn_shared.free_tier import format_panel_timestamp
 from tgvpn_shared.remnawave import UserNotFoundError
 from tgvpn_shared.remnawave.client import panel_ref
 from tgvpn_shared.squads import resolve_paid_squad_uuid
@@ -135,7 +136,16 @@ class UserService:
         return await self.client.get_user_by_uuid(user_uuid)
 
     async def update_user(self, user_uuid: str, data: Dict[str, Any]) -> Dict[str, Any]:
-        """Update user by uuid, translating snake_case field names to the API's."""
+        """
+        Update user by uuid, translating snake_case field names to the API's.
+
+        A datetime's plain `.isoformat()` writes `+00:00` for UTC, and the
+        panel's own schema rejects that outright with a bare "Validation
+        failed (status: 400)" -- no field name, nothing to point at. It wants
+        the `Z` form, which is exactly what `format_panel_timestamp` already
+        produces for every other write path; this one built its own instead
+        and never matched.
+        """
         field_aliases = {
             "expire_at": "expireAt",
             "traffic_limit_bytes": "trafficLimitBytes",
@@ -145,7 +155,11 @@ class UserService:
         payload: Dict[str, Any] = {"uuid": user_uuid}
         for key, value in data.items():
             api_key = field_aliases.get(key, key)
-            payload[api_key] = value.isoformat() if isinstance(value, datetime) else value
+            payload[api_key] = (
+                format_panel_timestamp(int(value.timestamp()))
+                if isinstance(value, datetime)
+                else value
+            )
         return await self.client.update_user(payload)
 
     async def delete_user(self, user_uuid: str) -> Dict[str, Any]:
