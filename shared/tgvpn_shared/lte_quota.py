@@ -19,6 +19,18 @@ BYTES_PER_KB = 1024
 # metered access stops.
 LOW_TRAFFIC_THRESHOLDS_MB = (500, 150)
 
+# What `low_traffic_threshold` returns for a balance at or below zero.
+#
+# Distinct from every real MB threshold *and* from 0 -- 0 already means
+# "recovered, nothing to warn about" -- so a user who was already notified at
+# the tightest MB threshold still gets the separate "traffic is gone" message
+# once the balance actually reaches zero. Before this existed, running out
+# right after crossing the 150 MB warning produced the same threshold value
+# twice in a row, and the second send was skipped as a duplicate of the first
+# -- so nobody was ever told their traffic had actually run out, only that it
+# was about to.
+EXHAUSTED = -1
+
 # What the metered squad is called anywhere a customer can see it.
 #
 # "LTE" is an internal name. It tells a user nothing about what they are
@@ -71,12 +83,16 @@ def low_traffic_threshold(
     remaining: int, thresholds_mb: tuple[int, ...] = LOW_TRAFFIC_THRESHOLDS_MB
 ) -> int:
     """
-    The tightest warning level this much remaining has crossed, or 0.
+    The tightest warning level this much remaining has crossed, EXHAUSTED, or 0.
 
     Returning the level rather than a boolean is what lets the caller tell
     "already warned at 500" from "now down to 150" and send the second warning
-    without repeating the first.
+    without repeating the first. Exhaustion is checked first and separately,
+    and returns its own sentinel rather than falling into the same "crossed
+    150" bucket a balance sitting just above zero would -- see EXHAUSTED.
     """
+    if remaining <= 0:
+        return EXHAUSTED
     crossed = [mb for mb in thresholds_mb if remaining <= mb * BYTES_PER_MB]
     return min(crossed) if crossed else 0
 

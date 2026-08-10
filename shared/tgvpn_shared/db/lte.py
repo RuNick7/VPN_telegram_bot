@@ -133,10 +133,15 @@ class LteRepository:
         return dict(row) if row else None
 
     async def set_low_traffic_notified_by_user_id(self, user_id: str, threshold_mb: int) -> None:
+        """
+        `threshold_mb` is not clamped to non-negative: `lte_quota.EXHAUSTED`
+        (-1) is a real, distinct value here, not an out-of-range one -- see
+        that constant for why 0 cannot mean both "recovered" and "empty".
+        """
         pool = await get_pool()
         await pool.execute(
             "UPDATE users SET lte_low_traffic_notified_mb = $1 WHERE id = $2::uuid",
-            max(0, int(threshold_mb)), user_id,
+            int(threshold_mb), user_id,
         )
 
     async def start_cycle_if_unset(self, telegram_id: int, cycle_start: int) -> Optional[dict]:
@@ -302,11 +307,15 @@ class LteRepository:
 
         Set back to 0 when their balance recovers, so a user who tops up and
         later runs low again is warned a second time rather than silently.
+
+        Not clamped to non-negative: `lte_quota.EXHAUSTED` (-1) is a real,
+        distinct value here, not an out-of-range one -- see that constant for
+        why 0 cannot mean both "recovered" and "empty".
         """
         pool = await get_pool()
         await pool.execute(
             "UPDATE users SET lte_low_traffic_notified_mb = $1 WHERE telegram_id = $2",
-            max(0, int(threshold_mb)), telegram_id,
+            int(threshold_mb), telegram_id,
         )
 
     async def set_blocked(self, telegram_id: int, blocked: bool) -> None:

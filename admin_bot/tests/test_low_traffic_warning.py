@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from tgvpn_shared.lte_quota import (
+    EXHAUSTED,
     LOW_TRAFFIC_THRESHOLDS_MB,
     low_traffic_threshold,
     remaining_bytes,
@@ -39,7 +40,7 @@ GB = 1024**3
         (151, 500),
         (150, 150),   # exactly at the second
         (10, 150),
-        (0, 150),     # nothing left still reports the tightest level
+        (0, EXHAUSTED),  # empty is its own level, not the same one as "10 MB left"
     ],
 )
 def test_threshold_selection(remaining_mb, expected):
@@ -103,6 +104,34 @@ async def test_crossing_the_second_threshold_warns_again():
     repo, notify = await _warn(100, already_notified_mb=500)
     notify.assert_awaited_once()
     repo.set_low_traffic_notified.assert_awaited_once_with(555, 150)
+
+
+async def test_running_out_after_the_tight_warning_still_sends_its_own_message():
+    """
+    The exact bug this guards: `low_traffic_threshold` used to return the same
+    value (150) for "crossed the tightest MB threshold" and for "reached zero"
+    -- so once a user had been warned at 150 MB, actually running out compared
+    equal to `already_notified_mb` and the monitor treated it as a duplicate
+    of a warning already sent. Nobody was ever told their traffic had run out,
+    only that it was about to -- which is what was reported: the 500 MB and
+    150 MB warnings arrived, and the "склад закончился" one never did.
+    """
+    repo, notify = await _warn(0, already_notified_mb=150)
+    notify.assert_awaited_once()
+    repo.set_low_traffic_notified.assert_awaited_once_with(555, EXHAUSTED)
+
+
+async def test_running_out_sends_the_exhausted_message_not_a_repeat():
+    repo = AsyncMock()
+    notify = AsyncMock()
+    with patch("app.scheduler.jobs.lte_traffic_monitor._lte", repo), patch(
+        "app.scheduler.jobs.lte_traffic_monitor._notify_user", notify
+    ):
+        await _maybe_warn_low_traffic(
+            telegram_subject(), remaining=0, already_notified_mb=150
+        )
+    sent_text = notify.await_args.args[1]
+    assert "закончился" in sent_text
 
 
 async def test_plenty_of_traffic_warns_nothing():
