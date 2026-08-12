@@ -143,6 +143,15 @@ async def _panel_user_for(telegram_id: int) -> dict:
     Goes through the database row so the lookup can use our stored UUID.
     Falling straight back to `str(telegram_id)` when there is no row at all
     keeps the pre-rework behaviour for a user the database has somehow lost.
+
+    A row that resolves to no panel account at all is recreated rather than
+    reported missing. The FREE tier promises working access for a while after
+    a subscription lapses, and the panel account backing that promise can go
+    missing independently of whether the promise still applies -- an old
+    pre-FREE-tier deletion, a manual removal in the panel. Recreated the same
+    way a payment already does (`extend_subscription_for_row`), rather than
+    telling someone who has already paid us once to go buy a subscription
+    because our own bookkeeping lost their account.
     """
     row = await _users.get_user_by_id(telegram_id)
     if row is None:
@@ -151,9 +160,18 @@ async def _panel_user_for(telegram_id: int) -> dict:
             raise UserNotFoundError(f"User not found: {telegram_id}")
         return user
 
-    user = await resolve_panel_user(dict(row))
+    row = dict(row)
+    user = await resolve_panel_user(row)
     if user is None:
-        raise UserNotFoundError(f"User not found: {telegram_id}")
+        # Zero days: this only restores the account the panel lost, and does
+        # not touch `subscription_ends` -- adding days here as well as at the
+        # caller would grant time nobody asked for.
+        created = await create_panel_account(user_row=row, telegram_id=telegram_id, days_to_add=0)
+        if not created:
+            raise UserNotFoundError(f"User not found: {telegram_id}")
+        user = await resolve_panel_user(await _reload_row(str(row["id"])) or row)
+        if user is None:
+            raise UserNotFoundError(f"User not found: {telegram_id}")
     return user
 
 
