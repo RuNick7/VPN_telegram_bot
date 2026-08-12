@@ -12,6 +12,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from app.services.remnawave.vpn_service import create_vpn_user, ensure_vpn_profile_exists
 from tgvpn_shared.settings import get_settings
 from tgvpn_shared.db import LteRepository, UserRepository
+from tgvpn_shared.free_tier import FREE_TIER_GRACE_DAYS
 from tgvpn_shared.lte_quota import TRAFFIC_LABEL, format_traffic, remaining_now
 from handlers.email_link import offer_keyboard, offer_text, send_confirmation, should_offer
 from handlers.email_state import EmailCaptureState
@@ -173,13 +174,15 @@ async def _render_main_menu(
         if username else "<b>👋 С возвращением!</b>\n\n"
     )
 
+    days_since_expiry = (now_ts - sub_ends) // SECONDS_IN_DAY
+
     if sub_ends > now_ts:
         body = (
             "🛡 <b>Ваша подписка активна!</b>\n\n"
             f"📅 <b>Действует до:</b> {expire_date}\n"
             f"⏳ <b>Осталось:</b> {days_left} дн.\n\n"
         )
-    else:
+    elif days_since_expiry < FREE_TIER_GRACE_DAYS:
         # An expired subscription is a downgrade, not a lockout: the device
         # menu still opens and the connection link still works, just on the
         # free servers. Showing only a "renew" button here used to leave a
@@ -189,6 +192,24 @@ async def _render_main_menu(
             "Доступ сохранён на <b>бесплатных серверах</b> — ссылка подключения работает.\n"
             "Продлите подписку, чтобы вернуть все серверы:\n\n"
         )
+    else:
+        # Past the grace window, `inactive_user_cleanup` has removed (or is
+        # about to remove) the panel account entirely -- there is no device
+        # menu to offer here. Device buttons would either dangle on a profile
+        # that no longer exists or, since a tap resolves the account through
+        # the same lookup a payment does, silently recreate the very account
+        # the cleanup job just deleted.
+        await bot.send_message(
+            chat_id,
+            header
+            + "⌛ <b>Бесплатный период закончился</b>\n\n"
+            "Профиль на серверах удалён, доступа сейчас нет ни на одном сервере.\n"
+            "Продлите подписку, чтобы всё восстановить:",
+            parse_mode="HTML",
+            reply_markup=pay_keyboard(),
+        )
+        await _offer_email_bonus_once(chat_id, row)
+        return
 
     traffic = await _traffic_line(user_id, subscription_active=sub_ends > now_ts)
 

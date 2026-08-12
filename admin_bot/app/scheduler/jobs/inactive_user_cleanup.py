@@ -24,13 +24,17 @@ import time
 from app.notify.admin import send_admin_message
 from app.services.users import user_service
 from tgvpn_shared.db import UserRepository
+from tgvpn_shared.free_tier import FREE_TIER_GRACE_DAYS
 from tgvpn_shared.remnawave.client import panel_ref
 from tgvpn_shared.settings import get_settings
 
 logger = logging.getLogger(__name__)
 _users_repo = UserRepository()
 
-INACTIVE_DAYS = 30
+# Kept as a module-level name (rather than used inline) because user_bot's
+# menu needs the same number and the two must not drift apart -- see
+# `FREE_TIER_GRACE_DAYS`.
+INACTIVE_DAYS = FREE_TIER_GRACE_DAYS
 ERROR_THROTTLE_SECONDS = 3600
 _last_error_ts: float | None = None
 

@@ -27,6 +27,16 @@ from .settings import get_settings
 
 SECONDS_IN_DAY = 86400
 
+# How long the FREE tier keeps a lapsed user's panel account alive.
+#
+# Shared between `inactive_user_cleanup` (which deletes the panel account
+# once a user has sat unpaid this long) and user_bot's main menu (which stops
+# offering device-setup buttons at the same point, rather than routing a tap
+# on one into the account service silently recreating a profile the cleanup
+# job just removed). The two must agree, or a user could see "choose your
+# device" for an account that is already gone.
+FREE_TIER_GRACE_DAYS = 30
+
 # Written into the panel user's `tag`. Prefixed so they are recognisable as
 # ours and cannot collide with a tag an operator typed by hand.
 TAG_PAID = "TIER_PAID"
