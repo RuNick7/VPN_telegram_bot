@@ -173,15 +173,46 @@ async def test_login_token_is_cached_across_requests():
 
 
 async def test_iter_all_users_walks_every_page():
+    """
+    Paged by record offset, not by page number.
+
+    The panel ignores `page` outright -- confirmed directly against
+    production, where every "page" answered with the same first `size`
+    users and `iter_all_users` silently never reached anyone past the
+    first one. `start` is the offset it actually honours, so that is what
+    this fake server keys off of; a handler that (wrongly) branched on
+    `page` instead would pass even though the real panel does not.
+    """
     def handler(request: httpx.Request) -> httpx.Response:
-        page = int(request.url.params.get("page", 1))
-        users = [{"uuid": f"u{(page - 1) * 2 + i}"} for i in range(2)] if page <= 2 else []
+        start = int(request.url.params.get("start", 0))
+        users = [{"uuid": f"u{start + i}"} for i in range(2)] if start < 4 else []
         return httpx.Response(200, json={"response": {"users": users, "total": 4}})
 
     client = _client_with_transport(handler, token="tok")
     uuids = [user["uuid"] async for user in client.iter_all_users(size=2)]
     assert uuids == ["u0", "u1", "u2", "u3"]
     await client.close()
+
+
+async def test_list_users_sends_a_record_offset_not_a_page_number():
+    """
+    Pins the exact wire parameter, since this is the regression that made
+    `iter_all_users` a no-op past the first page for months: a fake server
+    keyed on the wrong field would not have caught it, only one that
+    inspects the actual request does.
+    """
+    seen: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(dict(request.url.params))
+        return httpx.Response(200, json={"response": {"users": [], "total": 0}})
+
+    client = _client_with_transport(handler, token="tok")
+    await client.list_users(page=3, size=25)
+    await client.close()
+
+    assert seen[-1]["start"] == "50"
+    assert seen[-1]["size"] == "25"
 
 
 async def test_connectivity_failures_surface_as_api_error():

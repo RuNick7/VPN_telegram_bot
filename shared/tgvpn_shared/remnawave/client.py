@@ -352,8 +352,20 @@ class RemnawaveClient:
         return unwrap(await self.request("DELETE", f"/users/{user_uuid}"))
 
     async def list_users(self, page: int = 1, size: int = 100) -> dict[str, Any]:
-        """Return one page as `{"users": [...], "total": N}` (envelope removed)."""
-        params = {"page": page, "size": size, "limit": size}
+        """
+        Return one page as `{"users": [...], "total": N}` (envelope removed).
+
+        `start` is a record offset, and the only one of the two the panel
+        actually honours -- confirmed directly against production: `page`
+        is silently ignored, so every "page" answered with the same first
+        `size` users and `iter_all_users` never reached anyone past the
+        first one. Both monitors iterate through this, so hundreds of
+        accounts outside that first page were invisible to FREE-tier
+        demotion and LTE enforcement alike, for as long as this went
+        unnoticed. `page`/`size` stay this method's own interface -- every
+        caller already speaks in pages -- only the wire parameter changes.
+        """
+        params = {"start": (page - 1) * size, "size": size, "limit": size}
         return unwrap(await self.request("GET", "/users", params=params)) or {}
 
     async def iter_all_users(self, size: int = 100):
