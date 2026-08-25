@@ -1,7 +1,7 @@
 import asyncio
 
 from aiogram import Router, F, types
-from aiogram.filters import Command
+from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import CallbackQuery, Message
@@ -232,7 +232,20 @@ async def referral_info(cb: CallbackQuery) -> None:
 
 
 @router.message(Command("promo"))
-async def promo_code_entry(message: types.Message, state: FSMContext) -> None:
+async def promo_code_entry(message: types.Message, state: FSMContext, command: CommandObject) -> None:
+    """
+    `/promo` alone starts the two-step flow below. `/promo CODE` on one line
+    redeems immediately -- the command used to accept and silently discard
+    whatever followed it, so a user typing the code they already had lost it
+    and was asked to type it again with no explanation.
+    """
+    args = (command.args or "").strip()
+    if args:
+        text = await _redeem_promo_code(args.upper(), message.from_user.id)
+        await message.answer(text, reply_markup=back_to_menu_keyboard())
+        await state.clear()
+        return
+
     await message.answer(
         "🎟️ Введите промокод:",
         reply_markup=back_to_menu_keyboard(),
@@ -243,8 +256,19 @@ async def promo_code_entry(message: types.Message, state: FSMContext) -> None:
 @router.message(PromoState.waiting_for_promo)
 async def handle_promo_code(message: Message, state: FSMContext) -> None:
     promo_code = message.text.strip().upper()
-    telegram_id = message.from_user.id
+    text = await _redeem_promo_code(promo_code, message.from_user.id)
+    await message.answer(text, reply_markup=back_to_menu_keyboard())
+    await state.clear()
 
+
+async def _redeem_promo_code(promo_code: str, telegram_id: int) -> str:
+    """
+    Apply one promo code for one user. Returns the message to show them.
+
+    Shared by both entry points -- typing the code in reply to the prompt,
+    and giving it inline as `/promo CODE` -- so the two ways in can never
+    validate or credit a code differently from each other.
+    """
     promo = await _promo.get_promo_by_code(promo_code)
     if not promo or not promo["is_active"]:
         text = f"❌ Промокод {promo_code} недействителен."
@@ -296,8 +320,4 @@ async def handle_promo_code(message: Message, state: FSMContext) -> None:
     else:
         text = f"❌ Тип промокода {promo['type']} пока не поддерживается."
 
-    await message.answer(
-        text,
-        reply_markup=back_to_menu_keyboard(),
-    )
-    await state.clear()
+    return text
