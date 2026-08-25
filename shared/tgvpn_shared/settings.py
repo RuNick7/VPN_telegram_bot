@@ -134,7 +134,7 @@ class Settings(BaseSettings):
     # Where "написать в поддержку" points, in the bot and on the website both.
     # It used to be a constant in user_bot/handlers/keyboards.py, which meant
     # the site had no way to learn it and the two could not help but drift.
-    support_url: str = Field("https://t.me/nitratex1", validation_alias="SUPPORT_URL")
+    support_url: str = Field("https://t.me/KairaSupp", validation_alias="SUPPORT_URL")
 
     # Public origin of the website. The bot needs it to build gift links --
     # the same value the Go service validates its own redirects against.
