@@ -21,7 +21,10 @@ func TestTheAPIOwnsItsPathsAndTheSiteOwnsTheRest(t *testing.T) {
 	site := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w, "site")
 	})
-	handler := routes(apiHandler, site)
+	auto := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, "auto")
+	})
+	handler := routes(apiHandler, site, auto)
 
 	cases := map[string]string{
 		"/api/health":          "api",
@@ -36,6 +39,11 @@ func TestTheAPIOwnsItsPathsAndTheSiteOwnsTheRest(t *testing.T) {
 		"/assets/css/app.css":  "site",
 		"/apifoo":              "site", // not a prefix match on /api/
 		"/auth/telegram/extra": "site",
+		// Both spellings, because a phone that answers 301 before the app
+		// scheme is a round trip on a link somebody is standing there tapping.
+		"/auto":    "auto",
+		"/auto/":   "auto",
+		"/autofoo": "site", // not a prefix match on /auto either
 	}
 	for target, want := range cases {
 		recorder := httptest.NewRecorder()

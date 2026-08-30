@@ -6,8 +6,11 @@ instructions, so these assert the contract each spec has to satisfy rather
 than the exact copy.
 """
 
+from types import SimpleNamespace
+
 import pytest
 
+import handlers.setup as setup
 from handlers.keyboards import os_keyboard
 from handlers.setup import PLATFORMS, _auto_import_link
 
@@ -80,7 +83,51 @@ def test_auto_import_link_percent_encodes_the_deep_link():
     link = _auto_import_link("https://panel.example.com/sub/a b?x=1#frag")
     assert " " not in link
     assert "%20" in link
-    assert link.startswith("https://vless-outline.ru/auto/?url=")
+
+
+def test_the_redirect_is_our_own_site(monkeypatch):
+    """
+    It used to be somebody else's server, so every customer's subscription URL
+    -- which is the whole credential -- went through a third party to reach
+    their own phone.
+    """
+    monkeypatch.setattr(setup, "_auto_import_wrapper", lambda: "https://kairavpn.pro/auto?url=")
+
+    link = _auto_import_link(SUBSCRIPTION_URL)
+
+    # `:` and `/` are left legible: neither has a meaning inside a query, so
+    # encoding them would only make the link harder to read in a support chat.
+    assert link == f"https://kairavpn.pro/auto?url=happ://add/{SUBSCRIPTION_URL}"
+
+
+def test_an_ampersand_cannot_cut_the_link_in_half(monkeypatch):
+    """
+    `&` was left unencoded, and one in a subscription URL would have ended the
+    query parameter there -- handing the app the first half of the address.
+    """
+    monkeypatch.setattr(setup, "_auto_import_wrapper", lambda: "https://kairavpn.pro/auto?url=")
+
+    link = _auto_import_link("https://panel.example.com/sub/tok?a=1&b=2")
+
+    assert "&" not in link.split("?url=", 1)[1]
+    assert "%26" in link
+
+
+def test_the_wrapper_follows_the_configured_site(monkeypatch):
+    monkeypatch.setattr(
+        setup, "get_settings", lambda: SimpleNamespace(web_base_url="https://kairavpn.pro/")
+    )
+    assert setup._auto_import_wrapper() == "https://kairavpn.pro/auto?url="
+
+
+def test_without_a_site_the_bare_deep_link_is_used(monkeypatch):
+    """
+    There is nowhere of ours to point at, and a link to nowhere is worse than
+    one that works everywhere except inside Telegram's own browser.
+    """
+    monkeypatch.setattr(setup, "get_settings", lambda: SimpleNamespace(web_base_url="  "))
+
+    assert _auto_import_link(SUBSCRIPTION_URL) == f"happ://add/{SUBSCRIPTION_URL}"
 
 
 def test_happ_platforms_share_the_same_manual_fallback():

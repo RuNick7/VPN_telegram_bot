@@ -18,6 +18,7 @@ import (
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/api"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/auth"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/config"
+	"github.com/RuNick7/VPN_telegram_bot/web/internal/deeplink"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/mailer"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/panel"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/static"
@@ -32,10 +33,16 @@ import (
 // to get wrong, and no preflight surface at all. The API keeps its own
 // middleware and its own headers; everything not claimed by it falls through
 // to the static site, which sets the document-level ones.
-func routes(apiHandler, site http.Handler) http.Handler {
+// `/auto` is registered in both forms on purpose. The bot writes the one
+// without the slash, but the link is copied by hand often enough that the other
+// has to work too -- and letting it fall through to the site would answer a
+// 301 that strips nothing and costs a round trip on a phone.
+func routes(apiHandler, site, auto http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/api/", apiHandler)
 	mux.Handle("/auth/telegram", apiHandler)
+	mux.Handle("/auto", auto)
+	mux.Handle("/auto/", auto)
 	mux.Handle("/", site)
 	return mux
 }
@@ -131,7 +138,7 @@ func run(log *slog.Logger) error {
 
 	httpServer := &http.Server{
 		Addr:    cfg.ListenAddr,
-		Handler: routes(server.Routes(), site),
+		Handler: routes(server.Routes(), site, deeplink.Handler(log)),
 		// A slow or stalled client must not hold a connection open forever.
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,

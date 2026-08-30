@@ -42,8 +42,24 @@ CACHE_FILE = BASE_DIR / "data" / "video" / "cache.json"
 # shows a retry prompt instead of an unresponsive button.
 SUBSCRIPTION_URL_TIMEOUT_SECONDS = 10.0
 
-# Wraps a deep link so it opens reliably from inside Telegram's in-app browser.
-_AUTO_IMPORT_WRAPPER = "https://vless-outline.ru/auto/?url="
+def _auto_import_wrapper() -> str:
+    """
+    Our own redirect for app deep links, or an empty string if we have none.
+
+    Telegram does not render `happ://…` as a link, so the one-tap import step
+    has to be an https:// URL that becomes one. That used to be somebody else's
+    server, which meant every customer's subscription URL -- the credential,
+    whole and sufficient to configure their VPN as them -- went through a third
+    party on the way to their own phone.
+
+    Read from WEB_BASE_URL rather than hard-coded, because it is the same site
+    and there is no second answer to keep in step. With it unset there is
+    nowhere of ours to point at, and the bare deep link is the honest fallback:
+    it works everywhere except inside Telegram's own browser, which is exactly
+    where it did not work before either.
+    """
+    base = get_settings().web_base_url.strip().rstrip("/")
+    return f"{base}/auto?url=" if base else ""
 
 
 def _load_cache() -> dict:
@@ -82,10 +98,15 @@ def _manual_link_block(title: str, subscription_url: str) -> str:
 
 def _auto_import_link(subscription_url: str, scheme: str = "happ://add/") -> str:
     """Telegram-safe deep link that imports the profile in one tap."""
-    return escape(
-        _AUTO_IMPORT_WRAPPER + quote(f"{scheme}{subscription_url}", safe=":/?=&"),
-        quote=True,
-    )
+    deep_link = f"{scheme}{subscription_url}"
+    wrapper = _auto_import_wrapper()
+    if not wrapper:
+        return escape(deep_link, quote=True)
+    # The deep link becomes a query parameter, so everything with a meaning
+    # inside a query has to lose it. `:` and `/` are kept legible because they
+    # have none there; `&` used to be kept too, and an `&` in a subscription URL
+    # would have cut the parameter in half and handed the app the first piece.
+    return escape(wrapper + quote(deep_link, safe=":/"), quote=True)
 
 
 def _happ_instruction(title: str, install_html: str) -> Callable[[str], str]:
