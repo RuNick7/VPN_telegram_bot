@@ -1,7 +1,7 @@
 import logging
 
 from tgvpn_shared.settings import get_settings
-from yookassa import Configuration, Payment
+from yookassa import Configuration, Payment, Refund
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(
@@ -101,3 +101,20 @@ def fetch_payment(payment_id: str):
         logger.error("[PAYMENT] Ошибка получения платежа %s из YooKassa: %s", payment_id, e)
         raise
 
+
+def fetch_refund(refund_id: str):
+    """
+    Fetch a refund from YooKassa API.
+
+    A refund has its own id and its own endpoint. Looking one up through
+    `Payment.find_one` answers `not_found` -- which reads exactly like a
+    forged payment id and was handled as one.
+    """
+    try:
+        refund = Refund.find_one(refund_id)
+        logger.info("[REFUND] Возврат получен из YooKassa: id=%s status=%s payment=%s",
+                    refund_id, refund.status, refund.payment_id)
+        return refund
+    except Exception as e:
+        logger.error("[REFUND] Ошибка получения возврата %s из YooKassa: %s", refund_id, e)
+        raise

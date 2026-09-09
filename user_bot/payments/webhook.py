@@ -16,7 +16,7 @@ from tgvpn_shared.db import (
 from tgvpn_shared.identity import looks_like_user_id
 from tgvpn_shared.settings import get_settings
 from handlers.utils import escape_markdown_v2
-from payments.yookassa_client import fetch_payment
+from payments.yookassa_client import fetch_payment, fetch_refund
 
 ADMIN_ID = get_settings().primary_admin_id
 logger = logging.getLogger(__name__)
@@ -31,6 +31,16 @@ _lte = LteRepository()
 YOOKASSA_FETCH_TIMEOUT_SECONDS = 15.0
 REMNAWAVE_EXTEND_TIMEOUT_SECONDS = 20.0
 REQUEST_BODY_TIMEOUT_SECONDS = 10.0
+
+# Какие события этот эндпоинт вообще обрабатывает.
+#
+# Роутинг по `event` из тела запроса безопасен ровно в той мере, в какой
+# небезопасно по нему *начислять*: любая ветка ниже может заставить обработчик
+# сделать только меньше, никогда больше. Подделанный `payment.succeeded` всё
+# равно обязан пережить проверочный fetch, а подделанный `refund.succeeded`
+# никому ничего не выдаёт.
+_REFUND_EVENT_PREFIX = "refund."
+_PAYMENT_EVENT_PREFIX = "payment."
 
 
 async def _resolve_payer(metadata: dict) -> dict | None:
@@ -185,6 +195,91 @@ async def _send_markdown_or_plain(chat_id: int, text: str) -> None:
         await bot.send_message(chat_id, text.replace("\\", ""))
 
 
+async def _refund_payer_label(payment_id: str | None) -> str:
+    """
+    Who the refunded payment belonged to, best effort.
+
+    Goes back to YooKassa for the *payment* rather than reading our own row,
+    because the metadata there is the verified copy and `_resolve_payer`
+    already knows how to read it -- including following a merge. A failure is
+    not worth losing the alert over: an operator can find the payment by id.
+    """
+    if not payment_id:
+        return "—"
+    try:
+        payment = await asyncio.wait_for(
+            asyncio.to_thread(fetch_payment, payment_id),
+            timeout=YOOKASSA_FETCH_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:
+        logger.warning("Возврат: не удалось прочитать платёж %s: %s", payment_id, exc)
+        return "—"
+    metadata = getattr(payment, "metadata", None) or {}
+    return _payer_label(await _resolve_payer(metadata))
+
+
+async def _handle_refund_notification(payload: dict) -> web.Response:
+    """
+    A refund happened. Say so, and change nothing.
+
+    A refund carries its own id and its own endpoint. The old code took
+    `object.id` from any notification and fed it to `fetch_payment`, so a
+    refund looked exactly like a forged payment: `not_found`, an admin alert
+    about a broken payment, and a 502 -- which is YooKassa's signal to retry,
+    so the whole thing repeated for as long as it kept retrying.
+
+    Nothing is revoked here, deliberately. Whether a refunded customer keeps
+    their days is a decision with a person on the other end of it, and this
+    endpoint learned about the refund from an unauthenticated request. What it
+    can do is tell an operator, from a *verified* reading of the refund.
+    """
+    obj = payload.get("object")
+    refund_id = str((obj or {}).get("id") or "").strip() if isinstance(obj, dict) else ""
+    if not refund_id:
+        logger.warning("Уведомление о возврате без id: %s", payload)
+        return web.json_response({"status": "ok"}, status=200)
+
+    try:
+        refund = await asyncio.wait_for(
+            asyncio.to_thread(fetch_refund, refund_id),
+            timeout=YOOKASSA_FETCH_TIMEOUT_SECONDS,
+        )
+    except Exception as exc:
+        # Logged, not alerted, and not retried. Nothing is being granted, so a
+        # retry buys nothing -- and an admin alert built on an unverified body
+        # is a way to talk an operator into revoking somebody's access.
+        logger.warning("Не удалось проверить возврат %s: %s", refund_id, exc)
+        return web.json_response({"status": "ok"}, status=200)
+
+    status = getattr(refund, "status", None)
+    if status != "succeeded":
+        logger.info("Возврат %s в статусе %s — сообщать нечего", refund_id, status)
+        return web.json_response({"status": "ok"}, status=200)
+
+    payment_id = getattr(refund, "payment_id", None)
+    amount = getattr(refund, "amount", None)
+    amount_text = (
+        f"{getattr(amount, 'value', '?')} {getattr(amount, 'currency', '')}".strip()
+        if amount else "—"
+    )
+    logger.info("Возврат %s подтверждён: платёж=%s сумма=%s", refund_id, payment_id, amount_text)
+
+    if ADMIN_ID:
+        try:
+            await bot.send_message(
+                ADMIN_ID,
+                f"💸 Возврат платежа\n"
+                f"Платёж: {payment_id or '—'}\n"
+                f"Сумма: {amount_text}\n"
+                f"Пользователь: {await _refund_payer_label(payment_id)}\n\n"
+                f"Доступ не тронут — снять подписку или трафик, если нужно, придётся вручную.",
+            )
+        except Exception as send_err:
+            logger.error("Ошибка отправки админу: %s", send_err)
+
+    return web.json_response({"status": "ok"}, status=200)
+
+
 async def yookassa_webhook_handler(request: web.Request):
     logger.info("Получен запрос вебхука от Yookassa.")
     try:
@@ -198,6 +293,21 @@ async def yookassa_webhook_handler(request: web.Request):
     except Exception as e:
         logger.error("Ошибка при разборе JSON: %s", e)
         return web.json_response({"error": "Invalid JSON"}, status=400)
+
+    # Разбор события до всякого fetch: `WebhookNotification` собирает `object`
+    # как PaymentResponse независимо от события, поэтому у возврата, сделки и
+    # выплаты `.id` — это id возврата/сделки/выплаты, а вовсе не платежа.
+    # Именно так id возврата уезжал в `fetch_payment`.
+    event_name = str(payload.get("event") or "").strip() if isinstance(payload, dict) else ""
+
+    if event_name.startswith(_REFUND_EVENT_PREFIX):
+        return await _handle_refund_notification(payload if isinstance(payload, dict) else {})
+
+    if event_name and not event_name.startswith(_PAYMENT_EVENT_PREFIX):
+        # deal.closed, payout.* и всё, что YooKassa добавит потом. Отвечаем 200:
+        # 502 здесь означал бы «повтори», а повторять нечего.
+        logger.info("Событие '%s' не про платежи — подтверждаем и выходим.", event_name)
+        return web.json_response({"status": "ok"}, status=200)
 
     try:
         # Парсим уведомление от Юкассы

@@ -75,11 +75,18 @@ def test_video_aliases_point_at_real_files():
             assert spec.video_alias in VIDEOS, f"{key} references unknown video {spec.video_alias}"
 
 
-def test_auto_import_link_percent_encodes_the_deep_link():
+def test_auto_import_link_percent_encodes_the_deep_link(monkeypatch):
     """
     The `happ://` deep link is a query parameter, so its own separators have
     to be encoded -- only the Windows handler got this right before Phase 2.
+
+    The wrapper is pinned rather than read from the environment. Encoding only
+    happens on the wrapped path, so without WEB_BASE_URL set this asserted
+    nothing and passed -- and with it unset, failed. Which of the two you got
+    depended on the machine.
     """
+    monkeypatch.setattr(setup, "_auto_import_wrapper", lambda: "https://kairavpn.pro/auto?url=")
+
     link = _auto_import_link("https://panel.example.com/sub/a b?x=1#frag")
     assert " " not in link
     assert "%20" in link
