@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Устройства — KairaVPN</title>
+<meta name="theme-color" content="#000000">
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png">
+<link rel="preload" href="/assets/fonts/inter-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/assets/fonts/jetbrains-mono-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/css/app.css">
+<script type="module" src="/assets/js/devices.js"></script>
+<script type="module" src="/assets/js/footer.js"></script>
+</head>
+<body>
+<!--icon-sprite-->
+
+<header class="site-header">
+  <a class="brand" href="/app">
+    <svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg>
+    <span>KairaVPN</span>
+  </a>
+  <nav class="tabs" aria-label="Разделы кабинета">
+    <a href="/app" data-tab>Обзор</a>
+    <a href="/app/plans" data-tab>Тарифы</a>
+    <a href="/app/devices" data-tab>Устройства</a>
+    <a href="/app/profile" data-tab>Профиль</a>
+  </nav>
+  <div class="row">
+    <div class="who">
+      <span class="mono-sm strong" data-me-email>&nbsp;</span>
+      <span class="mono-sm accent" data-me-tag hidden></span>
+    </div>
+    <button class="btn btn-ghost btn-sm" type="button" data-logout>Выйти</button>
+  </div>
+</header>
+
+<main class="app-main">
+
+  <section class="split" data-band>
+    <div class="stack">
+      <span class="section-tag">01 // Подключение</span>
+      <h1 class="h-md">Одна ссылка на всё</h1>
+      <p class="mono-sm muted">Вставьте её в приложение на любом устройстве. Конфигурация подтянется сама и будет обновляться, когда мы меняем узлы.</p>
+
+      <div class="notice" data-notice hidden role="status"></div>
+
+      <!-- Everything below needs a subscription link to exist. Until one does,
+           showing an empty field and a QR placeholder promises something that
+           is not there. -->
+      <div class="stack" data-connect hidden>
+        <div class="copy">
+          <input type="text" readonly data-sub-url value="" aria-label="Ссылка подписки" spellcheck="false">
+          <button type="button" data-copy-sub aria-label="Копировать">
+            <span data-icon="copy"></span>
+          </button>
+        </div>
+
+        <div class="row wrap-row">
+          <button class="btn btn-ghost btn-sm" type="button" data-reset>
+            <span data-icon="refresh"></span> Сбросить ссылку
+          </button>
+          <span class="mono-sm muted">Старая перестанет работать сразу — на случай, если ссылка утекла.</span>
+        </div>
+      </div>
+
+      <div class="stack" data-no-connect hidden>
+        <p class="mono-sm muted">Ссылка появится сразу после оформления подписки.</p>
+        <div class="actions">
+          <a class="btn" href="/app/plans"><span data-icon="card"></span> Выбрать тариф</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="side" data-qr-side hidden>
+      <span class="mono-sm muted">QR-код</span>
+      <div class="qr" data-qr aria-live="polite"></div>
+      <p class="mono-sm muted">В приложении: <span class="strong">+</span> → добавить по QR-коду.</p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap stack">
+      <span class="section-tag">02 // Инструкция по установке</span>
+      <p class="mono-sm muted">Выберите устройство — покажем шаги именно для него.</p>
+      <div class="chips" role="tablist" aria-label="Операционная система" data-os-tabs></div>
+      <div data-os-panel role="tabpanel" tabindex="0"></div>
+      <a class="mono-sm accent" href="#" data-faq hidden rel="noopener" target="_blank">Частые вопросы →</a>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap stack">
+      <span class="section-tag">03 // Подключённые устройства</span>
+      <p class="mono-sm muted" data-device-summary></p>
+      <div class="panel" data-device-panel>
+        <ul class="rows" data-device-list></ul>
+      </div>
+      <p class="mono-sm muted">Отключение освобождает слот сразу. Устройство подключится снова, если открыть на нём приложение — если это чужое устройство, сначала сбросьте ссылку.</p>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer app-footer">
+  <div class="wrap row between wrap-row">
+    <div class="stack">
+      <span class="mono accent">KairaVPN</span>
+      <p class="mono-sm muted">Быстрый доступ к любым сайтам. Мы не смотрим, что вы открываете.</p>
+    </div>
+    <nav aria-label="Документы">
+      <span class="mono-sm strong">Документы</span>
+      <a class="mono-sm muted" href="/docs/license" data-doc="license">Лицензионное соглашение</a>
+      <a class="mono-sm muted" href="/docs/privacy" data-doc="privacy">Политика конфиденциальности</a>
+    </nav>
+    <nav aria-label="Связь">
+      <span class="mono-sm strong">Связь</span>
+      <a class="mono-sm muted" href="#" data-support hidden>Поддержка в Telegram</a>
+      <a class="mono-sm muted" href="#" data-channel hidden>Канал с новостями</a>
+      <button class="mono-sm muted as-link" type="button"
+              data-copy-mail="kaira.supp@gmail.com">kaira.supp@gmail.com</button>
+    </nav>
+  </div>
+</footer>
+
+<nav class="tabbar" aria-label="Разделы кабинета">
+  <a href="/app" data-tab><span data-icon="dashboard"></span>Обзор</a>
+  <a href="/app/plans" data-tab><span data-icon="card"></span>Тарифы</a>
+  <a href="/app/devices" data-tab><span data-icon="devices"></span>Устройства</a>
+  <a href="/app/profile" data-tab><span data-icon="person"></span>Профиль</a>
+</nav>
+
+</body>
+</html>

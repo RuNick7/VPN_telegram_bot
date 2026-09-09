@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Вход — KairaVPN</title>
+<meta name="description" content="Вход в личный кабинет KairaVPN по ссылке на почту или через Telegram. Пароль не нужен.">
+<meta name="theme-color" content="#000000">
+<!-- A sign-in page has nothing to offer a search engine and everything to lose
+     from a token-bearing URL being indexed. -->
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png">
+<link rel="preload" href="/assets/fonts/inter-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/assets/fonts/jetbrains-mono-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/css/app.css">
+<script type="module" src="/assets/js/login.js"></script>
+<script type="module" src="/assets/js/footer.js"></script>
+</head>
+<body>
+<!--icon-sprite-->
+
+<header class="site-header">
+  <a class="brand" href="/">
+    <svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg>
+    <span>KairaVPN</span>
+  </a>
+</header>
+
+<main>
+  <div class="slab">
+    <div class="slab-inner stack">
+
+      <div>
+        <span class="section-tag">Вход и регистрация</span>
+        <h1 class="h-md">Без пароля</h1>
+        <p class="lead">Мы не храним пароли. Введите почту — пришлём ссылку, по которой вы войдёте. Если аккаунта ещё нет, он создастся сам.</p>
+      </div>
+
+      <div class="notice" data-notice hidden role="status"></div>
+
+      <form class="stack" data-email-form novalidate>
+        <div class="field">
+          <label for="email">Электронная почта</label>
+          <input class="input" id="email" name="email" type="email" inputmode="email"
+                 autocomplete="email" required placeholder="you@example.com" spellcheck="false">
+        </div>
+        <button class="btn btn-block" type="submit" data-submit>
+          <svg class="icon" aria-hidden="true"><use href="#i-mail"></use></svg>
+          Прислать ссылку
+        </button>
+      </form>
+
+      <!-- Shown after a successful request. The form is replaced rather than
+           left alongside it, so nobody re-submits while the letter is in
+           flight and then wonders which of two links is live. -->
+      <div class="panel stack" data-sent hidden>
+        <div class="row">
+          <svg class="icon icon-lg accent" aria-hidden="true"><use href="#i-mail"></use></svg>
+          <strong class="mono strong">Проверьте почту</strong>
+        </div>
+        <p class="mono-sm muted" data-sent-detail></p>
+        <button class="btn btn-ghost btn-block btn-sm" type="button" data-again>Ввести другой адрес</button>
+      </div>
+
+      <!-- Our own button, not Telegram's iframe. The widget renders a fixed
+           blue pill that cannot be styled from here -- it sits in a
+           cross-origin frame -- and it was the one element on the site that
+           looked borrowed. The script is still Telegram's and still does the
+           authenticating; only the thing you click is ours. -->
+      <div class="stack" data-telegram-block hidden>
+        <p class="mono-sm muted">Или войдите через Telegram, если пользуетесь ботом:</p>
+        <button class="btn btn-outline btn-block" type="button" data-telegram-login>
+          <span data-icon="telegram"></span> Войти через Telegram
+        </button>
+      </div>
+
+      <p class="mono-sm muted">
+        Продолжая, вы соглашаетесь с
+        <a class="accent" href="/docs/license" data-doc="license">лицензионным соглашением</a>.
+      </p>
+
+    </div>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap row between wrap-row">
+    <div class="stack">
+      <span class="mono accent">KairaVPN</span>
+      <p class="mono-sm muted">Быстрый доступ к любым сайтам. Мы не смотрим, что вы открываете.</p>
+    </div>
+    <nav aria-label="Документы">
+      <span class="mono-sm strong">Документы</span>
+      <a class="mono-sm muted" href="/docs/license" data-doc="license">Лицензионное соглашение</a>
+      <a class="mono-sm muted" href="/docs/privacy" data-doc="privacy">Политика конфиденциальности</a>
+    </nav>
+    <nav aria-label="Связь">
+      <span class="mono-sm strong">Связь</span>
+      <a class="mono-sm muted" href="#" data-support hidden>Поддержка в Telegram</a>
+      <a class="mono-sm muted" href="#" data-channel hidden>Канал с новостями</a>
+      <button class="mono-sm muted as-link" type="button"
+              data-copy-mail="kaira.supp@gmail.com">kaira.supp@gmail.com</button>
+    </nav>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -1,4 +1,5 @@
 # precache_videos.py  (или тот файл, где лежит логика кэширования)
+import asyncio
 import json, logging
 from pathlib import Path
 from typing import Dict
@@ -75,6 +76,9 @@ async def precache_videos(bot: Bot, admin_chat_id: int) -> dict:
             )
             cache[alias] = msg.video.file_id
             updated = True
+        except asyncio.CancelledError:
+            logging.info("precache_videos cancelled while sending %s", alias)
+            return cache
         except Exception as e:
             logging.exception("⚠️ send_video(%s) failed: %s", alias, e)
 

@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Обзор — KairaVPN</title>
+<meta name="theme-color" content="#000000">
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png">
+<link rel="preload" href="/assets/fonts/inter-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/assets/fonts/jetbrains-mono-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/css/app.css">
+<script type="module" src="/assets/js/overview.js"></script>
+<script type="module" src="/assets/js/footer.js"></script>
+</head>
+<body>
+<!--icon-sprite-->
+
+<header class="site-header">
+  <a class="brand" href="/app">
+    <svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg>
+    <span>KairaVPN</span>
+  </a>
+  <nav class="tabs" aria-label="Разделы кабинета">
+    <a href="/app" data-tab>Обзор</a>
+    <a href="/app/plans" data-tab>Тарифы</a>
+    <a href="/app/devices" data-tab>Устройства</a>
+    <a href="/app/profile" data-tab>Профиль</a>
+  </nav>
+  <div class="row">
+    <div class="who">
+      <span class="mono-sm strong" data-me-email>&nbsp;</span>
+      <span class="mono-sm accent" data-me-tag hidden></span>
+    </div>
+    <button class="btn btn-ghost btn-sm" type="button" data-logout>Выйти</button>
+  </div>
+</header>
+
+<main class="app-main">
+
+  <div class="notice" data-notice hidden role="status"></div>
+
+  <section class="split tex" data-band>
+    <picture>
+      <source srcset="/assets/img/panel-bg.avif" type="image/avif">
+      <img src="/assets/img/panel-bg.webp" alt="" width="1600" height="900" loading="lazy" decoding="async">
+    </picture>
+
+    <div class="stack">
+      <div class="row">
+        <span class="dot" data-status-dot></span>
+        <span class="mono-sm accent" data-status-label>Проверяем подписку…</span>
+      </div>
+      <h1 class="h-md" data-status-title>Kaira</h1>
+      <p class="mono-sm muted" data-status-note></p>
+
+      <!-- Two mutually exclusive states. Which one is shown is decided in
+           overview.js once the subscription has actually been read; neither is
+           rendered before then, so nothing flashes the wrong answer. -->
+      <!-- "Продлить" is deliberately not here. It belongs against the day
+           count, the way "Купить гигабайты" sits against the traffic figure:
+           the number that tells you to act and the control that acts on it
+           were at opposite ends of the screen. -->
+      <div class="actions" data-actions-active hidden>
+        <a class="btn btn-sm" href="/app/devices">
+          <span data-icon="link"></span> Подключить устройство
+        </a>
+        <a class="btn btn-outline btn-sm" href="/app/plans#gift">
+          <span data-icon="gift"></span> Подарить
+        </a>
+      </div>
+
+      <!-- Nothing to connect and nothing to renew, so neither is offered. -->
+      <div class="actions" data-actions-none hidden>
+        <a class="btn" href="/app/plans">
+          <span data-icon="card"></span> Купить подписку
+        </a>
+        <a class="btn btn-outline btn-sm" href="/app/plans#promo">
+          <span data-icon="ticket"></span> У меня есть промокод
+        </a>
+      </div>
+    </div>
+
+    <!-- The whole column goes when there is no subscription: a plaque reading
+         "0 дней" is a worse answer than no plaque. -->
+    <div class="side" data-plan-side hidden>
+      <div>
+        <span class="mono-sm muted">Текущий тариф</span>
+        <div class="mono strong" data-plan-name>—</div>
+      </div>
+      <div class="plaque">
+        <span class="plaque-num num" data-days-left>—</span>
+        <span class="plaque-word" data-days-word>осталось</span>
+      </div>
+      <a class="btn btn-sm plaque-action" href="/app/plans">
+        <span data-icon="refresh"></span> Продлить
+      </a>
+      <p class="mono-sm muted">Активна до <span class="strong num" data-plan-until>—</span></p>
+    </div>
+  </section>
+
+  <section class="grid-lines cols-4" aria-label="Показатели аккаунта" data-stats>
+
+    <div class="card-hover stack" data-traffic-cell hidden>
+      <div class="panel-head">
+        <span class="mono-sm" data-traffic-label>Трафик</span>
+        <span data-icon="chart"></span>
+      </div>
+      <div class="row between wrap-row">
+        <div class="metric num"><span data-traffic-used>—</span> <small data-traffic-total></small></div>
+        <a class="btn btn-sm" href="/app/plans#traffic">Купить гигабайты</a>
+      </div>
+      <div class="meter" data-traffic-meter><span></span></div>
+      <p class="mono-sm muted" data-traffic-note></p>
+    </div>
+
+    <div class="card-hover stack" data-referrals-cell>
+      <div class="panel-head">
+        <span class="mono-sm">Приглашённые</span>
+        <span data-icon="group"></span>
+      </div>
+      <div class="metric num" data-referral-count>—</div>
+      <p class="mono-sm muted" data-referral-note></p>
+      <a class="mono-sm accent" href="/app/profile#referrals">Реферальная программа →</a>
+    </div>
+
+    <div class="card-hover stack">
+      <div class="panel-head">
+        <span class="mono-sm">Активные устройства</span>
+        <span data-icon="devices"></span>
+      </div>
+      <div class="metric num"><span data-device-count>—</span> <small data-device-limit></small></div>
+      <div class="pips" data-device-pips></div>
+    </div>
+
+    <!-- Bot and channel share one cell rather than taking two. The grid is a
+         row of four and both are one link apiece, so a tile each would have
+         cost a whole row to say very little. Each link appears only when it is
+         configured, and the cell stays hidden when neither is. -->
+    <div class="card-hover stack" data-telegram-card hidden>
+      <div class="panel-head">
+        <span class="mono-sm">Telegram</span>
+        <span data-icon="telegram"></span>
+      </div>
+      <div class="mono strong" data-bot-handle>—</div>
+      <p class="mono-sm muted">Тот же аккаунт, что здесь.</p>
+      <div class="row wrap-row">
+        <a class="mono-sm accent" data-bot-link href="#" rel="noopener" hidden>Бот →</a>
+        <a class="mono-sm accent" data-channel-link href="#" rel="noopener" hidden>Канал →</a>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- Hidden until there is a link to put in it. An empty box that focuses
+       when you click it reads as something that ought to have a value. -->
+  <section class="section" data-sub-section hidden>
+    <div class="wrap stack">
+      <span class="section-tag">Ссылка подписки</span>
+      <p class="mono-sm muted">Одна ссылка на все устройства. Вставьте её в приложение — конфигурация подтянется сама и будет обновляться.</p>
+      <div class="copy">
+        <input type="text" readonly data-sub-url value="" aria-label="Ссылка подписки" spellcheck="false">
+        <button type="button" data-copy-sub aria-label="Копировать">
+          <span data-icon="copy"></span>
+        </button>
+      </div>
+      <a class="mono-sm accent" href="/app/devices">Инструкции по установке и QR-код →</a>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer app-footer">
+  <div class="wrap row between wrap-row">
+    <div class="stack">
+      <span class="mono accent">KairaVPN</span>
+      <p class="mono-sm muted">Быстрый доступ к любым сайтам. Мы не смотрим, что вы открываете.</p>
+    </div>
+    <nav aria-label="Документы">
+      <span class="mono-sm strong">Документы</span>
+      <a class="mono-sm muted" href="/docs/license" data-doc="license">Лицензионное соглашение</a>
+      <a class="mono-sm muted" href="/docs/privacy" data-doc="privacy">Политика конфиденциальности</a>
+    </nav>
+    <nav aria-label="Связь">
+      <span class="mono-sm strong">Связь</span>
+      <a class="mono-sm muted" href="#" data-support hidden>Поддержка в Telegram</a>
+      <a class="mono-sm muted" href="#" data-channel hidden>Канал с новостями</a>
+      <button class="mono-sm muted as-link" type="button"
+              data-copy-mail="kaira.supp@gmail.com">kaira.supp@gmail.com</button>
+    </nav>
+  </div>
+</footer>
+
+<nav class="tabbar" aria-label="Разделы кабинета">
+  <a href="/app" data-tab><span data-icon="dashboard"></span>Обзор</a>
+  <a href="/app/plans" data-tab><span data-icon="card"></span>Тарифы</a>
+  <a href="/app/devices" data-tab><span data-icon="devices"></span>Устройства</a>
+  <a href="/app/profile" data-tab><span data-icon="person"></span>Профиль</a>
+</nav>
+
+</body>
+</html>

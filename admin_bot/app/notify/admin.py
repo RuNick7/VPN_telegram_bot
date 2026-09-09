@@ -48,22 +48,37 @@ async def _send_with_retry(coro_factory, *, attempts: int = 3, base_delay: float
         raise last_exc
 
 
-async def send_admin_message(text: str, bot: Optional[Bot] = None) -> None:
-    """Send a message to all admin users."""
+async def send_admin_message(
+    text: str, bot: Optional[Bot] = None, *, html_body: bool = False
+) -> None:
+    """
+    Send a message to all admin users.
+
+    By default the text is escaped and wrapped in `<pre>`, because most callers
+    are error reports and log tails: arbitrary text containing `<` would
+    otherwise break parsing, or worse, be interpreted.
+
+    `html_body=True` sends the text through as HTML instead. For a report the
+    caller has composed on purpose -- the daily headcount was written with
+    `<b>` headings and arrived showing the tags themselves, escaped into a
+    monospace block. A caller passing True owns the escaping of anything it
+    interpolates.
+    """
     created_bot = bot is None
     if not bot:
         from app.bot.factory import create_bot
         bot = create_bot()
 
-    safe_text = html.escape(text)
+    body = text if html_body else html.escape(text)
     max_chunk = 4000
-    chunks = [safe_text[i:i + max_chunk] for i in range(0, len(safe_text), max_chunk)] or [""]
+    chunks = [body[i:i + max_chunk] for i in range(0, len(body), max_chunk)] or [""]
 
     for admin_id in settings.admin_ids:
         try:
             for chunk in chunks:
+                payload = chunk if html_body else f"<pre>{chunk}</pre>"
                 await _send_with_retry(
-                    lambda: bot.send_message(chat_id=admin_id, text=f"<pre>{chunk}</pre>")
+                    lambda: bot.send_message(chat_id=admin_id, text=payload)
                 )
         except Exception as e:
             # Log error but don't raise to avoid recursion

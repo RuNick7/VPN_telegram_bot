@@ -1,43 +1,169 @@
 <!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>KairaVPN Login</title>
-    <link rel="stylesheet" href="./src/styles.css" />
-  </head>
-  <body>
-    <main class="container">
-      <h1>KairaVPN Login</h1>
-      <p>Sign in with Telegram (placeholder) or email magic link.</p>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KairaVPN — безопасный доступ без ограничений</title>
+<meta name="description" content="VPN без логов и без ограничений скорости. Подписка от 89 ₽ в месяц, оплата картой, подключение за минуту на любом устройстве.">
+<meta name="theme-color" content="#000000">
+<meta name="robots" content="index, follow">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="KairaVPN">
+<meta property="og:title" content="KairaVPN — безопасный доступ без ограничений">
+<meta property="og:description" content="VPN без логов и без ограничений скорости. Подписка от 89 ₽ в месяц.">
+<meta property="og:image" content="/assets/img/apple-touch-icon.png">
+<link rel="canonical" href="https://kairavpn.pro/">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png">
+<!-- The two subsets every page needs before it can paint text. The rest of the
+     stylesheet's @font-face rules load on demand via unicode-range. -->
+<link rel="preload" href="/assets/fonts/inter-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/assets/fonts/jetbrains-mono-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/css/app.css">
+<script type="module" src="/assets/js/landing.js"></script>
+<script type="module" src="/assets/js/footer.js"></script>
+</head>
+<body>
+<!--icon-sprite-->
 
-      <section class="card">
-        <h2>Telegram</h2>
-        <div id="telegram-widget-container"></div>
-        <button id="telegram-login-btn" type="button">Reload Telegram Widget</button>
-        <p class="muted">If widget does not appear, check bot username and browser network access to telegram.org.</p>
-      </section>
+<header class="site-header">
+  <a class="brand" href="/">
+    <svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg>
+    <span>KairaVPN</span>
+  </a>
+  <nav class="row">
+    <a class="mono muted" href="#tariffs">Тарифы</a>
+    <a class="btn btn-sm" href="/login" data-cabinet-link>Личный кабинет</a>
+  </nav>
+</header>
 
-      <section class="card">
-        <h2>Email Magic Link</h2>
-        <label class="label" for="magic-email-input">Email</label>
-        <input id="magic-email-input" type="email" placeholder="user@example.com" />
-        <button id="magic-request-btn" type="button">Send Magic Link</button>
-      </section>
+<main>
 
-      <section class="card">
-        <h2>Confirm Token</h2>
-        <label class="label" for="magic-token-input">Token</label>
-        <input id="magic-token-input" type="text" placeholder="Paste token from email/dev response" />
-        <button id="magic-verify-btn" type="button">Verify and Continue</button>
-      </section>
+  <section class="hero">
+    <!-- Poster first, always. The video is attached by script only where it is
+         worth the bytes; see landing.js. -->
+    <picture>
+      <source srcset="/assets/img/hero-poster.avif" type="image/avif">
+      <img class="hero-media" src="/assets/img/hero-poster.webp" alt="" width="1600" height="900" fetchpriority="high" decoding="async">
+    </picture>
 
-      <pre id="output">No requests yet.</pre>
-    </main>
-    <script>
-      // Replace with your real bot username if needed.
-      window.TELEGRAM_BOT_USERNAME = window.TELEGRAM_BOT_USERNAME || "KairaTest_bot";
-    </script>
-    <script src="./src/main.js"></script>
-  </body>
-  </html>
+    <div class="hero-body">
+      <div>
+        <div class="hero-mark">
+          <svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg>
+        </div>
+        <h1 class="display">Безопасный доступ.<br><span class="accent">Без ограничений.</span></h1>
+        <p class="lead">Быстрый, прямой и защищённый. Обход блокировок мгновенно. Только чистый доступ к сети.</p>
+      </div>
+      <div class="hero-price">
+        <span class="mono accent">Месячный тариф</span>
+        <span class="h-md num" data-monthly-price>—</span>
+        <p class="mono-sm strong" data-trial-hero hidden></p>
+        <a class="btn btn-lg" href="/login">Подключить VPN</a>
+      </div>
+    </div>
+  </section>
+
+  <!-- There was a strip of four figures here: channel, nodes, whitelist
+       bypass, price. Every one of them is stated again below with an
+       explanation attached, and the price a third time in the hero — the same
+       three facts read three times before a visitor reached the tariffs. The
+       version that explains itself is the one worth keeping. -->
+
+  <section class="section">
+    <div class="wrap">
+      <span class="section-tag">01 // Инфраструктура</span>
+      <div class="grid-lines cols-3">
+        <div class="card-hover stack">
+          <svg class="icon icon-lg accent" aria-hidden="true"><use href="#i-eye-off"></use></svg>
+          <h3 class="mono strong">Без логов</h3>
+          <p class="mono-sm muted">Мы не пишем историю подключений и не храним то, что вы открываете. Хранить нечего — значит нечего и выдать.</p>
+        </div>
+        <div class="card-hover stack">
+          <svg class="icon icon-lg accent" aria-hidden="true"><use href="#i-unlock"></use></svg>
+          <h3 class="mono strong">Обход белых списков</h3>
+          <p class="mono-sm muted">Протоколы с маскировкой трафика: соединение выглядит как обычный HTTPS и проходит там, где открыт доступ только к разрешённому списку сайтов.</p>
+        </div>
+        <div class="card-hover stack">
+          <svg class="icon icon-lg accent" aria-hidden="true"><use href="#i-speed"></use></svg>
+          <h3 class="mono strong">Канал 2 Гбит/с</h3>
+          <p class="mono-sm muted">Скорость не режется искусственно и не зависит от тарифа. Нагрузка распределяется балансировщиками между четырьмя узлами в разных локациях.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <span class="section-tag">02 // Устройства</span>
+      <div class="grid-lines cols-3">
+        <div class="stack">
+          <svg class="icon icon-lg accent" aria-hidden="true"><use href="#i-tv"></use></svg>
+          <h3 class="mono strong">Телевизор и приставка</h3>
+          <p class="mono-sm muted">Android TV и Apple TV настраиваются по той же подписке. Инструкция — в личном кабинете.</p>
+        </div>
+        <div class="stack">
+          <svg class="icon icon-lg accent" aria-hidden="true"><use href="#i-phone"></use></svg>
+          <h3 class="mono strong">Телефон</h3>
+          <p class="mono-sm muted">iOS и Android: один QR-код из кабинета, приложение подхватывает конфигурацию само.</p>
+        </div>
+        <div class="stack">
+          <svg class="icon icon-lg accent" aria-hidden="true"><use href="#i-monitor"></use></svg>
+          <h3 class="mono strong">Компьютер и консоль</h3>
+          <p class="mono-sm muted">Windows, macOS и Linux. Одна ссылка подписки на все устройства сразу.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="tariffs">
+    <div class="wrap">
+      <span class="section-tag">03 // Тарифы</span>
+      <div class="grid-lines cols-4" data-plans>
+        <div class="plan"><span class="mono-sm muted skeleton">Загрузка</span><div class="metric skeleton">000 ₽</div></div>
+        <div class="plan"><span class="mono-sm muted skeleton">Загрузка</span><div class="metric skeleton">000 ₽</div></div>
+        <div class="plan"><span class="mono-sm muted skeleton">Загрузка</span><div class="metric skeleton">000 ₽</div></div>
+        <div class="plan"><span class="mono-sm muted skeleton">Загрузка</span><div class="metric skeleton">000 ₽</div></div>
+      </div>
+      <!-- The trial is announced once, in the hero, next to the price it
+           changes the meaning of. It used to be repeated here as well.
+
+           The referral line used to read "цена снижается на каждом уровне,
+           вплоть до пятого" — "уровень" is our word for a column in the price
+           table, and it left a reader to guess what a level was and what
+           reaching the fifth would get them. Both numbers now come from
+           /api/config, so the page cannot promise a saving the price table
+           has stopped offering. -->
+      <p class="mono-sm muted" data-referral-line hidden>
+        Пригласите друга — подписка подешевеет. Пятеро друзей, и месяц стоит
+        <span class="strong num" data-referral-best>—</span> вместо
+        <span class="strong num" data-monthly-price>—</span>.
+      </p>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap row between wrap-row">
+    <div class="stack">
+      <span class="mono accent">KairaVPN</span>
+      <p class="mono-sm muted">Быстрый доступ к любым сайтам. Мы не смотрим, что вы открываете.</p>
+    </div>
+    <nav aria-label="Документы">
+      <span class="mono-sm strong">Документы</span>
+      <a class="mono-sm muted" href="/docs/license" data-doc="license">Лицензионное соглашение</a>
+      <a class="mono-sm muted" href="/docs/privacy" data-doc="privacy">Политика конфиденциальности</a>
+    </nav>
+    <nav aria-label="Связь">
+      <span class="mono-sm strong">Связь</span>
+      <a class="mono-sm muted" href="#" data-support hidden>Поддержка в Telegram</a>
+      <a class="mono-sm muted" href="#" data-channel hidden>Канал с новостями</a>
+      <button class="mono-sm muted as-link" type="button"
+              data-copy-mail="kaira.supp@gmail.com">kaira.supp@gmail.com</button>
+    </nav>
+  </div>
+</footer>
+
+</body>
+</html>

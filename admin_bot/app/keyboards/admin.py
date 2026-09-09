@@ -14,8 +14,16 @@ def get_admin_menu_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🎫 Создать промокод", callback_data="admin:promo_create")],
             [InlineKeyboardButton(text="🗑️ Удалить промокод", callback_data="admin:promo_delete")],
             [InlineKeyboardButton(text="📣 Рассылка", callback_data="admin:broadcast")],
-            [InlineKeyboardButton(text="➕ Добавить хост", callback_data="admin:host_quick_add")],
-            [InlineKeyboardButton(text="🗑️ Удалить хост", callback_data="admin:host_delete")],
+            [
+                InlineKeyboardButton(text="🎁 Подарки", callback_data="admin:gifts"),
+                InlineKeyboardButton(text="💳 Платежи", callback_data="admin:payments"),
+            ],
+            # Host creation and deletion are gone from this menu on purpose.
+            # A host is infrastructure, edited once in a while and with more
+            # context than a chat window gives; the panel is where that
+            # belongs. The handlers still exist and still work if their
+            # callbacks are reached, so nothing was deleted that would need
+            # rewriting to bring back.
             [InlineKeyboardButton(text="📊 Статистика", callback_data="admin:stats")]
         ]
     )

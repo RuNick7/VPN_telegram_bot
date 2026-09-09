@@ -44,9 +44,11 @@ class UserCreateState(StatesGroup):
     """States for user creation."""
     username = State()
     expire_at = State()
-    traffic_limit_bytes = State()
     tag = State()
     telegram_id = State()
+    # Optional, like every step after the username. An account created here can
+    # sign in on the website once it has one, and could not before.
+    email = State()
     hwid_device_limit = State()
 
 
@@ -102,3 +104,8 @@ class HostQuickCreateState(StatesGroup):
     nodes = State()
     squad = State()
     exclude_confirm = State()
+
+
+class GiftIssueState(StatesGroup):
+    """Issuing a gift by hand -- compensation, or a delivery that went wrong."""
+    days = State()

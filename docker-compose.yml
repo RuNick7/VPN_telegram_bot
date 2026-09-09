@@ -1,0 +1,139 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tgvpn}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tgvpn}
+      POSTGRES_DB: ${POSTGRES_DB:-tgvpn}
+    ports:
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tgvpn} -d ${POSTGRES_DB:-tgvpn}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    # The one service that was missing this, and the only one whose absence
+    # takes everything else with it. A host reboot brought the bots and the
+    # site back up against a database that never returned, and they sat in a
+    # crash loop until somebody noticed -- `depends_on` orders a startup, it
+    # does not restart a dependency that died.
+    restart: unless-stopped
+
+  migrate:
+    image: migrate/migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./migrations:/migrations
+    command:
+      [
+        "-path=/migrations",
+        "-database=postgresql://${POSTGRES_USER:-tgvpn}:${POSTGRES_PASSWORD:-tgvpn}@postgres:5432/${POSTGRES_DB:-tgvpn}?sslmode=disable",
+        "up",
+      ]
+
+  # Default: all three bot processes in one container, supervised by
+  # run_all.py. `docker compose up -d` brings up postgres + migrate + this.
+  bots:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tgvpn}:${POSTGRES_PASSWORD:-tgvpn}@postgres:5432/${POSTGRES_DB:-tgvpn}
+      WEBHOOK_HOST: 0.0.0.0
+    ports:
+      - "${WEBHOOK_HOST_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Customer website backend (Go). Independent of the bots: it shares only the
+  # database, and the two never write the same rows -- payment state stays
+  # owned by the Python webhook handler.
+  #
+  # Not started by a bare `docker compose up`. Bring it up explicitly:
+  #     docker compose --profile web up -d web
+  web:
+    profiles: ["web"]
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tgvpn}:${POSTGRES_PASSWORD:-tgvpn}@postgres:5432/${POSTGRES_DB:-tgvpn}
+      WEB_LISTEN_ADDR: ":8080"
+    ports:
+      # Bound to loopback: TLS termination belongs to the reverse proxy in
+      # front, and the session cookie is Secure-only, so exposing this port
+      # directly would produce a site that cannot log anybody in.
+      - "127.0.0.1:${WEB_HOST_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # The same three processes as separate services, for restarting or reading
+  # the logs of one bot without touching the others:
+  #     docker compose --profile separate up -d
+  # Never run these alongside `bots` -- two pollers on one Telegram token fight
+  # each other for updates, and both would bind the webhook port.
+  admin_bot:
+    profiles: ["separate"]
+    build:
+      context: .
+      dockerfile: admin_bot/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tgvpn}:${POSTGRES_PASSWORD:-tgvpn}@postgres:5432/${POSTGRES_DB:-tgvpn}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  user_bot:
+    profiles: ["separate"]
+    build:
+      context: .
+      dockerfile: user_bot/Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tgvpn}:${POSTGRES_PASSWORD:-tgvpn}@postgres:5432/${POSTGRES_DB:-tgvpn}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  user_bot_webhook:
+    profiles: ["separate"]
+    build:
+      context: .
+      dockerfile: user_bot/Dockerfile
+    command: ["python", "run_webhook.py"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-tgvpn}:${POSTGRES_PASSWORD:-tgvpn}@postgres:5432/${POSTGRES_DB:-tgvpn}
+      WEBHOOK_HOST: 0.0.0.0
+    ports:
+      - "${WEBHOOK_HOST_PORT:-8000}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  postgres-data:

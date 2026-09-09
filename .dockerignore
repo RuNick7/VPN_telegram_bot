@@ -1,0 +1,25 @@
+.git/
+.github/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+**/*.egg-info/
+.venv/
+venv/
+.claude/
+.env
+.env.local
+logs/
+backups/
+
+# `web/` used to be excluded here, from when it held the FastAPI prototype that
+# was never containerised. It is now a Go service whose image builds from this
+# same repo-root context, so excluding it made `COPY web/ ./` fail with a
+# confusing "/web": not found -- the directory is plainly on disk, and only the
+# build context is missing it. The bot images do not COPY anything from web/,
+# so carrying it costs them context size and nothing else.
+
+*.md
+node_modules/

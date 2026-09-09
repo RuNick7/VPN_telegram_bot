@@ -1,15 +1,54 @@
+# --- Secrets & local env ---
 .env
+.env.local
+.env.*.local
 admin_bot/.env
 admin_bot/logs/
 admin_bot/backups/
-logs/
+user_bot/.env
+
+# --- Python ---
+.venv/
+venv/
+web/backend/.venv312/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+build/
+
+# --- Databases & backups ---
+*.db
+*.db-wal
+*.db-shm
 user_bot/data/*.db
 user_bot/data/*.db-wal
 user_bot/data/*.db-shm
-.venv/
-web/backend/.venv312/
+
+# --- Logs ---
+logs/
+*.log
+
+# --- Cookies / scratch files left by curl tests ---
 web/backend/cookies*.txt
-__pycache__/
-*.pyc
-.DS_Store
+cookies*.txt
+
+# --- IDEs ---
 .idea/
+.vscode/
+*.swp
+*.swo
+
+# --- Claude Code local session config ---
+.claude/
+# Holds an API key in plaintext. `.mcp.json` is normally shared with a team,
+# but this one carries a credential, so it stays local.
+.mcp.json
+
+# --- OS ---
+.DS_Store
+Thumbs.db

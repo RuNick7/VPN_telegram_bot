@@ -1,0 +1,1408 @@
+/*
+ * KairaVPN — one stylesheet for the whole site.
+ *
+ * Hand-written rather than generated, because the design has perhaps thirty
+ * distinct rules in it and a utility framework would have cost more bytes than
+ * the entire site does. Every value below traces back to the Stitch design
+ * system: zero radius, one accent, hairline borders, and a black/white
+ * alternation between sections.
+ *
+ * No inline styles anywhere. That is what lets the server send a
+ * Content-Security-Policy with no 'unsafe-inline' in it.
+ */
+
+@import url("../fonts/fonts.css");
+
+/* -- tokens ------------------------------------------------------------- */
+
+:root {
+  --void: #000;
+  --surface: #131313;
+  --carbon: #1a1a1a;
+  --surface-low: #1c1b1b;
+  --line: #3c3c3c;
+  --steel: #737373;
+  --on-bg: #e5e2e1;
+  --bone: #f5f5f5;
+  --ember: #ff4f2b;
+  --ember-dim: #b82100;
+  --danger: #ffb4ab;
+  --ok: #7ddc8b;
+
+  --sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  --gutter: clamp(1.5rem, 5vw, 4rem);
+  --header: 5rem;
+  --pad: clamp(1.5rem, 3vw, 2rem);
+
+  color-scheme: dark;
+}
+
+/* -- reset -------------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--void);
+  color: var(--on-bg);
+  font: 400 16px/1.5 var(--sans);
+  overscroll-behavior-y: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+img,
+svg,
+video {
+  display: block;
+  max-width: 100%;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+h1,
+h2,
+h3,
+p,
+figure,
+ul {
+  margin: 0;
+}
+
+ul {
+  padding: 0;
+  list-style: none;
+}
+
+/* Every interactive element gets the same visible ring. Removing the outline
+   without replacing it is the single most common way a site becomes unusable
+   by keyboard. */
+:focus-visible {
+  outline: 2px solid var(--ember);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--ember);
+  color: var(--void);
+}
+
+/* -- type --------------------------------------------------------------- */
+
+.display,
+.h-md {
+  font-weight: 300;
+  color: var(--bone);
+  text-transform: uppercase;
+}
+
+.display {
+  font-size: clamp(2.75rem, 8vw, 6rem);
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+}
+
+.h-md {
+  font-size: clamp(2rem, 4.5vw, 3rem);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.lead {
+  font-size: clamp(1rem, 2vw, 1.125rem);
+  line-height: 1.6;
+  color: var(--steel);
+}
+
+.mono,
+.mono-sm,
+.section-tag {
+  font-family: var(--mono);
+  font-weight: 500;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.mono {
+  font-size: 0.875rem;
+  letter-spacing: 0.05em;
+}
+
+.mono-sm,
+.section-tag {
+  font-size: 0.75rem;
+  letter-spacing: 0.1em;
+}
+
+.section-tag {
+  display: block;
+  color: var(--ember);
+  letter-spacing: 0.18em;
+  margin-bottom: 2rem;
+}
+
+.muted {
+  color: var(--steel);
+}
+
+.accent {
+  color: var(--ember);
+}
+
+.strong {
+  color: var(--bone);
+}
+
+.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* -- icons -------------------------------------------------------------- */
+
+/* The sprite's symbols carry no paint of their own -- see icons.svg. Every one
+   of these properties is inherited, which is what lets them reach content
+   cloned in by an external <use>. */
+.icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.icon-lg {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+/* -- layout ------------------------------------------------------------- */
+
+.wrap {
+  max-width: 84rem;
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+.section {
+  padding-block: clamp(4rem, 9vw, 7rem);
+  border-bottom: 1px solid var(--line);
+}
+
+.grid-lines {
+  display: grid;
+  border: 1px solid var(--line);
+}
+
+/* The hairline grid: cells butt against each other and share one border, which
+   is what makes it read as a drawn table rather than a row of cards. */
+.grid-lines > * {
+  border-top: 1px solid var(--line);
+  padding: var(--pad);
+}
+
+.grid-lines > *:first-child {
+  border-top: 0;
+}
+
+@media (min-width: 48rem) {
+  .cols-2 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .cols-3 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .cols-4 {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  .cols-2 > *,
+  .cols-3 > *,
+  .cols-4 > * {
+    border-top: 0;
+    border-left: 1px solid var(--line);
+  }
+  .cols-2 > :nth-child(2n + 1),
+  .cols-3 > :nth-child(3n + 1),
+  .cols-4 > :nth-child(4n + 1) {
+    border-left: 0;
+  }
+  .cols-2 > :nth-child(n + 3),
+  .cols-3 > :nth-child(n + 4),
+  .cols-4 > :nth-child(n + 5) {
+    border-top: 1px solid var(--line);
+  }
+}
+
+/* There are no inline `style` attributes anywhere in this project, which is
+   what lets style-src stay free of 'unsafe-inline'. One-off layout tweaks live
+   here instead. */
+@media (min-width: 48rem) {
+  .span-2 {
+    grid-column: span 2;
+  }
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.between {
+  justify-content: space-between;
+}
+
+.wrap-row {
+  flex-wrap: wrap;
+}
+
+.grow {
+  flex: 1;
+}
+
+/* -- header ------------------------------------------------------------- */
+
+.site-header {
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 50;
+  height: var(--header);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-inline: var(--gutter);
+  background: var(--void);
+  border-bottom: 1px solid var(--line);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  color: var(--ember);
+}
+
+.brand svg {
+  width: 2rem;
+  height: 2rem;
+}
+
+.brand span {
+  color: var(--bone);
+  font-family: var(--mono);
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.tabs {
+  display: none;
+  align-items: center;
+  gap: 0.25rem;
+  height: 3rem;
+  padding: 0.25rem;
+  border: 1px solid var(--line);
+}
+
+.tabs a {
+  padding: 0.5rem 1rem;
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--bone);
+  transition: color 0.15s;
+}
+
+.tabs a:hover {
+  color: var(--ember);
+}
+
+.tabs a[aria-current="page"] {
+  background: var(--ember);
+  color: var(--void);
+}
+
+.who {
+  display: none;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.3;
+}
+
+@media (min-width: 64rem) {
+  .tabs,
+  .who {
+    display: flex;
+  }
+}
+
+/* Bottom bar on phones, replacing the tab strip. */
+.tabbar {
+  position: fixed;
+  inset: auto 0 0;
+  z-index: 50;
+  display: flex;
+  height: var(--header);
+  background: var(--void);
+  border-top: 1px solid var(--line);
+}
+
+.tabbar a {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  font-family: var(--mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--steel);
+}
+
+.tabbar a[aria-current="page"] {
+  color: var(--ember);
+}
+
+@media (min-width: 64rem) {
+  .tabbar {
+    display: none;
+  }
+}
+
+main {
+  padding-top: var(--header);
+}
+
+/* Deliberately no `min-height: 100vh`. It was here so a short cabinet page
+   still filled the screen, and once the footer went below it the rule did the
+   opposite of its job: it stretched <main> past its own content and left a
+   quarter-screen of nothing between the last section and the footer. The page
+   ends where the content ends. */
+
+/* -- buttons ------------------------------------------------------------ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.6875rem 1.25rem;
+  border: 1px solid var(--ember);
+  background: var(--ember);
+  color: var(--void);
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 0.18s, color 0.18s, border-color 0.18s;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--bone);
+  border-color: var(--bone);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-ghost {
+  background: transparent;
+  border-color: var(--bone);
+  color: var(--bone);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  background: var(--bone);
+  color: var(--void);
+}
+
+.btn-outline {
+  background: transparent;
+  color: var(--ember);
+}
+
+.btn-outline:hover:not(:disabled) {
+  background: var(--ember);
+  color: var(--void);
+  border-color: var(--ember);
+}
+
+.btn-sm {
+  padding: 0.4375rem 0.875rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+}
+
+/* The one call to action on a page can afford to be bigger than the rest.
+   Used for "buy a subscription" on an account that has none -- there is
+   nothing else to do there, so nothing else competes with it. */
+.btn-lg {
+  padding: 0.9375rem 2rem;
+}
+
+.btn-block {
+  width: 100%;
+}
+
+.btn-danger {
+  border-color: var(--line);
+  background: transparent;
+  color: var(--danger);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: var(--danger);
+  color: var(--void);
+  border-color: var(--danger);
+}
+
+/* Busy buttons keep their label so the layout does not jump, and announce the
+   state to assistive tech rather than only dimming. */
+.btn[aria-busy="true"] {
+  position: relative;
+  color: transparent;
+}
+
+.btn[aria-busy="true"]::after {
+  content: "";
+  position: absolute;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid currentcolor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  color: var(--void);
+  animation: spin 0.7s linear infinite;
+}
+
+.btn-ghost[aria-busy="true"]::after,
+.btn-outline[aria-busy="true"]::after {
+  color: var(--bone);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* -- forms -------------------------------------------------------------- */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.field > label {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--steel);
+}
+
+.input {
+  width: 100%;
+  padding: 0.9375rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--void);
+  color: var(--bone);
+  font-family: var(--mono);
+  font-size: 0.875rem;
+  letter-spacing: 0.03em;
+  transition: border-color 0.15s;
+  appearance: none;
+}
+
+.input::placeholder {
+  color: #4a4a4a;
+}
+
+.input:focus {
+  border-color: var(--ember);
+  outline: none;
+}
+
+.input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+/* -- notices ------------------------------------------------------------ */
+
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--line);
+  background: var(--carbon);
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.notice[data-kind="error"] {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.notice[data-kind="ok"] {
+  border-color: var(--ok);
+  color: var(--ok);
+}
+
+.notice[hidden] {
+  display: none;
+}
+
+/* The flash message is pinned to the viewport rather than to wherever in the
+   document it happens to sit.
+   It was a block near the top of the page, so the answer to something done
+   further down -- naming a referrer, resetting a link, redeeming a code --
+   appeared off-screen, and the button looked like it had done nothing at all.
+   Only `[data-notice]` moves: that attribute marks the one notice `flash()`
+   writes to, and a notice used as ordinary page content stays where it is. */
+.notice[data-notice] {
+  position: fixed;
+  z-index: 60;
+  left: 50%;
+  transform: translateX(-50%);
+  /* Clear of the tab bar, which is fixed over the bottom on phones. */
+  bottom: calc(var(--header) + 1rem);
+  width: min(34rem, calc(100vw - 2rem));
+  background: var(--surface);
+  box-shadow: 0 1rem 2.5rem rgb(0 0 0 / 0.55);
+}
+
+@media (min-width: 64rem) {
+  .notice[data-notice] {
+    bottom: 1.5rem;
+  }
+}
+
+.notice-close {
+  flex: none;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.notice-close:hover {
+  opacity: 1;
+}
+
+/* -- panels ------------------------------------------------------------- */
+
+.panel {
+  border: 1px solid var(--line);
+  padding: var(--pad);
+  background: var(--void);
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  color: var(--steel);
+}
+
+/* Inside a stack the gap already separates it, and the two together left a
+   hole between a cell's title and its number. */
+.stack > .panel-head {
+  margin-bottom: 0;
+}
+
+.card-hover {
+  transition: background 0.18s;
+}
+
+.card-hover:hover {
+  background: var(--carbon);
+}
+
+.metric {
+  font-size: clamp(2rem, 4vw, 3rem);
+  font-weight: 300;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--bone);
+}
+
+.metric small {
+  font-size: 1.25rem;
+  color: var(--steel);
+}
+
+/* An inverted cell. The design uses one per screen at most: it is the thing
+   your eye lands on first, so a second one would cancel the first. */
+.invert {
+  background: var(--ember);
+  color: var(--void);
+}
+
+.invert .metric,
+.invert .muted,
+.invert .panel-head {
+  color: var(--void);
+}
+
+/* -- meters ------------------------------------------------------------- */
+
+.meter {
+  height: 4px;
+  background: var(--carbon);
+  overflow: hidden;
+}
+
+.meter > span {
+  display: block;
+  height: 100%;
+  background: var(--bone);
+  transition: width 0.6s ease-out;
+}
+
+.meter[data-low="true"] > span {
+  background: var(--ember);
+}
+
+.pips {
+  display: flex;
+  gap: 4px;
+}
+
+.pips > span {
+  height: 8px;
+  flex: 1;
+  background: var(--carbon);
+}
+
+.pips > span[data-on="true"] {
+  background: var(--ember);
+}
+
+/* -- hero --------------------------------------------------------------- */
+
+.hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-height: min(85vh, 46rem);
+  margin-top: calc(var(--header) * -1);
+  padding-top: var(--header);
+  border-bottom: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.hero-media {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  object-fit: cover;
+  width: 100%;
+  height: 100%;
+}
+
+/* The scrim is doing real work: the footage has bright syntax highlighting in
+   it, and the headline has to stay legible over whichever frame is showing. */
+.hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: linear-gradient(
+    to bottom,
+    rgb(0 0 0 / 0.7) 0%,
+    rgb(0 0 0 / 0.78) 55%,
+    rgb(0 0 0 / 0.92) 100%
+  );
+}
+
+.hero-body {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 3rem;
+  padding: 0 var(--gutter) clamp(3rem, 6vw, 4rem);
+}
+
+.hero-mark {
+  display: grid;
+  place-items: center;
+  width: 6rem;
+  height: 6rem;
+  margin-bottom: 2rem;
+  border: 1px solid var(--line);
+  background: var(--void);
+  color: var(--ember);
+}
+
+.hero-mark svg {
+  width: 4rem;
+  height: 4rem;
+}
+
+.hero-price {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+/* A section that sits on a photographic background. */
+.tex {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+
+/* The <picture> has to come out of flow, not just the <img> inside it.
+   Left in, it was a grid item: on a two-column band it took the first column
+   and pushed the panel that should have been beside the status onto a second
+   row, at twice its width. The background looked right, so the symptom was a
+   layout that seemed arbitrary rather than broken. */
+.tex > picture {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+}
+
+/* Not `> img`: these sit inside a <picture>, so the image is a grandchild. */
+.tex img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.28;
+}
+
+.tex::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: rgb(0 0 0 / 0.55);
+}
+
+/* -- split band --------------------------------------------------------- */
+
+.split {
+  display: grid;
+  border-bottom: 1px solid var(--line);
+}
+
+.split > * {
+  padding: var(--gutter);
+}
+
+.split > :first-child {
+  border-bottom: 1px solid var(--line);
+}
+
+@media (min-width: 64rem) {
+  .split {
+    grid-template-columns: 2fr 1fr;
+  }
+  .split > :first-child {
+    border-bottom: 0;
+    border-right: 1px solid var(--line);
+  }
+}
+
+.split .side {
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* With nothing to put in the second column, the band is one column. Left as a
+   2fr/1fr grid it drew a hairline down the middle of an empty half. */
+.split[data-single="true"] {
+  grid-template-columns: 1fr;
+}
+
+.split[data-single="true"] > :first-child {
+  border-right: 0;
+}
+
+/* The cabinet is denser than the landing page.
+   The front page is a poster and can afford to breathe; these four are a tool
+   somebody opens to check one number, and the same rhythm made it a page you
+   have to scroll to see three facts. */
+.app-main .split > * {
+  padding: var(--pad);
+}
+
+.app-main .section {
+  padding-block: clamp(2rem, 4vw, 3rem);
+}
+
+.app-main .section-tag {
+  margin-bottom: 1.25rem;
+}
+
+/* -- actions ------------------------------------------------------------ */
+
+/* Buttons sized to their labels and set on one line.
+   Three full-width blocks stacked in the side column took most of a desktop
+   screen to offer three things that fit on one row. */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.625rem;
+}
+
+/* -- days-left plaque --------------------------------------------------- */
+
+/* How long is left is the one thing the cabinet exists to answer, so it is
+   the one inverted block on the page -- the design allows exactly one, and it
+   used to be spent on the referral count. */
+.plaque {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  background: var(--ember);
+  color: var(--void);
+}
+
+.plaque-num {
+  /* Bigger than .metric, and by enough to read as the headline of the page.
+     It was already nominally larger and did not look it -- the traffic card
+     spans two columns and carries a meter, so it won the eye on weight while
+     the number that decides whether the service still works sat in a corner. */
+  font-size: clamp(3.25rem, 7vw, 4.75rem);
+  font-weight: 300;
+  line-height: 0.9;
+  letter-spacing: -0.03em;
+}
+
+/* Renew, against the day count. Full width so it reads as belonging to the
+   plaque above it rather than floating beside the date below. */
+.plaque-action {
+  justify-content: center;
+  width: 100%;
+}
+
+.plaque-word {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* The pulse is the only ambient motion in the cabinet, and it is load-bearing:
+   it is what says "this is live" rather than a screenshot of a state. */
+.dot {
+  width: 0.625rem;
+  height: 0.625rem;
+  background: var(--ember);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.dot[data-off="true"] {
+  background: var(--steel);
+  animation: none;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* -- plans -------------------------------------------------------------- */
+
+.plan {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  justify-content: space-between;
+}
+
+.plan[data-best="true"] {
+  background: var(--carbon);
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid currentcolor;
+  font-family: var(--mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ember);
+}
+
+.badge[data-kind="on"] {
+  color: var(--ok);
+}
+
+.badge[data-kind="off"] {
+  color: var(--steel);
+}
+
+/* -- lists -------------------------------------------------------------- */
+
+.rows > li {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1.125rem var(--pad);
+  border-bottom: 1px solid var(--line);
+}
+
+.rows > li:last-child {
+  border-bottom: 0;
+}
+
+.checklist li {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  padding-block: 0.4rem;
+  color: var(--steel);
+  font-size: 0.9375rem;
+}
+
+.checklist .icon {
+  color: var(--ember);
+  margin-top: 0.15rem;
+}
+
+/* -- os tabs ------------------------------------------------------------ */
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.875rem;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--steel);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.chip:hover {
+  color: var(--bone);
+  border-color: var(--bone);
+}
+
+.chip[aria-selected="true"] {
+  background: var(--ember);
+  border-color: var(--ember);
+  color: var(--void);
+}
+
+/* -- numbered steps ----------------------------------------------------- */
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 2.5rem 1fr;
+  gap: 1rem;
+}
+
+.step-num {
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.6;
+  color: var(--ember);
+}
+
+.step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+/* The subscription link is long and has no spaces in it, so it has to be told
+   it may break -- otherwise it pushes the whole column wider than the screen. */
+.code {
+  display: block;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--bone);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+/* The per-platform "it did not work" branch. Separated by a rule rather than
+   folded into a disclosure: somebody reading it is already stuck, and one more
+   control to find and open is one step too many. */
+.drop {
+  margin-top: 2rem;
+  border-top: 1px solid var(--line);
+  padding-top: 1.5rem;
+}
+
+.drop > h3 {
+  margin-bottom: 1.5rem;
+  color: var(--bone);
+}
+
+/* -- copy field --------------------------------------------------------- */
+
+.copy {
+  display: flex;
+  border: 1px solid var(--line);
+}
+
+.copy input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.875rem 1rem;
+  border: 0;
+  background: var(--void);
+  color: var(--bone);
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  text-overflow: ellipsis;
+}
+
+.copy input:focus {
+  outline: none;
+}
+
+.copy button {
+  padding-inline: 1.125rem;
+  border: 0;
+  border-left: 1px solid var(--line);
+  background: transparent;
+  color: var(--steel);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.copy button:hover {
+  background: var(--ember);
+  color: var(--void);
+}
+
+/* -- bought gifts ------------------------------------------------------- */
+
+.gift-list {
+  display: grid;
+  gap: 1rem;
+}
+
+@media (min-width: 48rem) {
+  .gift-list {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.gift {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: var(--pad);
+  border: 1px solid var(--line);
+}
+
+/* A spent gift is history: still listed, because that is how you tell which
+   one was used, but it should not compete with the one still waiting to be
+   handed over. */
+.gift[data-redeemed="true"] {
+  border-color: var(--carbon);
+  color: var(--steel);
+}
+
+/* -- qr ----------------------------------------------------------------- */
+
+/* The generated SVG carries no width of its own, so it grew to whatever
+   column it was dropped into -- on a desktop that was a QR code the size of a
+   beer mat, which no phone needs. */
+.qr {
+  width: 100%;
+  max-width: 11rem;
+}
+
+.qr svg {
+  width: 100%;
+  height: auto;
+}
+
+/* -- legal documents ---------------------------------------------------- */
+
+/* Long-form text, which the rest of the site has none of. Everything here is
+   about being readable for ten minutes rather than scannable in three seconds:
+   a measure that stops around 70 characters, ordinary sentence case, and left
+   alignment (justified text opens rivers of whitespace at this width). */
+.prose {
+  max-width: 48rem;
+  color: var(--on-bg);
+  line-height: 1.7;
+}
+
+.prose > * + * {
+  margin-top: 1.25rem;
+}
+
+.prose h2 {
+  margin-top: 2.5rem;
+  font-size: 1rem;
+  color: var(--bone);
+}
+
+.prose a {
+  color: var(--ember);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.prose .bullets {
+  padding-left: 1.25rem;
+  list-style: disc;
+}
+
+.prose .bullets > li {
+  margin-top: 0.5rem;
+}
+
+/* -- the second-identity offer ------------------------------------------ */
+
+/* A real <dialog>, so Escape closes it, focus is trapped, and the rest of the
+   page is inert -- all of which a div pretending to be a modal has to
+   reimplement, usually incompletely. */
+.modal {
+  width: min(30rem, calc(100vw - 2rem));
+  padding: 0;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--on-bg);
+}
+
+.modal::backdrop {
+  background: rgb(0 0 0 / 0.72);
+}
+
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: var(--pad);
+}
+
+.modal-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem var(--pad);
+  border-top: 1px solid var(--line);
+}
+
+/* The "don't show again" control. A checkbox rather than a third button:
+   dismissing and dismissing forever are the same action with a modifier, and
+   three buttons make the customer read all three to find the one they want. */
+.check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--steel);
+  cursor: pointer;
+}
+
+.check input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--ember);
+  cursor: pointer;
+}
+
+/* -- centred single-column pages (login, gift, verify) ------------------ */
+
+.slab {
+  display: grid;
+  place-items: center;
+  min-height: calc(100vh - var(--header));
+  padding: clamp(2rem, 6vw, 4rem) var(--gutter);
+}
+
+.slab-inner {
+  width: 100%;
+  max-width: 30rem;
+}
+
+/* -- footer ------------------------------------------------------------- */
+
+.site-footer {
+  padding-block: 3rem;
+  border-top: 1px solid var(--line);
+}
+
+.site-footer .row {
+  align-items: flex-start;
+  gap: 2.5rem 4rem;
+}
+
+.site-footer nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.site-footer a:hover {
+  color: var(--ember);
+}
+
+/* The support address, which copies rather than navigating.
+   `mailto:` is the obvious markup and the wrong one here: on a machine with no
+   mail client configured -- which is most of them -- clicking it opened a blank
+   browser tab or an app chooser, and the address stayed exactly where it was.
+   A button says "this does something on click" honestly; these rules only take
+   away the chrome that would make it look like a form control. */
+.site-footer button.as-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  /* The footer's mono style uppercases its labels, which is right for "Связь"
+     and wrong for an address: it is a literal string, not a label, and the
+     manual-copy fallback selects what is painted rather than what is written. */
+  text-transform: none;
+}
+
+.site-footer button.as-link:hover {
+  color: var(--ember);
+}
+
+/* The cabinet's tab bar is fixed over the bottom of the viewport on phones, so
+   whatever is last on the page has to clear it. That used to be <main>, which
+   is why the padding lived there; the footer is last now.
+
+   It has to sit *after* `.site-footer` rather than up with the layout rules:
+   `padding-block` above sets both edges at the same specificity, so the later
+   rule wins and this one silently lost -- which put the support link under the
+   tab bar on every cabinet page. */
+@media (max-width: 63.999rem) {
+  .app-footer {
+    padding-bottom: calc(var(--header) + 1.5rem);
+  }
+}
+
+/* -- utility ------------------------------------------------------------ */
+
+.skeleton {
+  color: transparent;
+  background: linear-gradient(90deg, var(--carbon), var(--surface-low), var(--carbon));
+  background-size: 200% 100%;
+  animation: sweep 1.4s linear infinite;
+}
+
+@keyframes sweep {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+/* Someone who has asked their operating system to stop animating things has
+   asked this site too — including the background video, which is the single
+   largest source of motion on the page. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
