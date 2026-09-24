@@ -140,6 +140,14 @@ class Settings(BaseSettings):
     # the same value the Go service validates its own redirects against.
     web_base_url: str = Field("", validation_alias="WEB_BASE_URL")
 
+    # -- Support tickets ---------------------------------------------------
+    # Customers write on the website; admin_bot forwards each ticket to every
+    # ADMIN_IDS chat and turns an operator's reply into the answer. Off by
+    # default, and the same key switches the website's side on: a site that
+    # takes tickets while nothing forwards them leaves customers waiting on
+    # nobody, so the two halves are enabled together.
+    support_enabled: bool = Field(False, validation_alias="SUPPORT_ENABLED")
+
     # -- Outgoing mail -----------------------------------------------------
     # The same SMTP account the website uses, read from the same keys, because
     # both now send to customers: the site sends sign-in links, the bot sends

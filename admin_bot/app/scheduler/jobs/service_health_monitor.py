@@ -26,7 +26,7 @@ from tgvpn_shared.db import JobRunRepository
 
 from app.config.settings import settings
 from app.notify.admin import send_admin_message
-from app.scheduler.jobs import lte_traffic_monitor, subscription_expire_monitor
+from app.scheduler.jobs import lte_traffic_monitor, subscription_expire_monitor, support_outbox
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +137,10 @@ async def _check_jobs(jobs: JobRunRepository) -> list[str]:
         watched.append(subscription_expire_monitor.JOB_NAME)
     if settings.lte_enabled:
         watched.append(lte_traffic_monitor.JOB_NAME)
+    # A support loop that has died leaves customers writing to nobody, with
+    # nothing on the website to show it.
+    if settings.support_enabled:
+        watched.append(support_outbox.JOB_NAME)
 
     # Nothing counts as stale until this process has had the threshold to prove
     # itself, whether or not the job ever ran before.

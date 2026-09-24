@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.scheduler.jobs import lte_traffic_monitor, subscription_expire_monitor
+from app.scheduler.jobs import lte_traffic_monitor, subscription_expire_monitor, support_outbox
 from app.scheduler.jobs.service_health_monitor import (
     _check_jobs,
     _stale_after_seconds,
@@ -64,6 +64,7 @@ def free_tier_on(monkeypatch):
 
     monkeypatch.setattr(settings, "free_tier_enabled", True)
     monkeypatch.setattr(settings, "lte_enabled", False)
+    monkeypatch.setattr(settings, "support_enabled", False)
 
 
 def test_threshold_is_a_multiple_of_the_job_interval(monkeypatch):
@@ -109,6 +110,7 @@ async def test_disabled_features_are_not_watched(monkeypatch):
 
     monkeypatch.setattr(settings, "free_tier_enabled", False)
     monkeypatch.setattr(settings, "lte_enabled", False)
+    monkeypatch.setattr(settings, "support_enabled", False)
 
     jobs = AsyncMock()
     jobs.find_stale = AsyncMock(return_value=stale_state(minutes_ago=99))
@@ -122,6 +124,7 @@ async def test_both_jobs_are_watched_when_both_are_on(monkeypatch):
 
     monkeypatch.setattr(settings, "free_tier_enabled", True)
     monkeypatch.setattr(settings, "lte_enabled", True)
+    monkeypatch.setattr(settings, "support_enabled", False)
 
     jobs = AsyncMock()
     jobs.find_stale = AsyncMock(return_value=stale_state(minutes_ago=25))
@@ -129,6 +132,25 @@ async def test_both_jobs_are_watched_when_both_are_on(monkeypatch):
     assert len(await _check_jobs(jobs)) == 2
     watched = {call.args[0] for call in jobs.find_stale.await_args_list}
     assert watched == {subscription_expire_monitor.JOB_NAME, lte_traffic_monitor.JOB_NAME}
+
+
+async def test_the_support_outbox_is_watched_while_tickets_are_taken(monkeypatch):
+    """
+    A dead support loop is the same kind of silence: customers keep writing on
+    the website, nothing reaches an operator, and nothing looks wrong.
+    """
+    from app.config.settings import settings
+
+    monkeypatch.setattr(settings, "free_tier_enabled", False)
+    monkeypatch.setattr(settings, "lte_enabled", False)
+    monkeypatch.setattr(settings, "support_enabled", True)
+
+    jobs = AsyncMock()
+    jobs.find_stale = AsyncMock(return_value=stale_state(minutes_ago=25))
+
+    assert len(await _check_jobs(jobs)) == 1
+    jobs.find_stale.assert_awaited_once()
+    assert jobs.find_stale.await_args.args[0] == support_outbox.JOB_NAME
 
 
 def test_report_includes_the_failure_reason():

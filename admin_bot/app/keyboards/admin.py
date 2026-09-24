@@ -2,11 +2,20 @@
 
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
+from app.config.settings import settings
+
 
 def get_admin_menu_keyboard() -> InlineKeyboardMarkup:
     """Admin main menu keyboard."""
+    # Offered only while tickets are being taken: with SUPPORT_ENABLED off
+    # the queue can only ever be empty.
+    support = (
+        [[InlineKeyboardButton(text="🆘 Поддержка", callback_data="admin:support")]]
+        if settings.support_enabled
+        else []
+    )
     keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
+        inline_keyboard=support + [
             [InlineKeyboardButton(text="👤 Новый пользователь", callback_data="admin:new_user")],
             [InlineKeyboardButton(text="✏️ Редактировать пользователя", callback_data="admin:edit_user")],
             [InlineKeyboardButton(text="🗑️ Удалить пользователя", callback_data="admin:delete_user")],

@@ -9,6 +9,7 @@ from app.bot.routers import get_all_routers
 from app.config.settings import settings
 from app.notify.log_setup import setup_logging
 from app.scheduler.jobs.subscription_expire_monitor import run_catchup_sweep
+from app.scheduler.jobs.support_outbox import run_support_outbox
 from app.scheduler.setup import create_scheduler
 from app.services.users import user_service
 from tgvpn_shared.db import close_pool
@@ -38,10 +39,19 @@ async def main() -> None:
     # failing sweep can't hold up polling.
     asyncio.create_task(run_catchup_sweep())
 
+    # Forwards support tickets from the website and answers back. Held in a
+    # variable because it runs for the life of the process, and a task nobody
+    # references can be collected mid-flight.
+    support_task = asyncio.create_task(run_support_outbox(bot)) if settings.support_enabled else None
+    if support_task:
+        logger.info("Support outbox started.")
+
     logger.info("Bot started.")
     try:
         await dp.start_polling(bot)
     finally:
+        if support_task:
+            support_task.cancel()
         await user_service.close()
         await close_pool()
 
