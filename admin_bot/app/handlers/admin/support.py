@@ -77,6 +77,11 @@ class TicketReply(BaseFilter):
         replied = message.reply_to_message
         if replied is None:
             return False
+        # A command typed while a reply to a card is still selected is a
+        # command. Sent to the customer as an answer, "/tickets" would be a
+        # message they could make no sense of.
+        if (message.text or "").startswith("/"):
+            return False
         ticket_id = await _support.ticket_for_telegram_message(message.chat.id, replied.message_id)
         return {"ticket_id": int(ticket_id)} if ticket_id else False
 

@@ -8,10 +8,11 @@ customer, and that nobody but an admin gets to the handler at all.
 
 from io import BytesIO
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
-from aiogram.types import CallbackQuery, Chat, Document, Message, PhotoSize, User, Voice
+from aiogram import Bot, Dispatcher
+from aiogram.types import CallbackQuery, Chat, Document, Message, PhotoSize, Update, User, Voice
 
 from app.handlers.admin import router as admin_router
 from app.handlers.admin import support
@@ -64,6 +65,42 @@ async def test_a_reply_to_anything_else_is_not_an_answer(monkeypatch):
     plain = Message(message_id=1, date=0, chat=CHAT, from_user=ADMIN, text="/admin")
     assert await support.TicketReply()(plain) is False
     lookup.assert_not_awaited()  # no query for a message that is not a reply
+
+
+async def test_a_command_typed_in_reply_to_a_card_stays_a_command(monkeypatch):
+    lookup = AsyncMock(return_value=7)
+    monkeypatch.setattr(support._support, "ticket_for_telegram_message", lookup)
+    assert await support.TicketReply()(reply(text="/tickets")) is False
+    lookup.assert_not_awaited()
+
+
+async def test_a_strangers_reply_never_reaches_the_answer_handler():
+    """
+    Through a real dispatcher rather than by inspecting the router tree: even
+    if a stranger's reply somehow matched a ticket, the admin check has to
+    stop it before anything is written.
+    """
+    dp = Dispatcher()
+    dp.include_router(admin_router)
+    bot = Bot(token="123456:TEST")
+    stranger_chat = Chat(id=999, type="private")
+    stranger = User(id=999, is_bot=False, first_name="Stranger")
+    update = Update(update_id=1, message=Message(
+        message_id=11, date=0, chat=stranger_chat, from_user=stranger, text="ответ",
+        reply_to_message=Message(message_id=10, date=0, chat=stranger_chat, text="карточка"),
+    ))
+    answer_read = AsyncMock()
+    try:
+        with patch.object(support._support, "ticket_for_telegram_message", AsyncMock(return_value=7)), \
+             patch("app.middlewares.admin_auth.check_admin_access", AsyncMock(return_value=False)), \
+             patch.object(support, "read_answer", answer_read), \
+             patch.object(Message, "answer", AsyncMock()) as denied:
+            await dp.feed_update(bot, update)
+    finally:
+        await bot.session.close()
+
+    answer_read.assert_not_awaited()
+    denied.assert_awaited_once()
 
 
 def test_support_sits_first_under_the_admin_check():

@@ -194,6 +194,19 @@ async def test_one_operator_who_blocked_the_bot_does_not_stop_the_others(support
     assert support.failures == []
 
 
+async def test_a_ticket_nobody_could_receive_stays_queued(support, bot):
+    # Skipping one admin who blocked the bot is right. Skipping every one of
+    # them and calling the ticket delivered would lose it silently.
+    add(support, ticket_message())
+    bot.fail = lambda call: TelegramForbiddenError(METHOD, "Forbidden: bot can't initiate conversation")
+
+    with pytest.raises(support_outbox.NobodyToDeliverTo):
+        await support_outbox.run_pass(bot)
+
+    assert support.delivered == []
+    assert "Start" in support.failures[0][1]
+
+
 async def test_a_pass_that_dies_halfway_resends_only_what_did_not_arrive(support, bot):
     add(support, ticket_message(files=[("a.png", "image/png"), ("b.pdf", "application/pdf")]))
     bot.fail = lambda call: (

@@ -131,17 +131,32 @@ async def run_pass(bot: Bot) -> None:
 # -- customer -> operators --------------------------------------------------------
 
 
+class NobodyToDeliverTo(Exception):
+    """Every ADMIN_IDS chat refused the bot: nobody would see the ticket."""
+
+
 async def deliver_to_operators(bot: Bot, message: dict, chats: list[int], now: int) -> None:
     sent = await _support.delivered_parts(message["id"])
+    reached = 0
     for chat_id in chats:
         try:
             await _deliver_to_chat(bot, chat_id, message, sent, now)
+            reached += 1
         except Exception as exc:
             if chat_unreachable(exc):
                 logger.warning("Support: chat %s cannot receive (%s); skipped", chat_id, exc)
                 continue
             await _support.record_delivery_failure(message["id"], str(exc))
             raise
+    if not reached:
+        # Skipping one unreachable admin is right; skipping all of them would
+        # mark a ticket delivered that nobody has seen. It stays queued, the
+        # failure is recorded, and the health monitor gets to say so.
+        error = NobodyToDeliverTo(
+            "ни один чат из ADMIN_IDS не принимает сообщения админ-бота — нажмите в нём Start"
+        )
+        await _support.record_delivery_failure(message["id"], str(error))
+        raise error
     await _support.mark_delivered(message["id"])
 
 
