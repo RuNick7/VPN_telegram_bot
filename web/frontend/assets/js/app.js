@@ -1,5 +1,5 @@
 /*
- * The cabinet shell: everything the four signed-in pages share.
+ * The cabinet shell: everything the signed-in pages share.
  *
  * Each page ships its own header and tab bar as real markup rather than having
  * this build them, so the chrome is on screen before any script runs and a
@@ -19,13 +19,31 @@ export function me() {
 /** Fills the header identity block. */
 async function fillIdentity() {
   const user = await me();
-  setText("[data-me-email]", user.email || "Почта не указана");
+  const email = setText("[data-me-email]", user.email || "Почта не указана");
+  if (email) email.title = user.email || "";
   const tag = $("[data-me-tag]");
   if (tag) {
     tag.textContent = user.telegram_tag ? "@" + user.telegram_tag : "";
     tag.hidden = !user.telegram_tag;
   }
   return user;
+}
+
+/**
+ * Shows the support tab when the section is switched on, with a dot on it
+ * while an answer waits unread.
+ *
+ * The tab is in every page's markup but starts hidden: a deployment without
+ * SUPPORT_ENABLED should not offer a section that answers 404.
+ */
+async function markSupportTab(user) {
+  const config = await clientConfig();
+  for (const tab of $$("[data-tab-support]")) {
+    tab.hidden = !config.support_enabled;
+    tab.dataset.unread = String(Boolean(config.support_enabled && user.support_unread > 0));
+    if (tab.dataset.unread === "true") tab.setAttribute("aria-label", "Поддержка — есть новый ответ");
+    else tab.removeAttribute("aria-label");
+  }
 }
 
 function wireLogout() {
@@ -65,6 +83,7 @@ export function boot(run) {
   wireLogout();
   guarded(async () => {
     const user = await fillIdentity();
+    await markSupportTab(user);
     await run(user);
     // After the page it interrupts has finished drawing. A dialog that opens
     // over a half-rendered cabinet reads as an error, and this one is only

@@ -47,6 +47,9 @@
 <symbol id="i-mail" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14"/><path d="M2 6l10 7 10-7"/></symbol>
 <symbol id="i-ticket" viewBox="0 0 24 24"><path d="M3 8V5h18v3a3 3 0 0 0 0 8v3H3v-3a3 3 0 0 0 0-8z"/><path d="M12 8v8"/></symbol>
 <symbol id="i-telegram" viewBox="0 0 24 24"><path d="M21 4L2.5 11.2l5.3 1.8L20 6l-9.5 8.2v5l3-3.6 4.6 3.4z"/></symbol>
+<symbol id="i-chat" viewBox="0 0 24 24"><path d="M3 4h18v12H10l-5 4v-4H3z"/><path d="M7 9h10M7 12h6"/></symbol>
+<symbol id="i-paperclip" viewBox="0 0 24 24"><path d="M16.5 7.5v8a4.5 4.5 0 0 1-9 0V6a3 3 0 0 1 6 0v9a1.5 1.5 0 0 1-3 0V8"/></symbol>
+<symbol id="i-file" viewBox="0 0 24 24"><path d="M6 2h8l4 4v16H6z"/><path d="M14 2v4h4"/></symbol>
 
 <!-- devices -->
 <symbol id="i-laptop" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="11"/><path d="M2 19h20"/></symbol>
