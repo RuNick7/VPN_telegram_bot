@@ -73,7 +73,10 @@ CREATE TABLE support_attachments (
     file_name    TEXT NOT NULL,
     content_type TEXT NOT NULL,
     size_bytes   BIGINT NOT NULL CHECK (size_bytes >= 0),
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    -- clock_timestamp(), not now(): a message's files are inserted in one
+    -- transaction, now() would give them all the same instant, and the order
+    -- the customer attached them in would be left to a random UUID.
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
 );
 CREATE INDEX idx_support_attachments_message ON support_attachments (message_id);
 

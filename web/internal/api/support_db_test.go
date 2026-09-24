@@ -213,6 +213,25 @@ func TestATicketGoesAllTheWayRound(t *testing.T) {
 	}
 }
 
+func TestFilesKeepTheOrderTheyWereAttachedIn(t *testing.T) {
+	// They are written in one transaction, where now() is one instant for
+	// every row; ordered by that and a random UUID, a screenshot and the
+	// recording that explains it came back in whichever order they liked.
+	env := newSupportEnv(t)
+	_, token := env.customer()
+	names := []string{"1.png", "2.png", "3.png"}
+	id := env.open(token, "Порядок", upload{names[0], string(png)}, upload{names[1], string(png)}, upload{names[2], string(png)})
+
+	for round := 0; round < 3; round++ {
+		thread := decode[threadResponse](t, env.get(ticketPath(id, ""), token))
+		for i, attachment := range thread.Messages[0].Attachments {
+			if attachment.Name != names[i] {
+				t.Fatalf("file %d is %q, want %q", i, attachment.Name, names[i])
+			}
+		}
+	}
+}
+
 func TestAnotherCustomersTicketDoesNotExist(t *testing.T) {
 	env := newSupportEnv(t)
 	_, owner := env.customer()
