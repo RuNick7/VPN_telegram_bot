@@ -78,8 +78,11 @@ The website is a separate Go module with its own suite, plus a small Node one fo
 the frontend's pure helpers:
 ```bash
 cd web && go test ./...
-cd web && node --test jstest/
+cd web && node --test jstest/*.test.mjs
 ```
+(The glob, not the directory: newer Node releases read the argument as a pattern and fail on a bare directory -- seen on Node 23.)
+The support store's tests in `internal/api` also run against Postgres when
+`TEST_DATABASE_URL` names a disposable database, and skip otherwise.
 `web/package.json` exists only to mark `frontend/assets/js` as ES modules so the
 Node runner can import the same files the browser loads. There is no build step
 and no dependency tree.
@@ -139,12 +142,23 @@ Standard layout: `cmd/server` wires everything, `internal/` holds the pieces —
 Two invariants are enforced structurally rather than by discipline:
 
 - **`store` has no way to update a payment's status.** Only the Python webhook may move a payment out of `pending`, because only it re-fetches the payment from YooKassa first. Go inserts pending rows and reads status; the capability to do more simply does not exist in the package.
+- **`store` has no way to write a support answer either.** Operators answer from Telegram through admin_bot; the site creates tickets and the customer's messages and nothing else. See Support tickets below.
 - **There is no session-signing secret.** Sessions are opaque random tokens stored *hashed* in Postgres, so the old `JWT_SECRET=change_me` failure mode has nothing to default to. Magic-link tokens are likewise stored hashed and never returned in an API response.
 
 - **The frontend has no inline script or style, anywhere.** `internal/static` sends a Content-Security-Policy with no `unsafe-inline` for either, so an inline `<script>`, `<style>` or `style=` attribute would silently not run — in production only. Tests in `cmd/server` assert both halves: that the policy stays strict and that the markup stays free of them. Per-element styling that genuinely varies (a progress bar's width) is written through the CSSOM from JavaScript, which `style-src` does not police.
 - **The icon sprite is inlined into pages at start-up, not linked.** Chromium and WebKit do not resolve `<use href="external.svg#id">` at all and report nothing; Firefox does, which is what makes it easy to ship broken. `assets/img/icons.svg` stays the single source and `internal/static.inlineSprite` puts it into each page in place of an `<!--icon-sprite-->` marker, stripping its comments on the way.
 
 `internal/pricing` and `internal/quota` duplicate Python logic (`user_bot/handlers/constants.py`, `utils.py`, `shared/tgvpn_shared/lte_quota.py`) because Go cannot import it. Their tests pin the values against the Python ones — edit one side alone and they fail. Same for `internal/account/deviceid.go`, which must produce the same device token as `user_bot/handlers/devices.py`.
+
+### Support tickets
+
+A signed-in customer -- subscribed or not -- opens a ticket at `/app/support`: subject, message, up to three files (pictures, video, PDF, text). admin_bot forwards it to every `ADMIN_IDS` chat, and an admin answers by **replying** to any of the ticket's messages there. Everything is behind `SUPPORT_ENABLED`, one key for both halves.
+
+- **The two sides meet only in Postgres.** The site writes `support_tickets`/`support_messages`/`support_attachments`; `admin_bot/app/scheduler/jobs/support_outbox.py` polls every few seconds for rows with `delivered_at IS NULL` and delivers them. The site holds no admin bot token. `support_messages.delivered_at` is the outbox in both directions: a customer message reaching the admins, an admin answer announced to the customer through user_bot.
+- **`support_telegram_messages` is the reply mechanism.** It maps `(chat_id, telegram_message_id)` to a ticket; the reply handler (`app/handlers/admin/support.py`, first under the admin router so it inherits the auth middleware and wins over half-finished forms) looks the replied-to message up there. It also makes delivery resumable: each part is recorded as it lands, and a retry sends only what is missing.
+- **Attachment bytes live apart**, in `support_attachment_data`, so the daily dump sent over Telegram (50 MB limit) can exclude them with `--exclude-table-data` and still restore consistently. A missing bytes row is the one meaning of "file gone", whether purged after 90 idle days or lost to a restore.
+- **Merging accounts moves tickets to the survivor** (`UserRepository.apply_merge`); sessions follow the merge, so tickets left on the absorbed row would vanish from the cabinet.
+- Deploying needs nginx to accept uploads: `docs/support-tickets-rollout.md`.
 
 ### Payments
 

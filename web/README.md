@@ -78,7 +78,8 @@ default to.
 ### Migration
 
 `migrations/0005_web_auth` adds `web_sessions`, `magic_link_tokens` and
-`auth_rate_limits`. Applied by the existing `migrate` service.
+`auth_rate_limits`; `0015_support_tickets` adds the support tables. Applied
+by the existing `migrate` service.
 
 ## Endpoints
 
@@ -108,6 +109,16 @@ Session cookie is `__Host-session`: HttpOnly, Secure, SameSite=Lax.
 | `GET` | `/api/referrals` | |
 | `PUT` | `/api/referrals/referrer` | `{tag}`, once only |
 | `POST` | `/api/promo/redeem` | `{code}` |
+| `GET` | `/api/support/tickets` | the customer's tickets |
+| `POST` | `/api/support/tickets` | multipart: `subject`, `body`, up to 3 `files` |
+| `GET` | `/api/support/tickets/{id}` | the thread; marks answers read |
+| `POST` | `/api/support/tickets/{id}/messages` | multipart: `body` and/or `files` |
+| `POST` | `/api/support/tickets/{id}/close` | |
+| `GET` | `/api/support/attachments/{id}` | the file; answers byte ranges |
+
+The support endpoints answer 404 unless `SUPPORT_ENABLED=true`, and
+`/api/me` carries `support_unread` -- the count behind the dot on the
+cabinet's support tab.
 
 ## Rules this service works under
 
@@ -123,6 +134,37 @@ rather than by discipline.
 buy a year for a rouble. `internal/pricing` duplicates the bot's table, and its
 tests pin every cell against the Python values — if either side is edited
 alone, they fail.
+
+**Support answers belong to admin_bot.** The site creates tickets, adds
+the customer's messages and closes a ticket on the customer's word. An
+operator's answer arrives only from Telegram, through admin_bot, and
+`internal/store` has no function that could write one -- the same rule by
+absence as payments. The site holds no admin bot token either: getting a
+ticket to the operators is admin_bot reading what this writes.
+
+**A file's type is read from its bytes, twice.** On upload `internal/support`
+recognises JPEG, PNG, WebP, MP4, QuickTime, WebM, PDF and text by signature
+and refuses everything else; the browser's Content-Type is never consulted.
+On download the head is sniffed again, because operators can attach anything
+from Telegram: only a picture or video that really is one is served inline,
+and the rest goes out as `application/octet-stream` with
+`Content-Disposition: attachment` under `Content-Security-Policy: sandbox`.
+
+**Files are read back a window at a time.** The bytes live in Postgres
+(`support_attachment_data`, stored uncompressed so a slice costs what it
+weighs), and `support.Blob` gives `http.ServeContent` a seekable view of them.
+A video player asks for a file in ranges -- Safari will not play one from a
+server that cannot answer them -- and loading a 45 MB recording once per
+range is not an option.
+
+Limits: three open tickets per customer; 10 tickets and 40 messages an hour;
+3 files a message, 10 MB a picture or document, 45 MB a video, 50 MB a
+message, 200 MB a customer a day. Uploads get a ten-minute read deadline of
+their own and at most four are held in memory at once. Files in tickets idle
+for 90 days lose their bytes in the hourly sweep.
+
+**nginx must accept the uploads.** Its `client_max_body_size` defaults to
+1 MB; see `docs/support-tickets-rollout.md`.
 
 **Devices are addressed by a hash of their HWID**, matching the bot's scheme
 exactly (`internal/account/deviceid.go`), and re-resolved against a fresh
@@ -187,7 +229,15 @@ reduced motion or turned on a data saver. Phones get the still.
 
 ```bash
 cd web && go test ./...    # includes the real embedded site
-cd web && node --test jstest/
+cd web && node --test jstest/*.test.mjs
+```
+
+The support store is tested against a real Postgres when `TEST_DATABASE_URL`
+names a disposable database (its name must contain "test"); without it those
+tests skip:
+
+```bash
+cd web && TEST_DATABASE_URL=postgres://tgvpn:tgvpn@127.0.0.1:5433/tgvpn_test go test ./internal/api/
 ```
 
 The Go suite checks the frontend as shipped, not just the handler: that every
