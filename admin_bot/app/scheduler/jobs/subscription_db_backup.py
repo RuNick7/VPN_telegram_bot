@@ -33,6 +33,18 @@ PG_DUMP_TIMEOUT_SECONDS = 300
 # Telegram rejects documents above 50 MB from bots.
 TELEGRAM_MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 
+# The bytes of support attachments stay out of this dump; the rows describing
+# them stay in. A handful of customer screen recordings would otherwise push
+# every dump past the limit above for good, and the backup would quietly stop
+# reaching the chat. Restored from this, an attachment is simply a file that
+# has expired -- which the site already knows how to show.
+PG_DUMP_ARGS = [
+    "pg_dump",
+    "--no-owner",
+    "--no-privileges",
+    "--exclude-table-data=support_attachment_data",
+]
+
 
 def _scrub(text: str, database_url: str) -> str:
     """Replace the connection string and its password wherever they appear."""
@@ -82,7 +94,7 @@ def _dump_database(database_url: str, dest_path: Path) -> None:
     """Write a gzipped `pg_dump` of the database to `dest_path`."""
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     result = subprocess.run(
-        ["pg_dump", "--no-owner", "--no-privileges"],
+        PG_DUMP_ARGS,
         capture_output=True,
         timeout=PG_DUMP_TIMEOUT_SECONDS,
         env={**os.environ, **pg_env(database_url)},

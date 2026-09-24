@@ -495,6 +495,15 @@ class UserRepository:
                     plan.trial_signup_granted,
                     plan.trial_link_granted,
                 )
+                # Support tickets follow the person. A session on the absorbed
+                # row now resolves to the survivor, and the site lists tickets
+                # by the survivor's id -- left where they were, every
+                # conversation from before the link would vanish from the
+                # cabinet, answers and all.
+                await connection.execute(
+                    "UPDATE support_tickets SET user_id = $1::uuid WHERE user_id = $2::uuid",
+                    plan.survivor_id, plan.absorbed_id,
+                )
 
     async def get_subscription_info(self, telegram_id: int) -> Optional[dict]:
         pool = await get_pool()
