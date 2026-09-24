@@ -54,6 +54,12 @@ type Config struct {
 	// and has no panel account yet. Falls back to TRIAL_DAYS so the bot and
 	// the site offer the same thing; set to 0 to switch it off.
 	WebTrialDays int
+
+	// SupportEnabled turns on support tickets. Off by default because the
+	// other half lives in admin_bot: a ticket the site accepts while nothing
+	// carries it to an operator is a customer waiting on nobody. The same key
+	// switches admin_bot's forwarding on, so the two are enabled together.
+	SupportEnabled bool
 }
 
 type SMTP struct {
@@ -146,6 +152,7 @@ func Load(envFiles ...string) (*Config, error) {
 		LTEFreeGBPerCycle: getInt("LTE_FREE_GB_PER_CYCLE", 10),
 		LTECycleDays:      getInt("LTE_CYCLE_DAYS", 30),
 		TrialDays:         getInt("TRIAL_DAYS", 7),
+		SupportEnabled:    getBool("SUPPORT_ENABLED", false),
 	}
 	cfg.WebTrialDays = getInt("WEB_TRIAL_DAYS", cfg.TrialDays)
 	if cfg.WebTrialDays < 0 {

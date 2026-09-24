@@ -23,6 +23,7 @@ import (
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/panel"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/static"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/store"
+	"github.com/RuNick7/VPN_telegram_bot/web/internal/support"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/yookassa"
 )
 
@@ -149,7 +150,8 @@ func run(log *slog.Logger) error {
 	errs := make(chan error, 1)
 	go func() {
 		log.Info("listening", "addr", cfg.ListenAddr, "base_url", cfg.BaseURL,
-			"telegram_login", cfg.TelegramLoginEnabled(), "payments", cfg.PaymentsEnabled())
+			"telegram_login", cfg.TelegramLoginEnabled(), "payments", cfg.PaymentsEnabled(),
+			"support", cfg.SupportEnabled)
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errs <- err
 		}
@@ -169,7 +171,8 @@ func run(log *slog.Logger) error {
 	return httpServer.Shutdown(shutdownCtx)
 }
 
-// sweepExpired deletes lapsed sessions and spent magic links.
+// sweepExpired deletes lapsed sessions and spent magic links, and the bytes
+// of support files that have outlived their retention.
 //
 // Housekeeping only: nothing depends on it having run, because every read path
 // filters on expiry itself. It exists so the tables do not grow without bound.
@@ -205,6 +208,17 @@ func sweepExpired(ctx context.Context, st *store.Store, log *slog.Logger) {
 				log.Info("swept expired auth rows",
 					"sessions", sessions, "magic_links", links,
 					"email_verifications", bindings, "link_tokens", telegram)
+			}
+			// Support files are the one thing here that is not an auth row,
+			// and the one that takes real space: a ticket nobody has written
+			// in for months keeps its thread and loses its screen recordings.
+			files, err := st.PurgeStaleSupportAttachments(ctx, support.AttachmentRetention)
+			if err != nil {
+				log.Error("purge support attachments", "err", err)
+				continue
+			}
+			if files > 0 {
+				log.Info("purged stale support attachments", "files", files)
 			}
 		}
 	}
