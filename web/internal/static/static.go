@@ -71,6 +71,7 @@ var pageRoutes = map[string]string{
 	"/app/plans":          "app/plans.html",
 	"/app/devices":        "app/devices.html",
 	"/app/profile":        "app/profile.html",
+	"/app/support":        "app/support.html",
 
 	// The agreements, hosted here rather than in a Google Doc. Two documents,
 	// each at its own URL because that is how they are cited -- a payment

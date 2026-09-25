@@ -9,6 +9,7 @@ from .jobs import JobRunRepository
 from .enforcement import EnforcementRepository
 from .account_links import AccountLinkRepository
 from .email_verifications import EmailVerificationRepository
+from .support import SupportRepository
 
 __all__ = [
     "close_pool",
@@ -24,4 +25,5 @@ __all__ = [
     "LteRepository",
     "JobRunRepository",
     "EnforcementRepository",
+    "SupportRepository",
 ]

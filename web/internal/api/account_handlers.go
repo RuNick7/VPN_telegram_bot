@@ -20,6 +20,10 @@ type meBody struct {
 	HasTelegram    bool   `json:"has_telegram"`
 	ReferredPeople int    `json:"referred_people"`
 	Tier           int    `json:"tier"`
+	// Tickets with an answer the customer has not opened. Carried here
+	// because every cabinet page already asks for /api/me, and the tab that
+	// shows it is on every page.
+	SupportUnread int `json:"support_unread"`
 }
 
 func meResponse(user *store.User) meBody {
@@ -34,7 +38,16 @@ func meResponse(user *store.User) meBody {
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request, user *store.User) {
-	writeJSON(w, http.StatusOK, meResponse(user))
+	body := meResponse(user)
+	if s.cfg.SupportEnabled {
+		unread, err := s.store.SupportUnread(r.Context(), user.ID)
+		if err != nil {
+			// A missing dot on a tab is not worth failing every page over.
+			s.log.Error("support unread count", "user", user.ID, "err", err)
+		}
+		body.SupportUnread = unread
+	}
+	writeJSON(w, http.StatusOK, body)
 }
 
 func (s *Server) handleUpdateEmail(w http.ResponseWriter, r *http.Request, user *store.User) {

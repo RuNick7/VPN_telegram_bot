@@ -200,7 +200,7 @@ func TestTheFrontendContainsNoInlineScriptOrStyle(t *testing.T) {
 
 	for _, page := range []string{
 		"/", "/login", "/auth/verify", "/app", "/app/plans",
-		"/app/devices", "/app/profile", "/gift/X",
+		"/app/devices", "/app/profile", "/app/support", "/gift/X",
 	} {
 		_, body := fetch(t, site, page)
 
@@ -236,7 +236,7 @@ func TestSignedInPagesAreNotIndexable(t *testing.T) {
 
 	for _, page := range []string{
 		"/login", "/auth/verify", "/app", "/app/plans",
-		"/app/devices", "/app/profile", "/gift/X",
+		"/app/devices", "/app/profile", "/app/support", "/gift/X",
 	} {
 		_, body := fetch(t, site, page)
 		if !strings.Contains(body, `name="robots"`) || !strings.Contains(body, "noindex") {

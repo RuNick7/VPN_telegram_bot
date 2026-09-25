@@ -38,6 +38,9 @@ type Server struct {
 	account  *account.Service
 	payments *yookassa.Client
 	log      *slog.Logger
+
+	// Support uploads held in memory at once; see acquireUploadSlot.
+	uploads chan struct{}
 }
 
 func NewServer(
@@ -48,7 +51,10 @@ func NewServer(
 	payments *yookassa.Client,
 	log *slog.Logger,
 ) *Server {
-	return &Server{cfg: cfg, store: st, auth: authSvc, account: accountSvc, payments: payments, log: log}
+	return &Server{
+		cfg: cfg, store: st, auth: authSvc, account: accountSvc, payments: payments, log: log,
+		uploads: make(chan struct{}, uploadSlots),
+	}
 }
 
 func (s *Server) Routes() http.Handler {
@@ -101,6 +107,16 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("GET /api/link/telegram", s.authenticated(s.handleLinkStatus))
 	mux.Handle("POST /api/link/telegram", s.authenticated(s.handleCreateTelegramLink))
 	mux.Handle("DELETE /api/link/telegram", s.authenticated(s.handleUnlinkTelegram))
+
+	// Support tickets. Open to every signed-in customer, with a subscription
+	// or without: somebody whose payment did not go through is exactly who
+	// needs this, and has none.
+	mux.Handle("GET /api/support/tickets", s.authenticated(s.supportOnly(s.handleSupportTickets)))
+	mux.Handle("POST /api/support/tickets", s.authenticated(s.supportOnly(s.handleCreateSupportTicket)))
+	mux.Handle("GET /api/support/tickets/{id}", s.authenticated(s.supportOnly(s.handleSupportThread)))
+	mux.Handle("POST /api/support/tickets/{id}/messages", s.authenticated(s.supportOnly(s.handleSupportReply)))
+	mux.Handle("POST /api/support/tickets/{id}/close", s.authenticated(s.supportOnly(s.handleCloseSupportTicket)))
+	mux.Handle("GET /api/support/attachments/{id}", s.authenticated(s.supportOnly(s.handleSupportAttachment)))
 
 	return s.withRecovery(s.withSecurityHeaders(mux))
 }
@@ -267,6 +283,7 @@ func (s *Server) handleClientConfig(w http.ResponseWriter, r *http.Request) {
 		"telegram_bot_id":  s.cfg.TelegramBotID(),
 		"payments_enabled": s.cfg.PaymentsEnabled(),
 		"traffic_enabled":  s.cfg.LTEEnabled,
+		"support_enabled":  s.cfg.SupportEnabled,
 		"trial_days":       s.cfg.WebTrialDays,
 		"plans":            pricing.PlansFor(0),
 		// What a month costs once somebody has invited the most that counts.

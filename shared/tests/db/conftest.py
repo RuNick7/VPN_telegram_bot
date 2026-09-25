@@ -24,7 +24,9 @@ os.environ.setdefault("DATABASE_URL", DEFAULT_TEST_DSN)
 # reasons that have nothing to do with what it is checking.
 _TABLES = (
     "promo_usage, promo_codes, payments, bot_events, admin_operators, "
-    "job_runs, enforcement_events, users"
+    "job_runs, enforcement_events, support_telegram_messages, "
+    "support_attachment_data, support_attachments, support_messages, "
+    "support_tickets, users"
 )
 
 # These tests TRUNCATE every table before each one, so the target database has

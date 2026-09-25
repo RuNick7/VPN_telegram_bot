@@ -2,7 +2,7 @@
 
 from aiogram import Router
 
-from app.handlers.admin import broadcast, gifts, hosts_quick, menu, payments, promo, users
+from app.handlers.admin import broadcast, gifts, hosts_quick, menu, payments, promo, support, users
 from app.middlewares import AdminAccessMiddleware
 
 router = Router(name="admin")
@@ -13,6 +13,9 @@ router = Router(name="admin")
 router.message.middleware(AdminAccessMiddleware())
 router.callback_query.middleware(AdminAccessMiddleware())
 
+# First, so a reply to a support ticket is taken as an answer even while
+# another admin form is half filled in -- see handlers/admin/support.py.
+router.include_router(support.router)
 router.include_router(menu.router)
 router.include_router(users.router)
 router.include_router(promo.router)

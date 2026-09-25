@@ -8,7 +8,7 @@ else can read it.
 
 import pytest
 
-from app.scheduler.jobs.subscription_db_backup import _scrub, pg_env
+from app.scheduler.jobs.subscription_db_backup import PG_DUMP_ARGS, _scrub, pg_env
 
 URL = "postgresql://tgvpn:s3cr3t@postgres:5432/tgvpn"
 
@@ -69,3 +69,15 @@ def test_a_failure_message_is_stripped_of_the_password():
     cleaned = _scrub(noisy, URL)
     assert "s3cr3t" not in cleaned
     assert URL not in cleaned
+
+
+def test_support_attachment_bytes_stay_out_of_the_dump():
+    """
+    The dump is delivered over Telegram, which refuses anything above 50 MB.
+    A few customer screen recordings would put every dump past that for good,
+    and the backup would stop arriving without anything failing loudly.
+    """
+    assert "--exclude-table-data=support_attachment_data" in PG_DUMP_ARGS
+    # Only the bytes. The rows describing the files have to stay, or the
+    # Telegram-message mapping that points at them breaks on restore.
+    assert not any("support_attachments" in arg for arg in PG_DUMP_ARGS)
