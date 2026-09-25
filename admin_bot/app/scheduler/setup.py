@@ -5,8 +5,16 @@ import logging
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from app.scheduler.jobs import daily_backup, node_monitor, subscription_db_backup, inactive_user_cleanup
 from app.config.settings import settings
+from app.scheduler.jobs import (
+    daily_squad_report,
+    inactive_user_cleanup,
+    lte_traffic_monitor,
+    node_monitor,
+    service_health_monitor,
+    subscription_db_backup,
+    subscription_expire_monitor,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -15,17 +23,11 @@ def create_scheduler() -> AsyncIOScheduler:
     """Create and configure scheduler with jobs."""
     scheduler = AsyncIOScheduler()
 
-    # Add daily backup job (runs at 3:00 AM every day), if enabled.
-    if settings.remnawave_backup_enabled:
-        scheduler.add_job(
-            daily_backup.run_backup,
-            trigger=CronTrigger(hour=3, minute=0),
-            id="daily_backup",
-            name="Daily Remnawave DB Backup",
-            replace_existing=True
-        )
-    else:
-        logger.info("Remnawave backup job is disabled by REMNAWAVE_BACKUP_ENABLED=false")
+    # There is no "Daily Remnawave DB Backup" job any more: it called
+    # /v1/database/export, which this panel does not expose (every candidate
+    # backup endpoint returns 404), so it failed every night and never once
+    # produced a backup. Remnawave's own backup facility is the place for
+    # panel-side dumps; `subscription_db_backup` below covers *our* database.
 
     scheduler.add_job(
         subscription_db_backup.run_subscription_db_backup,
@@ -33,6 +35,18 @@ def create_scheduler() -> AsyncIOScheduler:
         id="subscription_db_backup",
         name="Daily Subscription DB Backup",
         replace_existing=True
+    )
+
+    # Information, not an alarm: how many people sit in each squad, so buying
+    # another server is a decision rather than a surprise. Sent every day even
+    # when the numbers are dull -- a report that only arrives when something is
+    # wrong teaches you to read its absence as "fine".
+    scheduler.add_job(
+        daily_squad_report.run_daily_squad_report,
+        trigger=CronTrigger(hour=10, minute=0, timezone="Europe/Moscow"),
+        id="daily_squad_report",
+        name="Daily Squad Headcount",
+        replace_existing=True,
     )
 
     scheduler.add_job(
@@ -51,5 +65,42 @@ def create_scheduler() -> AsyncIOScheduler:
         name="Inactive Remnawave User Cleanup",
         replace_existing=True,
     )
+
+    # With the FREE tier on, panel accounts no longer expire by themselves --
+    # this job is what actually enforces expiry, so it runs frequently and is
+    # watched by the health monitor below.
+    if settings.free_tier_enabled:
+        scheduler.add_job(
+            subscription_expire_monitor.run_subscription_expire_monitor,
+            trigger="interval",
+            minutes=settings.monitor_interval_minutes,
+            id=subscription_expire_monitor.JOB_NAME,
+            name="Subscription Expiry / FREE Squad Monitor",
+            replace_existing=True,
+        )
+    else:
+        logger.info("FREE tier is disabled (FREE_TIER_ENABLED=false); expiry monitor not scheduled")
+
+    if settings.lte_enabled:
+        scheduler.add_job(
+            lte_traffic_monitor.run_lte_traffic_monitor,
+            trigger="interval",
+            minutes=settings.monitor_interval_minutes,
+            id=lte_traffic_monitor.JOB_NAME,
+            name="LTE Traffic Quota Monitor",
+            replace_existing=True,
+        )
+    else:
+        logger.info("LTE quotas are disabled (LTE_ENABLED=false); traffic monitor not scheduled")
+
+    if settings.service_monitor_enabled:
+        scheduler.add_job(
+            service_health_monitor.run_service_health_monitor,
+            trigger="interval",
+            minutes=settings.monitor_interval_minutes,
+            id="service_health_monitor",
+            name="Service Health Monitor",
+            replace_existing=True,
+        )
 
     return scheduler

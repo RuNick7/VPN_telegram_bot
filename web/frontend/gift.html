@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Подарок — KairaVPN</title>
+<meta name="description" content="Активация подарочной подписки KairaVPN.">
+<meta name="theme-color" content="#000000">
+<!-- The path carries a single-use gift code. Neither a crawler nor a Referer
+     header has any business with it. -->
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png">
+<link rel="preload" href="/assets/fonts/inter-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/assets/fonts/jetbrains-mono-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/css/app.css">
+<script type="module" src="/assets/js/gift.js"></script>
+<script type="module" src="/assets/js/footer.js"></script>
+</head>
+<body>
+<!--icon-sprite-->
+
+<header class="site-header">
+  <a class="brand" href="/">
+    <svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg>
+    <span>KairaVPN</span>
+  </a>
+</header>
+
+<main>
+  <div class="slab">
+    <div class="slab-inner stack">
+
+      <div>
+        <span class="section-tag">Подарочная подписка</span>
+        <h1 class="h-md" data-title>Вам подарили доступ</h1>
+        <p class="lead" data-subtitle>Осталось активировать код — подписка добавится к вашему аккаунту.</p>
+      </div>
+
+      <div class="panel stack">
+        <span class="mono-sm muted">Код подарка</span>
+        <div class="metric num" data-code>—</div>
+      </div>
+
+      <div class="notice" data-notice hidden role="status"></div>
+
+      <!-- Signed out: the code cannot be redeemed without an account to put it
+           on, so sign-in comes first and the code survives the round trip in
+           the `next` parameter. -->
+      <div class="stack" data-need-login hidden>
+        <p class="mono-sm muted">Чтобы забрать подарок, войдите или создайте аккаунт — это одна ссылка на почту, пароль не нужен.</p>
+        <a class="btn btn-block" href="/login" data-login-link>Войти и активировать</a>
+      </div>
+
+      <div class="stack" data-can-redeem hidden>
+        <button class="btn btn-block" type="button" data-redeem>
+          <span data-icon="gift"></span> Активировать подарок
+        </button>
+        <p class="mono-sm muted">Код одноразовый. Если у вас уже есть подписка, дни просто добавятся к ней.</p>
+      </div>
+
+      <div class="stack" data-done hidden>
+        <a class="btn btn-block" href="/app">Перейти в кабинет</a>
+      </div>
+
+    </div>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap row between wrap-row">
+    <div class="stack">
+      <span class="mono accent">KairaVPN</span>
+      <p class="mono-sm muted">Быстрый доступ к любым сайтам. Мы не смотрим, что вы открываете.</p>
+    </div>
+    <nav aria-label="Документы">
+      <span class="mono-sm strong">Документы</span>
+      <a class="mono-sm muted" href="/docs/license" data-doc="license">Лицензионное соглашение</a>
+      <a class="mono-sm muted" href="/docs/privacy" data-doc="privacy">Политика конфиденциальности</a>
+    </nav>
+    <nav aria-label="Связь">
+      <span class="mono-sm strong">Связь</span>
+      <a class="mono-sm muted" href="#" data-support hidden>Поддержка в Telegram</a>
+      <a class="mono-sm muted" href="#" data-channel hidden>Канал с новостями</a>
+      <button class="mono-sm muted as-link" type="button"
+              data-copy-mail="kaira.supp@gmail.com">kaira.supp@gmail.com</button>
+    </nav>
+  </div>
+</footer>
+
+</body>
+</html>

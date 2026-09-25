@@ -1,34 +1,48 @@
-import os
 import logging
-from pathlib import Path
-from dotenv import load_dotenv
-from yookassa import Configuration, Payment
 
-# Загружаем переменные окружения
-ROOT_DIR = Path(__file__).resolve().parents[2]
-load_dotenv(dotenv_path=ROOT_DIR / ".env")
+from tgvpn_shared.settings import get_settings
+from yookassa import Configuration, Payment, Refund
 
-# Настройка логирования
 logger = logging.getLogger(__name__)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
 )
 
-# Подключение к YooKassa
-SHOP_ID = os.getenv("YOOKASSA_SHOP_ID")
-SECRET_KEY = os.getenv("YOOKASSA_SECRET_KEY")
+_settings = get_settings()
+_settings.require("yookassa_shop_id", "yookassa_secret_key")
 
-if not SHOP_ID or not SECRET_KEY:
-    raise ValueError("YOOKASSA_SHOP_ID and YOOKASSA_SECRET_KEY must be set in the .env file.")
-
-Configuration.account_id = SHOP_ID
-Configuration.secret_key = SECRET_KEY
+Configuration.account_id = _settings.yookassa_shop_id
+Configuration.secret_key = _settings.yookassa_secret_key
 
 
-def create_payment(amount, description, return_url, telegram_id, days_to_extend, is_gift=False):
+def create_payment(
+    amount,
+    description,
+    return_url,
+    telegram_id,
+    days_to_extend,
+    is_gift=False,
+    lte_gb=0,
+    user_id=None,
+):
+    """
+    Create a YooKassa payment.
+
+    `lte_gb` marks this as a traffic purchase rather than a subscription: the
+    webhook credits that many gigabytes instead of extending the subscription.
+    It is carried in metadata, which the webhook only ever reads back from a
+    verified server-to-server fetch -- never from the callback body.
+
+    `user_id` is our own identifier for the payer, and is what the webhook
+    prefers when crediting. Sending both is deliberate: `telegram_id` keeps
+    payments legible to an operator looking at YooKassa, while `user_id` is
+    the one that still resolves after an account merge -- or when the payer
+    has no Telegram account at all.
+    """
     logger.info(f"[PAYMENT] Создание платежа: amount={amount} description='{description}' "
-                f"telegram_id={telegram_id} is_gift={is_gift} days_to_extend={days_to_extend}")
+                f"telegram_id={telegram_id} is_gift={is_gift} days_to_extend={days_to_extend} "
+                f"lte_gb={lte_gb}")
 
     try:
         payment = Payment.create({
@@ -45,7 +59,9 @@ def create_payment(amount, description, return_url, telegram_id, days_to_extend,
             "metadata": {
                 "telegram_id": telegram_id,
                 "days_to_extend": days_to_extend,
-                "is_gift": "true" if is_gift else "false"
+                "is_gift": "true" if is_gift else "false",
+                "lte_gb": str(int(lte_gb or 0)),
+                "user_id": str(user_id) if user_id else "",
             },
             "receipt": {
                 "customer": {
@@ -85,3 +101,20 @@ def fetch_payment(payment_id: str):
         logger.error("[PAYMENT] Ошибка получения платежа %s из YooKassa: %s", payment_id, e)
         raise
 
+
+def fetch_refund(refund_id: str):
+    """
+    Fetch a refund from YooKassa API.
+
+    A refund has its own id and its own endpoint. Looking one up through
+    `Payment.find_one` answers `not_found` -- which reads exactly like a
+    forged payment id and was handled as one.
+    """
+    try:
+        refund = Refund.find_one(refund_id)
+        logger.info("[REFUND] Возврат получен из YooKassa: id=%s status=%s payment=%s",
+                    refund_id, refund.status, refund.payment_id)
+        return refund
+    except Exception as e:
+        logger.error("[REFUND] Ошибка получения возврата %s из YooKassa: %s", refund_id, e)
+        raise

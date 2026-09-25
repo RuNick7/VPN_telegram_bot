@@ -1,7 +1,0 @@
-fastapi
-uvicorn[standard]
-python-dotenv
-PyJWT
-requests
-remnawave
-yookassa

@@ -1,7 +1,9 @@
 """Access control service."""
 
 from app.config.settings import settings
-from app.db.repo.users import user_repo
+from tgvpn_shared.db import AdminOperatorRepository
+
+_operators = AdminOperatorRepository()
 
 
 async def check_admin_access(tg_id: int) -> bool:
@@ -11,7 +13,7 @@ async def check_admin_access(tg_id: int) -> bool:
         return True
 
     # Check if user has admin role in database
-    user = await user_repo.get_by_tg_id(tg_id)
+    user = await _operators.get_by_tg_id(tg_id)
     if user and user.get("role") == "admin":
         return True
 

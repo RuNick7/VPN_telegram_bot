@@ -1,310 +1,520 @@
+"""
+Remnawave operations for user_bot -- async end to end since Phase 2.
+
+Until Phase 2 every function here was synchronous (it drove a `requests`-based
+client), so callers wrapped each one in `asyncio.to_thread` and the module's
+own DB access had to be bridged back through `tgvpn_shared.sync_bridge`. Now
+that the shared Remnawave client is natively async, both detours are gone: the
+repository layer is awaited directly and callers just `await`.
+"""
+
 import logging
 import time
-import threading
 from datetime import datetime, timezone
 
 from remnawave_api.models.users import CreateUserRequestDto
+from tgvpn_shared.remnawave.client import panel_ref
+from tgvpn_shared.db import UserRepository
+from tgvpn_shared.free_tier import panel_expire_timestamp
+from tgvpn_shared.identity import panel_username_for, resolve_panel_identity
+from tgvpn_shared.remnawave import APINotFoundError, RemnawaveClient, UserNotFoundError
+from tgvpn_shared.settings import get_settings
+from tgvpn_shared.squads import resolve_paid_squad_uuid, resolve_squad_uuid
 
-from app.clients.remnawave.client import RemnawaveClient
-from app.config.settings import get_remnawave_settings
-from data import db_utils
-from data.db_utils import get_db, update_subscription_expire
+logger = logging.getLogger(__name__)
+
+_users = UserRepository()
+_client: RemnawaveClient | None = None
+
+SECONDS_IN_DAY = 86400
 
 
-def _utc_iso_from_timestamp(timestamp: int) -> str:
+def get_client() -> RemnawaveClient:
+    """
+    Process-wide Remnawave client.
+
+    One instance, so its token cache is actually shared -- the old code built a
+    fresh client per call, which meant a single subscription extension cost
+    three separate logins.
+    """
+    global _client
+    if _client is None:
+        settings = get_settings()
+        _client = RemnawaveClient(
+            base_url=settings.remnawave_base_url,
+            token=settings.remnawave_api_token,
+            username=settings.remnawave_username or None,
+            password=settings.remnawave_password or None,
+            timeout_seconds=settings.remnawave_timeout_seconds,
+        )
+    return _client
+
+
+async def close_client() -> None:
+    """Release the shared client's connections (called on shutdown)."""
+    global _client
+    if _client is not None:
+        await _client.close()
+        _client = None
+
+
+def _utc_iso(timestamp: int) -> str:
     return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _timestamp_from_utc_iso(value: str) -> int:
-    normalized = value.replace("Z", "+00:00")
-    return int(datetime.fromisoformat(normalized).timestamp())
+def _epoch(value: str) -> int:
+    return int(datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp())
 
 
-def _client() -> RemnawaveClient:
-    settings = get_remnawave_settings()
-    return RemnawaveClient(
-        base_url=settings.base_url,
-        token=settings.token,
-        username=settings.username,
-        password=settings.password,
-        timeout_seconds=settings.timeout_seconds,
-    )
+def _panel_username(telegram_id: int) -> str:
+    """
+    The legacy panel username: `str(telegram_id)`.
+
+    Kept because accounts created before the identity rework are named this in
+    the panel and are deliberately **not renamed** -- a bulk rename against a
+    live panel is not worth the risk. `resolve_panel_user` below tries the
+    stored UUID first and only falls back here, backfilling as it goes, so
+    this path retires one user at a time.
+    """
+    return str(telegram_id)
 
 
-def _extract_user_uuid(response: dict) -> str | None:
-    return (response.get("response", {}) or {}).get("uuid") or response.get("uuid")
+async def resolve_panel_user(user_row: dict) -> dict | None:
+    """
+    Find this user's panel account by whichever handle we trust most.
 
+    The stored UUID is authoritative and survives an operator renaming the
+    account by hand; the stored username is next; `str(telegram_id)` is the
+    legacy fallback. A hit on either fallback writes the UUID back, so the
+    expensive path is taken at most once per user.
 
-def _list_internal_squads(client: RemnawaveClient, token: str) -> list[dict]:
-    response = client.list_internal_squads(token_override=token)
-    return response.get("response", {}).get("internalSquads", []) or []
+    Returns None when the account genuinely does not exist yet.
+    """
+    lookup = resolve_panel_identity(dict(user_row))
+    client = get_client()
 
-
-def _members_count(squad: dict) -> int:
-    info = squad.get("info") or {}
-    count = info.get("membersCount")
-    return int(count) if isinstance(count, int) else 0
-
-
-def _next_internal_squad_name(prefix: str, squads: list[dict]) -> str:
-    max_index = 0
-    for squad in squads:
-        name = squad.get("name") or ""
-        if not name.startswith(f"{prefix}-"):
-            continue
-        suffix = name[len(prefix) + 1:]
-        if suffix.isdigit():
-            max_index = max(max_index, int(suffix))
-    return f"{prefix}-{max_index + 1}"
-
-
-def _extract_inbound_ids(squad: dict) -> list[str]:
-    inbounds = squad.get("inbounds") or []
-    inbound_ids = []
-    for inbound in inbounds:
-        uuid = inbound.get("uuid")
-        if uuid:
-            inbound_ids.append(str(uuid))
-    return inbound_ids
-
-
-def _create_internal_squad(client: RemnawaveClient, name: str, inbound_ids: list[str], token: str) -> dict:
-    response = client.create_internal_squad(
-        {"name": name, "inbounds": inbound_ids},
-        token_override=token,
-    )
-    return response.get("response", {}) or response
-
-
-def _assign_user_to_internal_squad(
-    client: RemnawaveClient,
-    squad_uuid: str,
-    user_uuid: str,
-    token: str,
-) -> None:
-    client.add_users_to_internal_squad(
-        squad_uuid,
-        [user_uuid],
-        token_override=token,
-    )
-
-
-def _normalize_new_squad_members(client: RemnawaveClient, squad_uuid: str, user_uuid: str, token: str, delay_seconds: float = 5.0) -> None:
-    time.sleep(delay_seconds)
-    response = client.list_users(page=1, size=200, token_override=token)
-    users = response.get("response", {}).get("users", [])
-    for user in users:
-        uuid = user.get("uuid")
-        if not uuid:
-            continue
-        squads = user.get("activeInternalSquads") or []
-        squad_ids = [str(s.get("uuid")) for s in squads if s.get("uuid")]
-        if str(uuid) == str(user_uuid):
-            desired = [str(squad_uuid)]
-        else:
-            desired = [s for s in squad_ids if s != str(squad_uuid)]
-        if desired == squad_ids:
-            continue
+    if lookup.uuid:
         try:
-            client.update_users_internal_squads([str(uuid)], desired, token_override=token)
-            logging.info("[Remnawave] Updated user %s squads -> %s", uuid, desired)
-        except Exception as exc:
-            logging.warning("[Remnawave] Failed to update user %s squads: %s", uuid, exc)
+            found = await client.get_user_by_uuid(lookup.uuid)
+            if found and panel_ref(found):
+                return found
+        except (UserNotFoundError, APINotFoundError):
+            # Deleted in the panel, or the UUID is stale. Fall through to the
+            # name-based lookups rather than reporting the user as missing.
+            logger.info("[Remnawave] Stored UUID %s no longer resolves", lookup.uuid)
+
+    for username in (lookup.username, lookup.legacy_username):
+        if not username:
+            continue
+        found = await client.find_user_by_username(username)
+        if found:
+            await _remember_panel_identity(user_row, found)
+            return found
+    return None
 
 
-def _list_all_user_uuids(client: RemnawaveClient, token: str) -> list[str]:
-    page = 1
-    size = 100
-    uuids: list[str] = []
-    while True:
-        response = client.list_users(page=page, size=size, token_override=token)
-        data = response.get("response", {})
-        users = data.get("users", [])
-        for user in users:
-            uuid = user.get("uuid")
-            if uuid:
-                uuids.append(str(uuid))
-        total = data.get("total")
-        if not total:
-            break
-        max_page = max(1, (total + size - 1) // size)
-        if page >= max_page:
-            break
-        page += 1
-    return uuids
-
-
-def _get_or_create_internal_squad(client: RemnawaveClient, token: str) -> tuple[dict | None, bool]:
-    settings = get_remnawave_settings()
-    squads = _list_internal_squads(client, token)
-    limit = settings.internal_squad_max_users
-    for squad in squads:
-        if _members_count(squad) < limit:
-            return squad, False
-
-    prefix = settings.internal_squad_prefix
-    name = _next_internal_squad_name(prefix, squads)
-    template = next((s for s in squads if (s.get("inbounds") or [])), None)
-    inbound_ids = _extract_inbound_ids(template) if template else []
-    logging.info("[Remnawave] Creating internal squad %s with %s inbounds", name, len(inbound_ids))
-    return _create_internal_squad(client, name, inbound_ids, token), True
-
-
-def _assign_internal_squad_for_user(client: RemnawaveClient, response: dict) -> None:
-    user_uuid = _extract_user_uuid(response)
-    if not user_uuid:
-        logging.warning("[Remnawave] Cannot assign internal squad: missing user uuid")
+async def _remember_panel_identity(user_row: dict, panel_user: dict) -> None:
+    """Backfill the panel handle we just resolved the slow way."""
+    user_id = user_row.get("id")
+    if not user_id or not panel_ref(panel_user):
+        return
+    if str(user_row.get("remnawave_uuid") or "") == panel_ref(panel_user):
         return
     try:
-        logging.info("[Remnawave] Assigning internal squad for user uuid=%s", user_uuid)
-        token = client.ensure_token()
-        squad, created = _get_or_create_internal_squad(client, token)
-        squad_uuid = (squad or {}).get("uuid")
-        if squad_uuid:
-            logging.info("[Remnawave] Selected squad %s created=%s", squad_uuid, created)
-            client.update_users_internal_squads([str(user_uuid)], [str(squad_uuid)], token_override=token)
-            if created:
-                try:
-                    threading.Thread(
-                        target=_normalize_new_squad_members,
-                        args=(client, str(squad_uuid), str(user_uuid), token),
-                        daemon=True,
-                    ).start()
-                except Exception as exc:
-                    logging.warning("[Remnawave] Failed to schedule squad normalization: %s", exc)
-        else:
-            logging.warning("[Remnawave] Internal squad not found/created for user %s", user_uuid)
+        await _users.set_panel_identity(
+            str(user_id),
+            remnawave_uuid=panel_ref(panel_user),
+            remnawave_username=panel_user.get("username"),
+        )
     except Exception as exc:
-        logging.error("[Remnawave] Failed to assign internal squad: %s", exc)
+        # Losing the backfill costs one extra lookup next time, nothing more.
+        logger.warning("[Remnawave] Could not store panel identity: %s", exc)
 
 
-def get_token(_telegram_id: int) -> str:
-    return _client().ensure_token()
 
 
-def get_user_expire(username: str, token: str | None = None) -> int:
-    response = _client().get_user_by_username(username, token_override=token)
-    expire_at = response["response"]["expireAt"]
-    return _timestamp_from_utc_iso(expire_at)
+# -- reads -----------------------------------------------------------------
 
 
-def get_subscription_url(username: str, token: str | None = None) -> str:
-    response = _client().get_user_by_username(username, token_override=token)
-    return response["response"].get("subscriptionUrl", "")
+async def _panel_user_for(telegram_id: int) -> dict:
+    """
+    This Telegram user's panel account, or UserNotFoundError.
+
+    Goes through the database row so the lookup can use our stored UUID.
+    Falling straight back to `str(telegram_id)` when there is no row at all
+    keeps the pre-rework behaviour for a user the database has somehow lost.
+
+    A row that resolves to no panel account at all is recreated rather than
+    reported missing. The FREE tier promises working access for a while after
+    a subscription lapses, and the panel account backing that promise can go
+    missing independently of whether the promise still applies -- an old
+    pre-FREE-tier deletion, a manual removal in the panel. Recreated the same
+    way a payment already does (`extend_subscription_for_row`), rather than
+    telling someone who has already paid us once to go buy a subscription
+    because our own bookkeeping lost their account.
+    """
+    row = await _users.get_user_by_id(telegram_id)
+    if row is None:
+        user = await get_client().find_user_by_username(_panel_username(telegram_id))
+        if user is None:
+            raise UserNotFoundError(f"User not found: {telegram_id}")
+        return user
+
+    row = dict(row)
+    user = await resolve_panel_user(row)
+    if user is None:
+        # Zero days: this only restores the account the panel lost, and does
+        # not touch `subscription_ends` -- adding days here as well as at the
+        # caller would grant time nobody asked for.
+        created = await create_panel_account(user_row=row, telegram_id=telegram_id, days_to_add=0)
+        if not created:
+            raise UserNotFoundError(f"User not found: {telegram_id}")
+        user = await resolve_panel_user(await _reload_row(str(row["id"])) or row)
+        if user is None:
+            raise UserNotFoundError(f"User not found: {telegram_id}")
+    return user
 
 
-def create_vpn_user_by_telegram_id(telegram_id: int, days_to_add: int) -> bool:
-    username = f"{telegram_id}"
-    now = int(time.time())
-    expire_time = now + int(days_to_add) * 86400
-    expire_at = datetime.fromtimestamp(expire_time, tz=timezone.utc)
+async def get_user_expire(telegram_id: int) -> int:
+    """Subscription expiry from the panel, as a Unix timestamp."""
+    return _epoch((await _panel_user_for(telegram_id))["expireAt"])
+
+
+async def get_subscription_url(telegram_id: int) -> str:
+    """The user's connection URL, or an empty string if the panel omits it."""
+    return (await _panel_user_for(telegram_id)).get("subscriptionUrl", "")
+
+
+async def get_devices(telegram_id: int) -> tuple[list[dict], int | None]:
+    """
+    Registered devices and the account's device limit.
+
+    Returns them together because both come out of the same lookup, and a
+    count means little to a user without the cap it is measured against. The
+    limit is None when the panel doesn't set one.
+    """
+    user = await _panel_user_for(telegram_id)
+    devices = await get_client().list_hwid_devices(panel_ref(user))
+    limit = user.get("hwidDeviceLimit")
+    return devices, int(limit) if isinstance(limit, int) and limit > 0 else None
+
+
+# -- writes ----------------------------------------------------------------
+
+
+async def reset_subscription_url(telegram_id: int) -> str:
+    """
+    Issue a fresh connection link, invalidating the old one. Returns the new URL.
+
+    Every device keeps working off the old link until it next refreshes, at
+    which point it stops -- so this is only worth offering to someone who
+    intends to re-import everywhere, and the caller confirms first.
+
+    Registered devices are not cleared: rotating the link and freeing a device
+    slot are separate problems, and doing both here would surprise a user who
+    only wanted a new link.
+    """
+    user = await _panel_user_for(telegram_id)
+    revoked = await get_client().revoke_subscription(panel_ref(user))
+    url = revoked.get("subscriptionUrl", "")
+    if not url:
+        # Older panels answer the revoke with a thinner body; the link is
+        # already rotated at this point, so re-read rather than report failure.
+        url = await get_subscription_url(telegram_id)
+    logger.info("[Remnawave] Subscription link rotated for %s", telegram_id)
+    return url
+
+
+async def delete_device(telegram_id: int, hwid: str) -> None:
+    """Unregister one device, freeing its slot against the device limit."""
+    user = await _panel_user_for(telegram_id)
+    await get_client().delete_hwid_device(panel_ref(user), hwid)
+    logger.info("[Remnawave] Device removed for %s", telegram_id)
+
+
+async def _assign_internal_squad(user_uuid: str) -> None:
+    """
+    Put a new user into the paid squad, and into the metered one when quotas
+    are on. Never fatal to creation.
+
+    The metered squad matters at creation and not only at reconciliation: a new
+    account is told how many free gigabytes it has straight away, and until it
+    is a member it cannot reach the servers those gigabytes are for. Membership
+    used to be granted only by the traffic monitor -- on its own schedule, and
+    only once it had found a metered node to look at, so with no such node it
+    never happened at all. The customer saw an allowance and a dead route.
+
+    Nothing is created here; an operator manages squads in the panel. A failure
+    leaves the user unassigned, which the expiry monitor repairs on its next
+    pass, and that is better than refusing to create the account.
+    """
+    client = get_client()
+    settings = get_settings()
+    try:
+        squad_uuid = await resolve_paid_squad_uuid(client, settings.paid_squad_name)
+        if not squad_uuid:
+            return
+
+        squads = [str(squad_uuid)]
+        if settings.lte_enabled and settings.lte_squad_name.strip():
+            lte_uuid = await resolve_squad_uuid(
+                    client, settings.lte_squad_name, role="Metered squad"
+                )
+            if lte_uuid:
+                squads.append(str(lte_uuid))
+
+        await client.set_user_squads([str(user_uuid)], squads)
+        logger.info("[Remnawave] User %s placed in squads %s", user_uuid, squads)
+    except Exception as exc:
+        logger.error("[Remnawave] Failed to assign squads: %s", exc)
+
+
+async def create_vpn_user(telegram_id: int, days_to_add: int) -> bool:
+    """Create the panel user for a Telegram account. Returns success."""
+    row = await _users.get_user_by_id(telegram_id)
+    return await create_panel_account(
+        user_row=dict(row) if row else None,
+        telegram_id=telegram_id,
+        days_to_add=days_to_add,
+    )
+
+
+async def create_panel_account(
+    *, user_row: dict | None, telegram_id: int | None, days_to_add: int
+) -> bool:
+    """
+    Create a panel account for one of our users.
+
+    The username comes from **our** UUID, not from a Telegram ID, which is
+    what lets an account exist for someone who has never used Telegram. A
+    Telegram ID is still attached when we have one -- it costs nothing and an
+    operator searching the panel by it expects to find them.
+
+    Accounts created before this change keep their `str(telegram_id)` name;
+    only new ones are named this way. `resolve_panel_user` reads both.
+    """
+    if user_row and user_row.get("id"):
+        username = panel_username_for(str(user_row["id"]))
+    elif telegram_id is not None:
+        # No row to derive a name from. Better a legacy-shaped account than
+        # no account at all -- the next lookup finds it either way.
+        username = _panel_username(telegram_id)
+    else:
+        logger.error("[Remnawave] Cannot create a panel account with no identity")
+        return False
+
+    subscription_ends = int(time.time()) + int(days_to_add) * SECONDS_IN_DAY
+    expire_at = datetime.fromtimestamp(
+        panel_expire_timestamp(subscription_ends), tz=timezone.utc
+    )
     body = CreateUserRequestDto(
         username=username,
-        telegram_id=telegram_id,
         expire_at=expire_at,
         activate_all_inbounds=True,
     )
     payload = body.model_dump(mode="json", by_alias=True, exclude_none=True)
-    # Some API versions validate telegramId strictly as number.
-    payload["telegramId"] = int(telegram_id)
+    if telegram_id is not None:
+        # Some panel versions validate telegramId strictly as a number.
+        payload["telegramId"] = int(telegram_id)
+
     try:
-        client = _client()
-        response = client.create_user(payload)
-        _assign_internal_squad_for_user(client, response)
-        logging.info("[Remnawave] User %s created.", username)
-        return True
+        user = await get_client().create_user(payload)
     except Exception as exc:
-        logging.error("[Remnawave] Failed to create user %s: %s", username, exc)
+        logger.error("[Remnawave] Failed to create user %s: %s", username, exc)
         return False
 
-
-def _ensure_remnawave_user_for_extend(telegram_id: int, days_to_add: int, token: str) -> tuple[int | None, str | None]:
-    """
-    Ensure user exists in Remnawave before extension.
-    Returns (current_expire_ts, error_message).
-    """
-    username = f"{telegram_id}"
-    try:
-        current_expire = get_user_expire(username, token)
-        return current_expire, None
-    except ValueError as exc:
-        if "User not found" not in str(exc):
-            logging.error("[Remnawave] Ошибка получения срока подписки @%s: %s", username, exc)
-            return None, f"❌ Ошибка получения срока подписки @{username}."
-
-        logging.info("[Remnawave] Пользователь @%s не найден, создаём профиль.", username)
-        created_ok = create_vpn_user_by_telegram_id(telegram_id, days_to_add)
-        if not created_ok:
-            return None, f"❌ Не удалось создать пользователя @{username}."
-
-        try:
-            # Re-read actual expire from panel after successful create.
-            current_expire = get_user_expire(username, token)
-            return current_expire, None
-        except Exception as exc2:
-            logging.warning(
-                "[Remnawave] Пользователь @%s создан, но срок не удалось прочитать: %s",
-                username,
-                exc2,
+    user_uuid = panel_ref(user)
+    if user_uuid:
+        if user_row and user_row.get("id"):
+            await _users.set_panel_identity(
+                str(user_row["id"]),
+                remnawave_uuid=str(user_uuid),
+                remnawave_username=username,
             )
-            return int(time.time()), None
+        await _assign_internal_squad(str(user_uuid))
+    else:
+        logger.warning("[Remnawave] Cannot assign internal squad: missing user uuid")
+    logger.info("[Remnawave] User %s created.", username)
+    return True
+
+
+async def _current_subscription_ends(telegram_id: int) -> int:
+    """
+    The user's real expiry, from whichever system currently owns it.
+
+    With the FREE tier on, the panel's `expireAt` is a far-future placeholder
+    (see `panel_expire_timestamp`) and reading it would extend a subscription
+    from ten years out. Our own database holds the real date in that mode.
+    """
+    if get_settings().free_tier_enabled:
+        info = await _users.get_subscription_info(telegram_id)
+        return int(info["subscription_ends"] or 0) if info else 0
+    return await get_user_expire(telegram_id)
+
+
+async def _current_expire_for_extend(telegram_id: int, days_to_add: int) -> tuple[int | None, str | None]:
+    """
+    Current expiry for a user, creating the panel profile if it's missing.
+
+    Returns `(expire_ts, error_message)` -- exactly one is non-None.
+    """
+    username = _panel_username(telegram_id)
+    try:
+        # The panel lookup is what tells us the account exists at all, so it
+        # happens even when the database owns the date.
+        await get_user_expire(telegram_id)
+        return await _current_subscription_ends(telegram_id), None
+    except UserNotFoundError:
+        logger.info("[Remnawave] Пользователь @%s не найден, создаём профиль.", username)
+        # Created with zero days on purpose: the caller adds `days_to_add`
+        # immediately afterwards, so creating with them too would grant the
+        # period twice. (It did -- this path double-counted before Phase 3.)
+        if not await create_vpn_user(telegram_id, 0):
+            return None, f"❌ Не удалось создать пользователя @{username}."
+        return int(time.time()), None
     except Exception as exc:
-        logging.error("[Remnawave] Ошибка при проверке пользователя @%s: %s", username, exc)
+        logger.error("[Remnawave] Ошибка при проверке пользователя @%s: %s", username, exc)
         return None, f"❌ Ошибка проверки пользователя @{username}."
 
 
-def extend_subscription_by_telegram_id(telegram_id: int, days_to_add: int) -> str:
-    try:
-        username = f"{telegram_id}"
-        logging.info("[Remnawave] Extend subscription for @%s", username)
+async def set_panel_expiry(telegram_id: int, expire_ts: int) -> None:
+    """
+    Write a new expiry into the panel, addressing the account by UUID.
 
-        token = get_token(telegram_id)
-        current_expire, ensure_error = _ensure_remnawave_user_for_extend(telegram_id, days_to_add, token)
-        if ensure_error:
-            return ensure_error
+    By UUID rather than by username because the two kinds of account are named
+    differently now -- legacy ones `str(telegram_id)`, new ones `u-<uuid>` --
+    and patching by a name that does not exist would silently update nothing.
+    """
+    user = await _panel_user_for(telegram_id)
+    await get_client().update_user(
+        {"uuid": panel_ref(user), "expireAt": _utc_iso(panel_expire_timestamp(expire_ts))}
+    )
+
+
+async def extend_subscription(telegram_id: int, days_to_add: int) -> str:
+    """
+    Add days to a subscription, in the panel and in our database.
+
+    Extends from whichever is later -- the current expiry or now -- so
+    extending an already-lapsed subscription doesn't back-date it. Returns a
+    user-facing status line.
+    """
+    username = _panel_username(telegram_id)
+    try:
+        logger.info("[Remnawave] Extend subscription for @%s", username)
+        current_expire, error = await _current_expire_for_extend(telegram_id, days_to_add)
+        if error:
+            return error
         if current_expire is None:
             return f"❌ Ошибка проверки пользователя @{username}."
 
         days_to_add = int(days_to_add)
-        new_expire = max(current_expire, int(time.time())) + days_to_add * 86400
-        payload = {"username": username, "expireAt": _utc_iso_from_timestamp(new_expire)}
+        new_expire = max(current_expire, int(time.time())) + days_to_add * SECONDS_IN_DAY
 
-        _client().update_user(payload, token_override=token)
-        if not db_utils.user_in_db(telegram_id):
-            db_utils.create_user_record(telegram_id, username)
-        update_subscription_expire(telegram_id, new_expire)
-        _reset_reminded_flag(telegram_id)
+        await set_panel_expiry(telegram_id, new_expire)
+        # Creates the row if the user somehow has none, and clears `reminded`
+        # so the expiry reminder can fire again for the new period.
+        await _users.upsert_subscription_expire(
+            telegram_id=telegram_id,
+            subscription_ends=new_expire,
+        )
         return (
             f"✅ Подписка @{username} продлена на {days_to_add} дней.\n"
             f"📆 Новая дата окончания: "
             f"{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(new_expire))}"
         )
     except Exception as exc:
-        logging.error("[Remnawave] Ошибка продления подписки: %s", exc)
+        logger.error("[Remnawave] Ошибка продления подписки: %s", exc)
+        get_client().invalidate_token()
         return f"❌ Ошибка: {str(exc)}"
 
 
-def ensure_vpn_profile_created_if_missing(telegram_id: int) -> None:
+async def extend_subscription_for_row(user_row: dict, days_to_add: int) -> str:
+    """
+    Same, for a user identified by our own id rather than by a Telegram ID.
+
+    This is what makes a website purchase creditable. `extend_subscription`
+    above resolves everything through `telegram_id`, which an account created
+    by email simply does not have -- so before this existed such a payment was
+    taken and never applied.
+
+    Users who *do* have a Telegram ID keep going through the function above:
+    it is the same logic and changing the bot's path here would risk the
+    working case to fix the broken one.
+    """
+    user_id = str(user_row.get("id") or "")
+    if not user_id:
+        return "❌ Не удалось определить пользователя."
+
+    days_to_add = int(days_to_add)
     try:
-        token = get_token(telegram_id)
-        username = str(telegram_id)
-        get_user_expire(username, token)
-        logging.info("[Remnawave] Профиль %s уже существует — не создаём повторно.", username)
+        profile = await resolve_panel_user(user_row)
+        if profile is None:
+            # Created with zero days: the extension below adds them, and
+            # creating with them too would grant the period twice.
+            created = await create_panel_account(
+                user_row=user_row, telegram_id=user_row.get("telegram_id"), days_to_add=0
+            )
+            if not created:
+                return "❌ Не удалось создать профиль в панели."
+            profile = await resolve_panel_user(await _reload_row(user_id) or user_row)
+            if profile is None:
+                return "❌ Профиль создан, но не найден в панели."
+
+        current_expire = int(user_row.get("subscription_ends") or 0)
+        if not get_settings().free_tier_enabled:
+            # Without the FREE tier the panel still owns the date, so read it
+            # back rather than trusting a row that may be behind.
+            try:
+                current_expire = _epoch(profile["expireAt"])
+            except (KeyError, TypeError, ValueError):
+                pass
+
+        new_expire = max(current_expire, int(time.time())) + days_to_add * SECONDS_IN_DAY
+
+        await get_client().update_user(
+            {
+                "uuid": panel_ref(profile),
+                "expireAt": _utc_iso(panel_expire_timestamp(new_expire)),
+            }
+        )
+        await _users.set_subscription_ends(user_id, new_expire)
+        return (
+            f"✅ Подписка продлена на {days_to_add} дней.\n"
+            f"📆 Новая дата окончания: "
+            f"{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(new_expire))}"
+        )
     except Exception as exc:
-        if "User not found" in str(exc):
-            user = db_utils.get_user_by_id(telegram_id)
-            if not user:
-                logging.warning("[Remnawave] Пользователь %s не найден в БД.", telegram_id)
-                return
-            days_left = max((user["subscription_ends"] - int(time.time())) // 86400, 1)
-            result = extend_subscription_by_telegram_id(telegram_id, days_left)
-            logging.info("[Remnawave] Профиль создан: %s", result)
-        else:
-            logging.error("[Remnawave] Ошибка при проверке профиля: %s", exc)
+        logger.error("[Remnawave] Ошибка продления подписки для %s: %s", user_id, exc)
+        get_client().invalidate_token()
+        return f"❌ Ошибка: {exc}"
 
 
-def _reset_reminded_flag(username: int) -> None:
-    with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute("UPDATE subscription SET reminded = 0 WHERE telegram_id = ?", (username,))
-        conn.commit()
+async def _reload_row(user_id: str) -> dict | None:
+    row = await _users.get_user_by_uuid(user_id)
+    return dict(row) if row else None
+
+
+async def ensure_vpn_profile_exists(telegram_id: int) -> None:
+    """
+    Recreate a panel profile that went missing, preserving the DB's remaining days.
+
+    Covers users whose panel account was deleted (e.g. by the inactive-user
+    cleanup job) while their subscription row survived.
+    """
+    try:
+        await get_user_expire(telegram_id)
+        logger.info("[Remnawave] Профиль %s уже существует — не создаём повторно.", telegram_id)
+        return
+    except UserNotFoundError:
+        pass
+    except Exception as exc:
+        logger.error("[Remnawave] Ошибка при проверке профиля: %s", exc)
+        return
+
+    info = await _users.get_subscription_info(telegram_id)
+    if info is None:
+        logger.warning("[Remnawave] Пользователь %s не найден в БД.", telegram_id)
+        return
+    days_left = max((int(info["subscription_ends"] or 0) - int(time.time())) // SECONDS_IN_DAY, 1)
+    logger.info("[Remnawave] Профиль создан: %s", await extend_subscription(telegram_id, days_left))

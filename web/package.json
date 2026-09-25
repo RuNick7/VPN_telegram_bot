@@ -1,0 +1,9 @@
+{
+  "name": "kairavpn-web",
+  "private": true,
+  "type": "module",
+  "description": "Marks frontend/assets/js as ES modules so `node --test jstest/` can import the same files the browser loads. There is no build step and no dependency tree: this file exists for the test runner, not for a bundler.",
+  "scripts": {
+    "test": "node --test jstest/"
+  }
+}
