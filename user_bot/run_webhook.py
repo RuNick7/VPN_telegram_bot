@@ -1,7 +1,7 @@
 import logging
-import os
 
 from aiohttp import web
+from tgvpn_shared.settings import get_settings
 
 from payments.webhook import yookassa_webhook_handler
 
@@ -14,10 +14,11 @@ logger = logging.getLogger(__name__)
 
 logger.info("Инициализация приложения для обработки webhook'ов от Yookassa.")
 
-WEBHOOK_HOST = os.getenv("WEBHOOK_HOST", "127.0.0.1")
-WEBHOOK_PORT = int(os.getenv("WEBHOOK_PORT", "8000"))
-# Сколько секунд ждём корректного завершения in-flight запросов при остановке.
-WEBHOOK_SHUTDOWN_TIMEOUT = float(os.getenv("WEBHOOK_SHUTDOWN_TIMEOUT", "5"))
+settings = get_settings()
+settings.require(
+    "user_bot_token", "database_url", "remnawave_base_url",
+    "yookassa_shop_id", "yookassa_secret_key",
+)
 
 app = web.Application()
 
@@ -51,8 +52,8 @@ if __name__ == "__main__":
     # до TimeoutStopSec (обычно 90s) и слать SIGKILL.
     web.run_app(
         app,
-        host=WEBHOOK_HOST,
-        port=WEBHOOK_PORT,
-        shutdown_timeout=WEBHOOK_SHUTDOWN_TIMEOUT,
+        host=settings.webhook_host,
+        port=settings.webhook_port,
+        shutdown_timeout=settings.webhook_shutdown_timeout,
         access_log=None,
     )
