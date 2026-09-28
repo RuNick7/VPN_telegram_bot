@@ -7,7 +7,7 @@ from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKe
 from aiogram.fsm.context import FSMContext
 from aiogram.exceptions import TelegramBadRequest
 
-from app.services.access import check_admin_access
+from app.handlers.admin.pagination import MENU_BUTTON, list_page_keyboard
 from app.services.hosts_manage import host_manage_service
 from app.states.admin import HostQuickCreateState
 
@@ -20,103 +20,69 @@ HOSTS_PAGE_SIZE = 8
 
 
 def _menu_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="◀️ В меню", callback_data="admin:menu")]]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[[MENU_BUTTON]])
 
 
 def _skip_tag_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="⏭️ Пропустить", callback_data="admin:host:tag:skip")],
-            [InlineKeyboardButton(text="◀️ В меню", callback_data="admin:menu")],
+            [MENU_BUTTON],
         ]
     )
 
 
-def _paginate(items: List[Dict[str, Any]], page: int, size: int) -> tuple[List[Dict[str, Any]], int]:
-    total_pages = max(1, (len(items) + size - 1) // size)
-    page = max(1, min(page, total_pages))
-    start = (page - 1) * size
-    return items[start : start + size], total_pages
-
-
-def _page_controls(prefix: str, page: int, total_pages: int) -> list[list[InlineKeyboardButton]]:
-    prev_page = max(1, page - 1)
-    next_page = min(total_pages, page + 1)
-    return [
-        [
-            InlineKeyboardButton(text="⬅️", callback_data=f"{prefix}:{prev_page}"),
-            InlineKeyboardButton(text=f"{page}/{total_pages}", callback_data="noop"),
-            InlineKeyboardButton(text="➡️", callback_data=f"{prefix}:{next_page}"),
-        ]
-    ]
-
-
 def _inbounds_keyboard(inbounds: List[Dict[str, Any]], page: int) -> InlineKeyboardMarkup:
-    chunk, total_pages = _paginate(inbounds, page, INBOUNDS_PAGE_SIZE)
-    rows = [
-        [
-            InlineKeyboardButton(
-                text=f"{item.get('tag', 'inbound')}:{item.get('port', '-')}",
-                callback_data=f"admin:host:inbound:{item.get('uuid')}",
-            )
-        ]
-        for item in chunk
-    ]
-    rows.extend(_page_controls("admin:host:inbound:page", page, total_pages))
-    rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="admin:menu")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+    return list_page_keyboard(
+        inbounds,
+        page,
+        INBOUNDS_PAGE_SIZE,
+        prefix="admin:host:inbound:page",
+        label=lambda item: f"{item.get('tag', 'inbound')}:{item.get('port', '-')}",
+        item_callback=lambda item: f"admin:host:inbound:{item.get('uuid')}",
+    )
+
+
+def _multi_select_keyboard(
+    items: List[Dict[str, Any]],
+    selected: List[str],
+    page: int,
+    *,
+    kind: str,
+    size: int,
+    default_name: str,
+) -> InlineKeyboardMarkup:
+    """
+    Checkbox list with a Done button -- used for both nodes and squads, which
+    differ only in callback namespace and the fallback label.
+    """
+    return list_page_keyboard(
+        items,
+        page,
+        size,
+        prefix=f"admin:host:{kind}:page",
+        label=lambda item: (
+            f"{'✅' if item.get('uuid') in selected else '⬜️'} {item.get('name', default_name)}"
+        ),
+        item_callback=lambda item: (
+            f"admin:host:{kind}:toggle:{item['uuid']}" if item.get("uuid") else None
+        ),
+        extra_rows=[
+            [InlineKeyboardButton(text="✅ Готово", callback_data=f"admin:host:{kind}:done")]
+        ],
+    )
 
 
 def _nodes_keyboard(nodes: List[Dict[str, Any]], selected: List[str], page: int) -> InlineKeyboardMarkup:
-    chunk, total_pages = _paginate(nodes, page, NODES_PAGE_SIZE)
-    rows = []
-    for node in chunk:
-        node_uuid = node.get("uuid")
-        name = node.get("name", "node")
-        is_selected = node_uuid in selected
-        prefix = "✅" if is_selected else "⬜️"
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text=f"{prefix} {name}",
-                    callback_data=f"admin:host:nodes:toggle:{node_uuid}",
-                )
-            ]
-        )
-    rows.append([InlineKeyboardButton(text="✅ Готово", callback_data="admin:host:nodes:done")])
-    rows.extend(_page_controls("admin:host:nodes:page", page, total_pages))
-    rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="admin:menu")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+    return _multi_select_keyboard(
+        nodes, selected, page, kind="nodes", size=NODES_PAGE_SIZE, default_name="node"
+    )
 
 
-def _squads_keyboard(
-    squads: List[Dict[str, Any]],
-    selected: List[str],
-    page: int,
-) -> InlineKeyboardMarkup:
-    chunk, total_pages = _paginate(squads, page, SQUADS_PAGE_SIZE)
-    rows = []
-    for item in chunk:
-        squad_uuid = item.get("uuid")
-        if not squad_uuid:
-            continue
-        name = item.get("name", "squad")
-        is_selected = squad_uuid in selected
-        prefix = "✅" if is_selected else "⬜️"
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text=f"{prefix} {name}",
-                    callback_data=f"admin:host:squads:toggle:{squad_uuid}",
-                )
-            ]
-        )
-    rows.append([InlineKeyboardButton(text="✅ Готово", callback_data="admin:host:squads:done")])
-    rows.extend(_page_controls("admin:host:squads:page", page, total_pages))
-    rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="admin:menu")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+def _squads_keyboard(squads: List[Dict[str, Any]], selected: List[str], page: int) -> InlineKeyboardMarkup:
+    return _multi_select_keyboard(
+        squads, selected, page, kind="squads", size=SQUADS_PAGE_SIZE, default_name="squad"
+    )
 
 
 def _exclude_confirm_keyboard() -> InlineKeyboardMarkup:
@@ -131,28 +97,23 @@ def _exclude_confirm_keyboard() -> InlineKeyboardMarkup:
     )
 
 def _hosts_delete_keyboard(hosts: List[Dict[str, Any]], page: int) -> InlineKeyboardMarkup:
-    chunk, total_pages = _paginate(hosts, page, HOSTS_PAGE_SIZE)
-    rows = [
-        [
-            InlineKeyboardButton(
-                text=f"{item.get('remark') or item.get('address', 'host')}:{item.get('port', '-')}",
-                callback_data=f"admin:host:del:uuid:{item.get('uuid')}",
-            )
-        ]
-        for item in chunk if item.get("uuid")
-    ]
-    rows.extend(_page_controls("admin:host:del:page", page, total_pages))
-    rows.append([InlineKeyboardButton(text="◀️ В меню", callback_data="admin:menu")])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
+    return list_page_keyboard(
+        hosts,
+        page,
+        HOSTS_PAGE_SIZE,
+        prefix="admin:host:del:page",
+        label=lambda item: (
+            f"{item.get('remark') or item.get('address', 'host')}:{item.get('port', '-')}"
+        ),
+        item_callback=lambda item: (
+            f"admin:host:del:uuid:{item['uuid']}" if item.get("uuid") else None
+        ),
+    )
 
 
 @router.callback_query(F.data == "admin:host_quick_add")
 async def start_host_quick(callback: CallbackQuery, state: FSMContext):
     """Start quick host creation."""
-    if not await check_admin_access(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещен.", show_alert=True)
-        return
-
     await state.clear()
     await state.set_state(HostQuickCreateState.remark)
     await callback.message.answer("Введите название хоста:", reply_markup=_menu_keyboard())
@@ -162,9 +123,6 @@ async def start_host_quick(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "admin:host_delete")
 async def start_host_delete(callback: CallbackQuery, state: FSMContext):
     """Start host delete flow."""
-    if not await check_admin_access(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещен.", show_alert=True)
-        return
     await state.clear()
     try:
         hosts = await host_manage_service.list_hosts()
@@ -184,9 +142,6 @@ async def start_host_delete(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("admin:host:del:page:"))
 async def host_delete_page(callback: CallbackQuery, state: FSMContext):
-    if not await check_admin_access(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещен.", show_alert=True)
-        return
     try:
         page = int(callback.data.split(":")[-1])
         hosts = await host_manage_service.list_hosts()
@@ -205,9 +160,6 @@ async def host_delete_page(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("admin:host:del:uuid:"))
 async def host_delete_select(callback: CallbackQuery, state: FSMContext):
-    if not await check_admin_access(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещен.", show_alert=True)
-        return
     host_uuid = callback.data.split(":")[-1]
     try:
         await host_manage_service.delete_host(host_uuid)
@@ -220,11 +172,6 @@ async def host_delete_select(callback: CallbackQuery, state: FSMContext):
 
 @router.message(HostQuickCreateState.remark)
 async def handle_host_remark(message: Message, state: FSMContext):
-    if not await check_admin_access(message.from_user.id):
-        await message.answer("❌ Доступ запрещен.")
-        await state.clear()
-        return
-
     remark = (message.text or "").strip()
     if not remark:
         await message.answer("❌ Название не может быть пустым.")
@@ -243,10 +190,6 @@ async def handle_host_remark(message: Message, state: FSMContext):
 
 @router.callback_query(F.data.startswith("admin:host:inbound:page:"))
 async def host_inbound_page(callback: CallbackQuery, state: FSMContext):
-    if not await check_admin_access(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещен.", show_alert=True)
-        return
-
     data = await state.get_data()
     inbounds = data.get("inbounds", [])
     total_pages = max(1, (len(inbounds) + INBOUNDS_PAGE_SIZE - 1) // INBOUNDS_PAGE_SIZE)
@@ -262,10 +205,6 @@ async def host_inbound_page(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("admin:host:inbound:"))
 async def host_inbound_select(callback: CallbackQuery, state: FSMContext):
-    if not await check_admin_access(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещен.", show_alert=True)
-        return
-
     inbound_uuid = callback.data.split(":")[-1]
     data = await state.get_data()
     inbounds = data.get("inbounds", [])
@@ -289,11 +228,6 @@ async def host_inbound_select(callback: CallbackQuery, state: FSMContext):
 
 @router.message(HostQuickCreateState.address)
 async def handle_host_address(message: Message, state: FSMContext):
-    if not await check_admin_access(message.from_user.id):
-        await message.answer("❌ Доступ запрещен.")
-        await state.clear()
-        return
-
     address = (message.text or "").strip()
     if not address:
         await message.answer("❌ Адрес не может быть пустым.")
@@ -306,11 +240,6 @@ async def handle_host_address(message: Message, state: FSMContext):
 
 @router.message(HostQuickCreateState.port)
 async def handle_host_port(message: Message, state: FSMContext):
-    if not await check_admin_access(message.from_user.id):
-        await message.answer("❌ Доступ запрещен.")
-        await state.clear()
-        return
-
     text = (message.text or "").strip()
     if not text.isdigit():
         await message.answer("❌ Порт должен быть числом.")
@@ -323,11 +252,6 @@ async def handle_host_port(message: Message, state: FSMContext):
 
 @router.callback_query(F.data == "admin:host:tag:skip")
 async def handle_host_tag_skip(callback: CallbackQuery, state: FSMContext):
-    if not await check_admin_access(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещен.", show_alert=True)
-        await state.clear()
-        return
-
     nodes = await host_manage_service.list_nodes()
     await state.update_data(tag=None, nodes_all=nodes, nodes_selected=[], nodes_page=1)
     await state.set_state(HostQuickCreateState.nodes)
@@ -337,11 +261,6 @@ async def handle_host_tag_skip(callback: CallbackQuery, state: FSMContext):
 
 @router.message(HostQuickCreateState.tag)
 async def handle_host_tag(message: Message, state: FSMContext):
-    if not await check_admin_access(message.from_user.id):
-        await message.answer("❌ Доступ запрещен.")
-        await state.clear()
-        return
-
     tag = (message.text or "").strip()
     nodes = await host_manage_service.list_nodes()
     await state.update_data(tag=tag or None, nodes_all=nodes, nodes_selected=[], nodes_page=1)
@@ -351,10 +270,6 @@ async def handle_host_tag(message: Message, state: FSMContext):
 
 @router.callback_query(F.data.startswith("admin:host:nodes:page:"))
 async def host_nodes_page(callback: CallbackQuery, state: FSMContext):
-    if not await check_admin_access(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещен.", show_alert=True)
-        return
-
     data = await state.get_data()
     nodes = data.get("nodes_all", [])
     selected = data.get("nodes_selected", [])
@@ -371,10 +286,6 @@ async def host_nodes_page(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("admin:host:nodes:toggle:"))
 async def host_nodes_toggle(callback: CallbackQuery, state: FSMContext):
-    if not await check_admin_access(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещен.", show_alert=True)
-        return
-
     node_uuid = callback.data.split(":")[-1]
     data = await state.get_data()
     nodes = data.get("nodes_all", [])
@@ -396,10 +307,6 @@ async def host_nodes_toggle(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "admin:host:nodes:done")
 async def host_nodes_done(callback: CallbackQuery, state: FSMContext):
-    if not await check_admin_access(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещен.", show_alert=True)
-        return
-
     data = await state.get_data()
     selected = data.get("nodes_selected", [])
     if not selected:
@@ -424,10 +331,6 @@ async def host_nodes_done(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("admin:host:squads:page:"))
 async def host_squad_page(callback: CallbackQuery, state: FSMContext):
-    if not await check_admin_access(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещен.", show_alert=True)
-        return
-
     data = await state.get_data()
     squads = data.get("squads_all", [])
     selected = data.get("squads_selected", [])
@@ -444,10 +347,6 @@ async def host_squad_page(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("admin:host:squads:toggle:"))
 async def host_squad_toggle(callback: CallbackQuery, state: FSMContext):
-    if not await check_admin_access(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещен.", show_alert=True)
-        return
-
     squad_uuid = callback.data.split(":")[-1]
     data = await state.get_data()
     squads = data.get("squads_all", [])
@@ -471,10 +370,6 @@ async def host_squad_toggle(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "admin:host:squads:done")
 async def host_squads_done(callback: CallbackQuery, state: FSMContext):
-    if not await check_admin_access(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещен.", show_alert=True)
-        return
-
     data = await state.get_data()
     squads = data.get("squads_all", [])
     selected_squads = data.get("squads_selected", [])
@@ -495,10 +390,6 @@ async def host_squads_done(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("admin:host:exclude:"))
 async def host_exclude_confirm(callback: CallbackQuery, state: FSMContext):
-    if not await check_admin_access(callback.from_user.id):
-        await callback.answer("❌ Доступ запрещен.", show_alert=True)
-        return
-
     decision = callback.data.split(":")[-1]
     exclude_from_others = decision == "yes"
 
