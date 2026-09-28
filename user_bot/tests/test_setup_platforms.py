@@ -6,6 +6,7 @@ instructions, so these assert the contract each spec has to satisfy rather
 than the exact copy.
 """
 
+import re
 from types import SimpleNamespace
 
 import pytest
@@ -142,3 +143,18 @@ def test_happ_platforms_share_the_same_manual_fallback():
     happ = ("android", "ios", "windows", "macos")
     rendered = {PLATFORMS[key].manual(SUBSCRIPTION_URL) for key in happ}
     assert len(rendered) == 1
+
+
+def test_linux_points_at_the_latest_koala_clash_release():
+    """
+    NekoRay stopped at 4.0.1 in December 2024, and the steps kept linking to
+    that one file for most of a year. The links now follow whatever release
+    is newest, which only works because the file names carry no version.
+    """
+    text = PLATFORMS["linux"].instruction("https://sub.kairavpn.pro/abc")
+    assert "Koala Clash" in text
+    assert "nekoray" not in text.lower()
+    links = re.findall(r'href="([^"]+)"', text)
+    assert len(links) >= 3
+    for href in links:
+        assert href.startswith("https://github.com/coolcoala/koala-clash/releases/latest"), href
