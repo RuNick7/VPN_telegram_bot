@@ -1,23 +1,32 @@
 import time
 import asyncio
-import logging, sqlite3
-import os
+import logging
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram import Bot
 from datetime import datetime
-from data.db_utils import get_db
+
+from tgvpn_shared.settings import get_settings
+from tgvpn_shared.db import UserRepository
+
+from handlers.constants import PRICES, trial_days
+from handlers.utils import escape_markdown_v2
 
 logger = logging.getLogger(__name__)
+_users = UserRepository()
 
 SECONDS_DAY = 86_400
-STATUS_CHANNEL_URL = os.getenv("STATUS_CHANNEL_URL", "https://t.me/nitratex1")
+STATUS_CHANNEL_URL = get_settings().status_channel_url
+
+# Read from the same table the checkout charges from, so a message cannot
+# quote a price the customer will not be offered.
+MAX_REFERRAL_TIER = max(PRICES)
+BASE_MONTHLY_PRICE = PRICES[0][1]
+BEST_TIER_MONTHLY_PRICE = PRICES[MAX_REFERRAL_TIER][1]
 
 REMINDER_TEXT = (
     "⚠️ Ваша подписка истекает через 24 часа!\n\n"
     "Чтобы не потерять доступ — продлите её."
 )
-
-LTE_LOW_THRESHOLD_BYTES = 500 * 1024 * 1024
 
 pay_kb = InlineKeyboardMarkup(
     inline_keyboard=[
@@ -25,121 +34,53 @@ pay_kb = InlineKeyboardMarkup(
     ]
 )
 
-def get_users_with_expiring_subscriptions():
-    """
-    Возвращает список пользователей, у которых подписка истекает в ближайшие 24 часа
-    и которым ещё не было отправлено напоминание.
-    """
-    with get_db() as conn:
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        now = int(time.time())
-        cursor.execute("""
-            SELECT telegram_id, subscription_ends, telegram_tag
-            FROM subscription
-            WHERE reminded = 0 AND subscription_ends BETWEEN ? AND ?
-        """, (now, now + 86400))
-        rows = cursor.fetchall()
-
-    # Преобразуем в список словарей и подставим chat_id = telegram_id
-    return [
-        {
-            **dict(row),
-            "chat_id": row["telegram_id"]  # используем telegram_id как chat_id
-        }
-        for row in rows
-    ]
-
-def _set_reminded_flag(telegram_id: int, value: int) -> None:
-    with get_db() as conn:
-        conn.execute(
-            "UPDATE subscription SET reminded = ? WHERE telegram_id = ?",
-            (value, telegram_id),
-        )
-        conn.commit()
-
-def _mark_reminded_if_needed(telegram_id: int) -> bool:
-    with get_db() as conn:
-        cur = conn.cursor()
-        cur.execute(
-            "UPDATE subscription SET reminded = 1 WHERE telegram_id = ? AND reminded = 0",
-            (telegram_id,),
-        )
-        conn.commit()
-        return cur.rowcount > 0
 
 async def send_reminders(bot: Bot):
     """Отправить напоминания и проставить flag reminded=1."""
-    users = get_users_with_expiring_subscriptions()
+    users = await _users.get_users_with_expiring_subscriptions()
     if not users:
         logging.info("[INFO] Нет пользователей для напоминания.")
         return
 
     for u in users:
-        chat_id = u.get("chat_id")
+        # The Telegram ID *is* the chat id for a private chat. This used to
+        # read `u["chat_id"]`, a column the query does not select and the table
+        # does not have -- so every user was skipped with a warning and the
+        # expiry reminder had never once been delivered.
+        chat_id = u.get("telegram_id")
         if not chat_id:
-            logging.warning(f"[WARN] chat_id отсутствует ({u['telegram_id']})")
+            logging.warning("[WARN] Нет telegram_id у строки напоминания: %r", u)
             continue
 
         try:
-            if not _mark_reminded_if_needed(u["telegram_id"]):
+            if not await _users.mark_reminded_if_needed(u["telegram_id"]):
                 continue
             await bot.send_message(chat_id, REMINDER_TEXT, reply_markup=pay_kb)
             logging.info(f"[INFO] Напоминание отправлено {chat_id}")
         except Exception as e:
-            _set_reminded_flag(u["telegram_id"], 0)
+            await _users.set_reminded_flag(u["telegram_id"], False)
             logging.error(f"[ERROR] Не удалось отправить {chat_id}: {e}")
+
 
 async def reminders_scheduler(bot: Bot):
     """
-    Запускает цикл:
-    - LTE-алерты: каждые 5 минут
-    - прочие напоминания и nurture: раз в час
+    Запускает hour-loop напоминаний и nurture-цепочек.
     """
-    last_hourly_tasks_ts: int | None = None
     while True:
         now_ts = int(time.time())
         try:
-            await send_lte_traffic_alerts(bot, now_ts)
-
-            run_hourly = (
-                last_hourly_tasks_ts is None
-                or (now_ts - last_hourly_tasks_ts) >= 3600
-            )
-            if run_hourly:
-                logger.debug("Запуск hourly reminders в %s", datetime.now())
-                await send_reminders(bot)
-                await send_nurture_channel(bot, now_ts)
-                await send_nurture_1(bot, now_ts)
-                await send_nurture_2(bot, now_ts)
-                await send_nurture_3(bot, now_ts)
-                last_hourly_tasks_ts = now_ts
-                logger.debug("Hourly reminders выполнены успешно")
+            logger.debug("Запуск hourly reminders в %s", datetime.now())
+            await send_reminders(bot)
+            for send in NURTURE_SENDERS:
+                await send(bot, now_ts)
+            logger.debug("Hourly reminders выполнены успешно")
         except Exception:
             logger.exception("Ошибка в hourly reminders")
-        await asyncio.sleep(300)
+        await asyncio.sleep(3600)
 
-def get_users_for_nurture(now_ts: int, target_stage: int, days_after: int):
-    """
-    Возвращает пользователей, у которых nurture_stage == target_stage-1
-    и со дня создания прошло нужное число суток.
-    """
-    with get_db() as conn:
-        conn.row_factory = sqlite3.Row
-        cur = conn.cursor()
-        cur.execute(
-            """
-            SELECT telegram_id
-            FROM subscription
-            WHERE nurture_stage = ?
-              AND created_at <= ?
-            """,
-            (target_stage - 1, now_ts - days_after * SECONDS_DAY)
-        )
-        return cur.fetchall()
 
 async def send_nurture_1(bot: Bot, now_ts: int):
-    users = get_users_for_nurture(now_ts, target_stage=2, days_after=3)
+    users = await _users.get_users_for_nurture(now_ts, target_stage=2, days_after=3)
     if not users:
         return
     kb = InlineKeyboardMarkup(
@@ -155,36 +96,96 @@ async def send_nurture_1(bot: Bot, now_ts: int):
     )
     await _broadcast_and_mark(bot, users, text_md, next_stage=2, kb=kb)
 
+
 async def send_nurture_2(bot: Bot, now_ts: int):
-    users = get_users_for_nurture(now_ts, target_stage=3, days_after=10)
+    """
+    Day 10: what inviting people is actually worth.
+
+    It used to promise "бонусные дни". Referrals do not pay days -- they move
+    the customer down the price table, which is a different and rather better
+    offer. Somebody who invited five friends expecting free time and got a
+    cheaper renewal has been misled by us in writing.
+    """
+    users = await _users.get_users_for_nurture(now_ts, target_stage=5, days_after=10)
     if not users:
         return
     text_md = (
-        "👥 *Реферальная программа*\n\n"
-        "Приглашайте друзей и получайте бонусные дни\\!\n"
-        "Команда для участия: `/ref`"
+        "👥 *Приглашайте друзей — подписка дешевеет*\n\n"
+        "Каждый приглашённый снижает цену вашей подписки\\. "
+        "На пятом друге месяц стоит "
+        f"{escape_markdown_v2(str(BEST_TIER_MONTHLY_PRICE))} ₽ вместо "
+        f"{escape_markdown_v2(str(BASE_MONTHLY_PRICE))} ₽ — и остаётся таким\\.\n\n"
+        "Ваша ссылка и счётчик приглашённых: `/ref`"
     )
     kb = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="🚀 Перейти к /ref", callback_data="referral_info")]]
+        inline_keyboard=[[InlineKeyboardButton(text="🚀 Моя ссылка", callback_data="referral_info")]]
     )
-    await _broadcast_and_mark(bot, users, text_md, next_stage=3, kb=kb)
+    await _broadcast_and_mark(bot, users, text_md, next_stage=5, kb=kb)
+
 
 async def send_nurture_3(bot: Bot, now_ts: int):
-    users = get_users_for_nurture(now_ts, target_stage=4, days_after=25)
+    """
+    Sent one day before the free period runs out, whatever it currently is.
+
+    It used to go out on day 25 and open with "скоро закончится бесплатный
+    период". With a seven-day trial that arrived eighteen days after the
+    period had ended, to somebody who by then had either paid or left.
+    """
+    users = await _users.get_users_for_nurture(
+        now_ts, target_stage=4, days_after=max(1, trial_days() - 1)
+    )
     if not users:
         return
     kb = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="💳 Продлить", callback_data="subscription_tariffs")]]
+        inline_keyboard=[[InlineKeyboardButton(text="💳 Посмотреть тарифы", callback_data="subscription_tariffs")]]
     )
     text_md = (
-        "⏳ *Скоро закончится бесплатный период\\!*\n\n"
-        "Продлите подписку заранее командой `/pay` "
-        "или нажмите кнопку ниже\\."
+        "⏳ *Бесплатный период заканчивается*\n\n"
+        "Чтобы доступ не прервался, продлите подписку — от "
+        f"{escape_markdown_v2(str(BASE_MONTHLY_PRICE))} ₽ за месяц\\.\n\n"
+        "Оплата картой, подписка продлевается сразу\\."
     )
     await _broadcast_and_mark(bot, users, text_md, next_stage=4, kb=kb)
 
+
+async def send_nurture_site(bot: Bot, now_ts: int):
+    """
+    Day 5: there is a website, and it is the same account.
+
+    Worth its own message because nothing else says it. Somebody who arrived
+    through the bot has no reason to suspect a cabinet exists, and the two
+    things it does better than a chat -- reading a QR on the machine you are
+    setting up, and having an address that can recover the account if the
+    Telegram one is lost -- are exactly what they will want later.
+    """
+    site = get_settings().web_base_url.strip().rstrip("/")
+    if not site:
+        return
+    users = await _users.get_users_for_nurture(now_ts, target_stage=3, days_after=5)
+    if not users:
+        return
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="🌐 Открыть личный кабинет", url=site + "/app")]]
+    )
+    text_md = (
+        "🌐 *У сервиса есть сайт*\n\n"
+        f"{escape_markdown_v2(site)} — тот же аккаунт, что и здесь\\.\n\n"
+        "На большом экране удобнее: настройка устройств с QR\\-кодом, "
+        "история оплат и подарки в одном месте\\.\n\n"
+        "Вход по почте — и если Telegram однажды потеряется, "
+        "аккаунт останется с вами\\."
+    )
+    await _broadcast_and_mark(bot, users, text_md, next_stage=3, kb=kb)
+
+
 async def send_nurture_channel(bot: Bot, now_ts: int):
-    users = get_users_for_nurture(now_ts, target_stage=1, days_after=1)
+    # An unset address is not a button with nothing behind it: aiogram rejects
+    # an empty `url` outright, so the whole message would fail for everybody
+    # rather than arrive without its link. Skipping the stage keeps the account
+    # eligible, so it goes out whenever a channel is configured.
+    if not STATUS_CHANNEL_URL.strip():
+        return
+    users = await _users.get_users_for_nurture(now_ts, target_stage=1, days_after=1)
     if not users:
         return
     kb = InlineKeyboardMarkup(
@@ -197,16 +198,6 @@ async def send_nurture_channel(bot: Bot, now_ts: int):
     )
     await _broadcast_and_mark(bot, users, text_md, next_stage=1, kb=kb)
 
-def update_stage(telegram_ids: list[int], stage: int):
-    if not telegram_ids:
-        return
-    q_marks = ",".join("?" * len(telegram_ids))
-    with get_db() as conn:
-        conn.execute(
-            f"UPDATE subscription SET nurture_stage = ? WHERE telegram_id IN ({q_marks})",
-            (stage, *telegram_ids)
-        )
-        conn.commit()
 
 async def _broadcast_and_mark(bot: Bot, rows, text, next_stage: int, kb):
     succeeded = []
@@ -219,98 +210,27 @@ async def _broadcast_and_mark(bot: Bot, rows, text, next_stage: int, kb):
         except Exception as e:
             logging.error(f"Nurture send fail {row['telegram_id']}: {e}")
 
-    update_stage(succeeded, next_stage)
+    await _users.update_nurture_stage(succeeded, next_stage)
 
 
-def _get_users_for_lte_alerts(now_ts: int) -> list[sqlite3.Row]:
-    with get_db() as conn:
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT
-                s.telegram_id,
-                s.subscription_ends,
-                l.last_remaining_bytes,
-                l.notified_lte_low,
-                l.notified_lte_zero
-            FROM subscription s
-            JOIN lte_traffic_limits l ON l.tg_id = s.telegram_id
-            WHERE s.subscription_ends > ?
-            """,
-            (now_ts,),
-        )
-        return cursor.fetchall()
-
-
-def _set_lte_alert_flags(telegram_id: int, low: int | None = None, zero: int | None = None) -> None:
-    updates = []
-    params: list[int] = []
-    if low is not None:
-        updates.append("notified_lte_low = ?")
-        params.append(int(low))
-    if zero is not None:
-        updates.append("notified_lte_zero = ?")
-        params.append(int(zero))
-    if not updates:
-        return
-    params.append(telegram_id)
-    with get_db() as conn:
-        conn.execute(
-            f"UPDATE lte_traffic_limits SET {', '.join(updates)} WHERE tg_id = ?",
-            tuple(params),
-        )
-        conn.commit()
-
-
-async def send_lte_traffic_alerts(bot: Bot, now_ts: int) -> None:
-    rows = _get_users_for_lte_alerts(now_ts)
-    if not rows:
-        return
-
-    lte_buy_kb = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="📶 Купить LTE Гб", callback_data="lte_gb_menu")]]
-    )
-
-    for row in rows:
-        telegram_id = int(row["telegram_id"])
-        remaining = max(0, int(row["last_remaining_bytes"] or 0))
-        notified_low = int(row["notified_lte_low"] or 0)
-        notified_zero = int(row["notified_lte_zero"] or 0)
-
-        # Reset flags when user is above warning threshold again.
-        if remaining >= LTE_LOW_THRESHOLD_BYTES:
-            if notified_low or notified_zero:
-                _set_lte_alert_flags(telegram_id, low=0, zero=0)
-            continue
-
-        if remaining == 0:
-            if notified_zero:
-                continue
-            try:
-                await bot.send_message(
-                    telegram_id,
-                    "🚫 LTE трафик закончился.\n\n"
-                    "Чтобы продолжить пользоваться LTE серверами, докупите LTE Гб.",
-                    reply_markup=lte_buy_kb,
-                )
-                _set_lte_alert_flags(telegram_id, low=1, zero=1)
-            except Exception as e:
-                logger.error("LTE zero alert send fail %s: %s", telegram_id, e)
-            continue
-
-        # Here: 0 < remaining < 500MB
-        if notified_low:
-            continue
-        try:
-            remaining_mb = max(1, remaining // (1024 * 1024))
-            await bot.send_message(
-                telegram_id,
-                "⚠️ LTE трафик почти закончился.\n"
-                f"Осталось меньше 500 МБ (сейчас примерно {remaining_mb} МБ).\n\n"
-                "Можно докупить LTE Гб заранее:",
-                reply_markup=lte_buy_kb,
-            )
-            _set_lte_alert_flags(telegram_id, low=1, zero=0)
-        except Exception as e:
-            logger.error("LTE low alert send fail %s: %s", telegram_id, e)
+# The chain, highest stage first.
+#
+# Two rules hold it together. Stages ascend with the day they fire on, because
+# a stage gates the one above it -- numbering the day-5 message above the
+# day-10 one would make it wait for a message a week further out. And they run
+# in descending order, because ascending meant each step handed the person it
+# had just advanced straight to the next: anybody at stage 0, which is everyone
+# who joined before the chain existed, collected the whole series in one second.
+#
+#   1 — day 1                 канал
+#   2 — day 3                 команды
+#   3 — day 5                 сайт
+#   4 — day TRIAL_DAYS - 1    бесплатный период кончается
+#   5 — day 10                рефералы
+NURTURE_SENDERS = (
+    send_nurture_2,        # stage 5
+    send_nurture_3,        # stage 4
+    send_nurture_site,     # stage 3
+    send_nurture_1,        # stage 2
+    send_nurture_channel,  # stage 1
+)

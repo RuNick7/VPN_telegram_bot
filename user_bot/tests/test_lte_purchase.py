@@ -1,0 +1,155 @@
+"""
+Buying LTE traffic.
+
+Two properties matter most here: the price must come from our table rather
+than from the user-controlled callback, and a traffic purchase must not touch
+the subscription or award a referral bonus.
+"""
+
+import pytest
+
+from handlers.constants import LTE_TRAFFIC_PACKS, PRICES
+from handlers.keyboards import lte_packs_keyboard, os_keyboard, tariff_menu_keyboard
+from handlers.utils import traffic_pack_discount, traffic_pack_label
+
+
+def test_the_advertised_packs_and_prices():
+    assert LTE_TRAFFIC_PACKS == {5: 49, 10: 59, 15: 79, 30: 119}
+
+
+def test_traffic_prices_are_flat_across_referral_tiers():
+    """
+    Traffic sits outside the referral discount ladder on purpose.
+
+    Subscriptions get cheaper with referrals (PRICES is keyed by tier);
+    traffic is a consumable resold at cost, so a five-referral user pays the
+    same as everyone else. This guards against someone wiring it into the
+    tiered table later.
+    """
+    assert not any(isinstance(price, dict) for price in LTE_TRAFFIC_PACKS.values())
+    # The tiered table exists and does vary -- so flatness here is a choice,
+    # not an accident of there being nothing to vary by.
+    assert PRICES[0][1] != PRICES[5][1]
+
+
+def test_larger_packs_cost_less_per_gigabyte():
+    """A bigger pack must never be worse value, or nobody would buy one."""
+    per_gb = [(gb, price / gb) for gb, price in sorted(LTE_TRAFFIC_PACKS.items())]
+    rates = [rate for _gb, rate in per_gb]
+    assert rates == sorted(rates, reverse=True), per_gb
+
+
+def test_pack_keyboard_lists_every_pack_cheapest_first():
+    rows = lte_packs_keyboard(LTE_TRAFFIC_PACKS).inline_keyboard
+    pack_rows = rows[:-1]  # last row is "back"
+
+    assert len(pack_rows) == len(LTE_TRAFFIC_PACKS)
+    sizes = [int(row[0].callback_data.split(":")[1]) for row in pack_rows]
+    assert sizes == sorted(LTE_TRAFFIC_PACKS)
+
+
+def test_pack_buttons_show_size_price_and_saving():
+    labels = [row[0].text for row in lte_packs_keyboard(LTE_TRAFFIC_PACKS).inline_keyboard[:-1]]
+    assert labels == [
+        "5 ГБ — 49₽",
+        "10 ГБ — 59₽ (-39%)",
+        "15 ГБ — 79₽ (-46%)",
+        "30 ГБ — 119₽ (-59%)",
+    ]
+
+
+# -- discount arithmetic ---------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "gigabytes, expected",
+    [(5, 0), (10, 39), (15, 46), (30, 59)],
+)
+def test_discount_against_the_smallest_pack(gigabytes, expected):
+    """
+    The saving is measured against the smallest pack's per-gigabyte rate:
+
+        (1 - price / (gb / 5 * 49)) * 100
+
+    e.g. 10 GB at the 5 GB rate would be 98₽; it costs 59₽, so -39%.
+    """
+    price = LTE_TRAFFIC_PACKS[gigabytes]
+    assert traffic_pack_discount(gigabytes, price, LTE_TRAFFIC_PACKS) == expected
+
+
+def test_the_reference_pack_shows_no_discount():
+    """It defines the rate, so it cannot be a saving against itself."""
+    assert traffic_pack_discount(5, 49, LTE_TRAFFIC_PACKS) == 0
+    assert traffic_pack_label(5, 49, LTE_TRAFFIC_PACKS) == "5 ГБ — 49₽"
+
+
+def test_a_pack_priced_worse_than_the_baseline_shows_no_saving():
+    """Never advertise a markup as a discount."""
+    packs = {5: 89, 10: 200}
+    assert traffic_pack_discount(10, 200, packs) == 0
+    assert "(-" not in traffic_pack_label(10, 200, packs)
+
+
+def test_the_discount_is_rounded_down():
+    """The advertised saving must never overstate the real one."""
+    # 10 GB at the 5 GB rate = 178; 178 * 0.665 = 118.37 -> 33.5% real.
+    packs = {5: 89, 10: 118}
+    assert traffic_pack_discount(10, 118, packs) == 33
+
+
+def test_discount_helpers_survive_degenerate_input():
+    assert traffic_pack_discount(10, 119, {}) == 0
+    assert traffic_pack_discount(0, 119, LTE_TRAFFIC_PACKS) == 0
+    assert traffic_pack_discount(10, 119, {0: 0}) == 0
+
+
+def test_pack_callbacks_are_distinct():
+    callbacks = [
+        row[0].callback_data for row in lte_packs_keyboard(LTE_TRAFFIC_PACKS).inline_keyboard[:-1]
+    ]
+    assert len(set(callbacks)) == len(callbacks)
+
+
+@pytest.mark.parametrize("spoofed", ["999", "0", "-5", "abc", ""])
+def test_only_listed_packs_have_a_price(spoofed):
+    """
+    The handler looks the price up by size and refuses anything unlisted, so a
+    hand-crafted `buy_lte:999` cannot name its own price.
+    """
+    try:
+        size = int(spoofed)
+    except ValueError:
+        return
+    assert LTE_TRAFFIC_PACKS.get(size) is None
+
+
+def test_devices_menu_offers_renewal_at_the_bottom():
+    rows = os_keyboard().inline_keyboard
+    last_row = rows[-1]
+    assert len(last_row) == 1
+    # Opens the choice between subscription and traffic, not plans directly --
+    # see test_renew_menu.py.
+    assert last_row[0].callback_data == "renew_menu"
+    assert "Продлить" in last_row[0].text
+
+
+def test_renewal_button_does_not_look_like_a_device():
+    """`test_every_device_button_has_a_spec` matches on the `os:` prefix."""
+    device_callbacks = [
+        button.callback_data
+        for row in os_keyboard().inline_keyboard
+        for button in row
+        if button.callback_data.startswith("os:")
+    ]
+    assert "subscription_tariffs" not in device_callbacks
+
+
+def test_traffic_entry_is_hidden_when_lte_is_off():
+    """Selling traffic that isn't metered would take money for nothing."""
+    rows = tariff_menu_keyboard([("1 мес", "buy_tariff:1")], with_traffic=False).inline_keyboard
+    assert all(button.callback_data != "lte_packs" for row in rows for button in row)
+
+
+def test_traffic_entry_appears_when_lte_is_on():
+    rows = tariff_menu_keyboard([("1 мес", "buy_tariff:1")], with_traffic=True).inline_keyboard
+    assert any(button.callback_data == "lte_packs" for row in rows for button in row)

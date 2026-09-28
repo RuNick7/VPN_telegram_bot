@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Поддержка — KairaVPN</title>
+<meta name="theme-color" content="#000000">
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png">
+<link rel="preload" href="/assets/fonts/inter-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/assets/fonts/jetbrains-mono-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/css/app.css">
+<script type="module" src="/assets/js/support.js"></script>
+<script type="module" src="/assets/js/footer.js"></script>
+</head>
+<body>
+<!--icon-sprite-->
+
+<header class="site-header">
+  <a class="brand" href="/app">
+    <svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg>
+    <span>KairaVPN</span>
+  </a>
+  <nav class="tabs" aria-label="Разделы кабинета">
+    <a href="/app" data-tab>Обзор</a>
+    <a href="/app/plans" data-tab>Тарифы</a>
+    <a href="/app/devices" data-tab>Устройства</a>
+    <a href="/app/profile" data-tab>Профиль</a>
+    <a href="/app/support" data-tab data-tab-support hidden>Поддержка</a>
+  </nav>
+  <div class="row">
+    <div class="who">
+      <span class="mono-sm strong" data-me-email>&nbsp;</span>
+      <span class="mono-sm accent" data-me-tag hidden></span>
+    </div>
+    <button class="btn btn-ghost btn-sm" type="button" data-logout>Выйти</button>
+  </div>
+</header>
+
+<main class="app-main">
+
+  <section class="section">
+    <div class="wrap stack">
+      <span class="section-tag">01 // Поддержка</span>
+      <div class="notice" data-notice hidden role="status"></div>
+
+      <div class="notice" data-support-off hidden>
+        <span data-icon="info"></span>
+        <span>Обращения с сайта пока не принимаются. Напишите нам в Telegram — ссылка внизу страницы.</span>
+      </div>
+
+      <!-- The list, and the form for a new ticket. Shown when no ticket is
+           named in the address. -->
+      <div class="stack" data-list-view hidden>
+        <h1 class="h-md">Обращения</h1>
+        <p class="mono-sm muted">Опишите, что случилось, — ответим здесь же.
+          <span data-tg-on hidden>Ответ продублируем в Telegram.</span>
+          <span data-tg-off hidden>Если <a class="accent" href="/app/profile">привязать Telegram</a>, ответ придёт и туда.</span>
+        </p>
+
+        <div class="row between wrap-row">
+          <p class="mono-sm muted" data-ticket-summary>&nbsp;</p>
+          <button class="btn btn-sm" type="button" data-new-ticket>
+            <span data-icon="plus"></span> Новое обращение
+          </button>
+        </div>
+
+        <form class="panel stack" data-new-form hidden novalidate>
+          <div class="field">
+            <label for="ticket-subject">Тема</label>
+            <input class="input" id="ticket-subject" name="subject" type="text" maxlength="120"
+                   autocomplete="off" required placeholder="Например: не подключается на iPhone">
+          </div>
+          <div class="field">
+            <label for="ticket-body">Сообщение</label>
+            <textarea class="input" id="ticket-body" name="body" rows="6" maxlength="4000" required
+                      placeholder="Что происходит, на каком устройстве, что уже пробовали"></textarea>
+          </div>
+          <div class="field">
+            <span class="field-label">Файлы</span>
+            <div class="row wrap-row">
+              <label class="btn btn-ghost btn-sm file-pick">
+                <span data-icon="paperclip"></span> Прикрепить
+                <input class="sr-only" type="file" multiple data-file-input>
+              </label>
+              <span class="mono-sm muted">До 3 файлов: фото и PDF до 10 МБ, видео до 45 МБ.</span>
+            </div>
+            <ul class="file-chips" data-file-list></ul>
+          </div>
+          <div class="meter" data-progress hidden><span></span></div>
+          <div class="actions">
+            <button class="btn" type="submit" data-submit>Отправить</button>
+            <button class="btn btn-ghost" type="button" data-cancel>Отмена</button>
+          </div>
+        </form>
+
+        <ul class="ticket-list" data-ticket-list></ul>
+      </div>
+
+      <!-- One ticket, when the address names it: ?id=123. -->
+      <div class="stack" data-thread-view hidden>
+        <a class="mono-sm accent" href="/app/support">← Все обращения</a>
+        <div class="row between wrap-row thread-head">
+          <h1 class="h-sm" data-thread-subject>&nbsp;</h1>
+          <span class="badge" data-thread-status hidden></span>
+        </div>
+        <p class="mono-sm muted" data-thread-meta></p>
+
+        <ol class="thread" data-thread aria-live="polite"></ol>
+
+        <form class="panel stack" data-reply-form hidden novalidate>
+          <div class="field">
+            <label for="reply-body">Ваш ответ</label>
+            <textarea class="input" id="reply-body" name="body" rows="4" maxlength="4000"
+                      placeholder="Напишите сообщение"></textarea>
+          </div>
+          <div class="row wrap-row">
+            <label class="btn btn-ghost btn-sm file-pick">
+              <span data-icon="paperclip"></span> Прикрепить
+              <input class="sr-only" type="file" multiple data-file-input>
+            </label>
+            <span class="mono-sm muted">До 3 файлов.</span>
+          </div>
+          <ul class="file-chips" data-file-list></ul>
+          <div class="meter" data-progress hidden><span></span></div>
+          <div class="actions">
+            <button class="btn" type="submit" data-submit>Отправить</button>
+            <button class="btn btn-ghost" type="button" data-close-ticket>Закрыть обращение</button>
+          </div>
+        </form>
+
+        <div class="notice" data-closed-note hidden>
+          <span data-icon="lock"></span>
+          <span>Обращение закрыто. Если вопрос остался, <a class="accent" href="/app/support?new=1">создайте новое</a>.</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer app-footer">
+  <div class="wrap row between wrap-row">
+    <div class="stack">
+      <span class="mono accent">KairaVPN</span>
+      <p class="mono-sm muted">Быстрый доступ к любым сайтам. Мы не смотрим, что вы открываете.</p>
+    </div>
+    <nav aria-label="Документы">
+      <span class="mono-sm strong">Документы</span>
+      <a class="mono-sm muted" href="/docs/license" data-doc="license">Лицензионное соглашение</a>
+      <a class="mono-sm muted" href="/docs/privacy" data-doc="privacy">Политика конфиденциальности</a>
+    </nav>
+    <nav aria-label="Связь">
+      <span class="mono-sm strong">Связь</span>
+      <a class="mono-sm muted" href="#" data-support hidden>Поддержка в Telegram</a>
+      <a class="mono-sm muted" href="#" data-channel hidden>Канал с новостями</a>
+      <button class="mono-sm muted as-link" type="button"
+              data-copy-mail="kaira.supp@gmail.com">kaira.supp@gmail.com</button>
+    </nav>
+  </div>
+</footer>
+
+<nav class="tabbar" aria-label="Разделы кабинета">
+  <a href="/app" data-tab><span data-icon="dashboard"></span>Обзор</a>
+  <a href="/app/plans" data-tab><span data-icon="card"></span>Тарифы</a>
+  <a href="/app/devices" data-tab><span data-icon="devices"></span>Устройства</a>
+  <a href="/app/profile" data-tab><span data-icon="person"></span>Профиль</a>
+  <a href="/app/support" data-tab data-tab-support hidden><span data-icon="chat"></span>Поддержка</a>
+</nav>
+
+</body>
+</html>
