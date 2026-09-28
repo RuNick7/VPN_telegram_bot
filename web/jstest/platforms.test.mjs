@@ -6,7 +6,7 @@
  * a customer cannot connect. The bot's table is the reference — the site is
  * not allowed to offer a different set of platforms or a different app.
  *
- * Run: node --test web/jstest/
+ * Run: node --test web/jstest/*.test.mjs
  */
 
 import test from "node:test";
@@ -95,7 +95,22 @@ test("no step sends the subscription link through a third party", () => {
 test("no instruction points at an app we do not use", () => {
   for (const platform of PLATFORMS) {
     const text = textOf(platform.steps(URL)) + " " + textOf(platform.fallback(URL));
-    assert.doesNotMatch(text, /v2ray|hiddify|streisand|foxray/i, `${platform.key}`);
+    assert.doesNotMatch(text, /v2ray|hiddify|streisand|foxray|nekoray|nekobox/i, `${platform.key}`);
+  }
+});
+
+test("the Linux downloads follow the latest Koala Clash release", () => {
+  // A link pinned to one version is how the NekoRay steps went stale: they
+  // kept pointing at 4.0.1 long after it stopped being maintained.
+  const linux = PLATFORMS.find((p) => p.key === "linux");
+  const links = linux
+    .steps(URL)
+    .flatMap((step) => step.body)
+    .filter((part) => part.href)
+    .map((part) => part.href);
+  assert.ok(links.length >= 3, "a package per distribution family");
+  for (const href of links) {
+    assert.match(href, /^https:\/\/github\.com\/coolcoala\/koala-clash\/releases\/latest(\/download\/Koala\.Clash_[\w.]+)?$/);
   }
 });
 
@@ -109,7 +124,7 @@ test("the default tab follows the user agent", () => {
 
 test("an Android phone is not mistaken for a Linux desktop", () => {
   // Android's user agent says "Linux" in it, so the order of those two checks
-  // is the whole test: a phone sent to the NekoRay instructions gets eleven
+  // is the whole test: a phone sent to the Linux desktop instructions gets
   // steps it cannot follow.
   assert.equal(guessPlatform("Mozilla/5.0 (Linux; Android 14; SM-S911B) AppleWebKit/537.36"), "android");
 });

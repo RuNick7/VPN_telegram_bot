@@ -146,28 +146,35 @@ _APP_STORE_HTML = (
     'Для региона RU: <a href="https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6746188973">Happ (RU)</a>'
 )
 
+# Koala Clash rather than NekoRay, whose last release was 4.0.1 in December 2024.
+# The links go through /releases/latest/download/, which GitHub resolves to the
+# newest release; Koala Clash names its files without a version, so a new
+# release never breaks them. The wording follows the app's own Russian
+# interface, so each step names what is actually on the screen.
+_KOALA_RELEASES = "https://github.com/coolcoala/koala-clash/releases/latest"
+_KOALA_DOWNLOAD = _KOALA_RELEASES + "/download/"
+
 _LINUX_INSTRUCTION = (
-    "<b>Настройка VPN на Linux (NekoRay)</b>\n\n"
-    "<b>Шаг 1.</b> Скачайте NekoRay с GitHub:\n"
-    '<a href="https://github.com/MatsuriDayo/nekoray/releases/download/4.0.1/nekoray-4.0.1-2024-12-12-linux64.zip">'
-    "ZIP для Linux</a>\n"
-    '<a href="https://github.com/MatsuriDayo/nekoray/releases/download/4.0.1/nekoray-4.0.1-2024-12-12-debian-x64.deb">'
-    "DEB для Debian/Ubuntu</a>\n\n"
-    "<b>Шаг 2.</b> Распакуйте архив в выбранную директорию (или установите DEB).\n\n"
-    "<b>Шаг 3.</b> Перейдите в папку nekoray и запустите launcher или nekobox "
-    "(или запустите из меню приложений, если установили DEB).\n\n"
+    "<b>Настройка VPN на Linux (Koala Clash)</b>\n\n"
+    "<b>Шаг 1.</b> Скачайте Koala Clash под свою систему:\n"
+    f'<a href="{_KOALA_DOWNLOAD}Koala.Clash_amd64.deb">DEB — Debian, Ubuntu, Mint</a>\n'
+    f'<a href="{_KOALA_DOWNLOAD}Koala.Clash_x86_64.rpm">RPM — Fedora</a>\n'
+    f'<a href="{_KOALA_DOWNLOAD}Koala.Clash_x64.pkg.tar.xz">Arch Linux</a>\n'
+    f'Сборки для ARM — на <a href="{_KOALA_RELEASES}">странице релиза</a>.\n\n'
+    "<b>Шаг 2.</b> Установите пакет из папки, куда он скачался:\n"
+    "<code>sudo apt install ./Koala.Clash_amd64.deb</code>\n"
+    "<code>sudo dnf install ./Koala.Clash_x86_64.rpm</code>\n"
+    "<code>sudo pacman -U Koala.Clash_x64.pkg.tar.xz</code>\n\n"
+    "<b>Шаг 3.</b> Запустите Koala Clash из меню приложений.\n\n"
     "<b>Шаг 4.</b> Скопируйте вашу ссылку на подписку:\n\n"
     "<code>{url}</code>\n\n"
-    "<b>Шаг 5.</b> Выберите Сервер → Добавить профиль из буфера обмена.\n\n"
-    "<b>Шаг 6.</b> Выберите «Как подписку (создать новую группу)».\n\n"
-    "<b>Шаг 7.</b> Откройте появившуюся вкладку.\n\n"
-    "<b>Шаг 8.</b> Включите «Режим TUN» вверху экрана. При необходимости перезапустите приложение, "
-    "если Nekobox попросит об этом. Это пропустит весь интернет-трафик через VPN. "
-    "Чтобы оставить VPN только для браузера (без расширений), выберите «Системный прокси».\n\n"
-    "<b>Шаг 9.</b> Нажмите «URL‑Тест» — это проверит доступные конфигурации.\n\n"
-    "<b>Шаг 10.</b> Нажмите правой кнопкой мыши по конфигурации → «Запустить». "
-    "Чтобы выключить VPN, выберите «Остановить».\n\n"
-    "<b>Шаг 11.</b> Для обновления подписок: Сервер → Текущая группа → Обновить подписки.\n\n"
+    "<b>Шаг 5.</b> Откройте «Профили», нажмите «+» вверху, вставьте ссылку в поле "
+    "«Адрес подписки» и нажмите «Импорт».\n\n"
+    "<b>Шаг 6.</b> Включите «Режим TUN» — через VPN пойдёт весь трафик системы. "
+    "При первом включении нажмите «Перезапустить от имени администратора». "
+    "Если нужен только браузер, достаточно «Системного прокси».\n\n"
+    "<b>Шаг 7.</b> Подписка обновляется сама. Обновить вручную — кнопкой "
+    "«Обновить все профили» вверху раздела «Профили».\n\n"
 )
 
 _TV_PAIRING_STEPS = (

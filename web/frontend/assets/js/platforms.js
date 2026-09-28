@@ -29,10 +29,13 @@ const HAPP_WINDOWS =
 const HAPP_APK =
   "https://github.com/Happ-proxy/happ-android/releases/latest/download/Happ.apk";
 const HAPP_APPLE_TV = "https://apps.apple.com/us/app/happ-proxy-utility-for-tv/id6748297274";
-const NEKORAY_ZIP =
-  "https://github.com/MatsuriDayo/nekoray/releases/download/4.0.1/nekoray-4.0.1-2024-12-12-linux64.zip";
-const NEKORAY_DEB =
-  "https://github.com/MatsuriDayo/nekoray/releases/download/4.0.1/nekoray-4.0.1-2024-12-12-debian-x64.deb";
+// Koala Clash rather than NekoRay, whose last release was 4.0.1 in December
+// 2024. /releases/latest/download/ resolves to the newest release, and the
+// files carry no version in their names, so these never go stale.
+const KOALA_RELEASES = "https://github.com/coolcoala/koala-clash/releases/latest";
+const KOALA_DEB = KOALA_RELEASES + "/download/Koala.Clash_amd64.deb";
+const KOALA_RPM = KOALA_RELEASES + "/download/Koala.Clash_x86_64.rpm";
+const KOALA_ARCH = KOALA_RELEASES + "/download/Koala.Clash_x64.pkg.tar.xz";
 
 const APPLE_INSTALL = [
   "Установите ",
@@ -150,44 +153,50 @@ export const PLATFORMS = [
     label: "Linux",
     icon: "monitor",
     needsURL: true,
+    // Worded after the app's own Russian interface, so every step names what
+    // is on the screen: «Профили», «+», «Адрес подписки», «Импорт».
     steps: (url) => [
       {
-        title: "Скачайте NekoRay",
+        title: "Скачайте Koala Clash",
         body: [
-          { href: NEKORAY_ZIP, text: "ZIP для Linux" },
+          { href: KOALA_DEB, text: "DEB для Debian и Ubuntu" },
+          ", ",
+          { href: KOALA_RPM, text: "RPM для Fedora" },
           " или ",
-          { href: NEKORAY_DEB, text: "DEB для Debian/Ubuntu" },
+          { href: KOALA_ARCH, text: "пакет для Arch" },
+          ". Сборки для ARM — на ",
+          { href: KOALA_RELEASES, text: "странице релиза" },
           ".",
         ],
       },
       {
-        title: "Распакуйте и запустите",
+        title: "Установите и запустите",
         body: [
-          "Распакуйте архив в любую папку и запустите launcher или nekobox. Если ставили DEB — запустите из меню приложений.",
+          "Из папки, куда скачался пакет, — одной из команд:",
+          { code: "sudo apt install ./Koala.Clash_amd64.deb" },
+          { code: "sudo dnf install ./Koala.Clash_x86_64.rpm" },
+          { code: "sudo pacman -U Koala.Clash_x64.pkg.tar.xz" },
+          "Затем запустите Koala Clash из меню приложений.",
         ],
       },
       { title: "Скопируйте ссылку подписки", body: [{ code: url }] },
       {
         title: "Добавьте профиль",
         body: [
-          "Сервер → Добавить профиль из буфера обмена → «Как подписку (создать новую группу)». Откройте появившуюся вкладку.",
+          "Откройте «Профили», нажмите «+» вверху, вставьте ссылку в поле «Адрес подписки» и нажмите «Импорт».",
         ],
       },
       {
         title: "Включите режим TUN",
         body: [
-          "Переключатель вверху экрана. Он пускает через VPN весь трафик системы; если нужен только браузер — выберите «Системный прокси». NekoRay может попросить перезапуск.",
-        ],
-      },
-      {
-        title: "Проверьте и запустите",
-        body: [
-          "Нажмите «URL-Тест», затем правой кнопкой по конфигурации → «Запустить». Остановить — там же.",
+          "«Режим TUN» пускает через VPN весь трафик системы. При первом включении нажмите «Перезапустить от имени администратора». Если нужен только браузер, достаточно «Системного прокси».",
         ],
       },
       {
         title: "Обновление подписки",
-        body: ["Сервер → Текущая группа → Обновить подписки."],
+        body: [
+          "Подписка обновляется сама. Вручную — кнопкой «Обновить все профили» вверху раздела «Профили».",
+        ],
       },
     ],
     fallback: () => [
