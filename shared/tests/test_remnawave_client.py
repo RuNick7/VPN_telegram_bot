@@ -103,6 +103,31 @@ async def test_get_user_by_username_raises_user_not_found_on_404():
     await client.close()
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"response": None},
+        {"response": {}},
+        {"response": {"user": None}},
+        {"response": {"username": "123456789"}},  # a user with no id is not one
+    ],
+)
+async def test_a_200_without_a_user_in_it_is_not_found(body):
+    """
+    The panel has answered this endpoint with 200 and no user at all. Taken at
+    its word, that "found" nobody -- and the lookup never fell through to the
+    full scan that matches on telegramId, so inactive-user cleanup counted
+    real panel accounts as missing and skipped them instead of deleting.
+    """
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=body)
+
+    client = _client_with_transport(handler, token="tok")
+    with pytest.raises(UserNotFoundError):
+        await client.get_user_by_username("123456789")
+    await client.close()
+
+
 async def test_find_user_by_username_returns_none_instead_of_raising():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(404, json={"message": "not found"})
