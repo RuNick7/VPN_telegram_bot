@@ -240,14 +240,59 @@ async def test_list_users_sends_a_record_offset_not_a_page_number():
     assert seen[-1]["size"] == "25"
 
 
-async def test_connectivity_failures_surface_as_api_error():
+@pytest.fixture
+def no_retry_delay(monkeypatch):
+    import tgvpn_shared.remnawave.client as client_module
+
+    monkeypatch.setattr(client_module, "_CONNECT_RETRY_DELAYS", (0, 0))
+
+
+async def test_connectivity_failures_surface_as_api_error(no_retry_delay):
+    attempts = []
+
     def handler(request: httpx.Request) -> httpx.Response:
+        attempts.append(request)
         raise httpx.ConnectTimeout("timed out")
 
     client = _client_with_transport(handler, token="tok")
     with pytest.raises(APIError) as excinfo:
         await client.list_users()
     assert "Request failed" in str(excinfo.value)
+    assert len(attempts) == 3
+    await client.close()
+
+
+async def test_a_dropped_connect_is_retried(no_retry_delay):
+    """
+    One failed handshake used to fail a whole monitor pass. A connect that
+    never landed never reached the panel, so replaying it is safe.
+    """
+    attempts = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts.append(request)
+        if len(attempts) < 3:
+            raise httpx.ConnectTimeout("timed out")
+        return httpx.Response(200, json={"response": {"internalSquads": [{"uuid": "s"}]}})
+
+    client = _client_with_transport(handler, token="tok")
+    assert await client.list_internal_squads() == [{"uuid": "s"}]
+    assert len(attempts) == 3
+    await client.close()
+
+
+async def test_a_read_timeout_is_not_retried(no_retry_delay):
+    """The request may have reached the panel; replaying a write could double it."""
+    attempts = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        attempts.append(request)
+        raise httpx.ReadTimeout("slow")
+
+    client = _client_with_transport(handler, token="tok")
+    with pytest.raises(APIError):
+        await client.update_user({"uuid": "u", "tag": "x"})
+    assert len(attempts) == 1
     await client.close()
 
 
