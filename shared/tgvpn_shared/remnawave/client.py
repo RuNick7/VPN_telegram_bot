@@ -87,6 +87,12 @@ _CONNECTION_JOB_INTERVAL = 0.4
 # from user_bot's client, which is the only one of the two that had it.
 _CONNECT_TIMEOUT_SECONDS = 5.0
 
+# Pauses before each retry of a request that never connected. A failed connect
+# never reached the panel, so replaying it is safe for any method. Without it a
+# single dropped handshake failed a whole monitor pass -- every user left
+# unreconciled until the next tick, and an alert in the admin chat each time.
+_CONNECT_RETRY_DELAYS = (1.0, 3.0)
+
 # A login-issued token is reused for this long before re-authenticating. Without
 # it, a single subscription extension cost three separate POST /auth/login
 # round-trips.
@@ -288,7 +294,20 @@ class RemnawaveClient:
     async def _send(self, method: str, endpoint: str, token: str, **kwargs: Any) -> dict[str, Any]:
         headers = {**kwargs.pop("headers", {}), "Authorization": f"Bearer {token}"}
         try:
-            response = await self._http().request(method, endpoint, headers=headers, **kwargs)
+            for delay in (*_CONNECT_RETRY_DELAYS, None):
+                try:
+                    response = await self._http().request(
+                        method, endpoint, headers=headers, **kwargs
+                    )
+                    break
+                except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
+                    if delay is None:
+                        raise
+                    logger.warning(
+                        "Remnawave %s %s: %s, retrying in %.0fs",
+                        method, endpoint, type(exc).__name__, delay,
+                    )
+                    await asyncio.sleep(delay)
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             raise normalize_http_error(exc) from exc
