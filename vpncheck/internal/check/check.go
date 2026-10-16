@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -36,6 +37,10 @@ type Options struct {
 	// How much to download through each server to measure speed; 0 skips it.
 	SpeedBytes int64
 	SpeedURL   string
+	// Names this run in the nodes' access logs: each server gets one request
+	// to a host made from it (see Marker), which a node's log records next to
+	// the user it authenticated. Empty sends no marker.
+	RunID string
 	// How many servers to run the network stages for at once. The tunnel
 	// stage always runs one server at a time.
 	Parallel int
@@ -74,6 +79,9 @@ func (r *Runner) Run(ctx context.Context, targets []*subscription.Target, done f
 	var wg sync.WaitGroup
 	for i, target := range targets {
 		results[i] = &Result{Target: target}
+		if r.opts.RunID != "" {
+			results[i].Marker = Marker(r.opts.RunID, i+1)
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -88,9 +96,10 @@ func (r *Runner) Run(ctx context.Context, targets []*subscription.Target, done f
 		if ctx.Err() != nil {
 			return results[:i]
 		}
-		started := time.Now()
+		result.TunnelAt = time.Now()
 		r.tunnel(ctx, result)
-		result.Took += time.Since(started)
+		result.TunnelTook = time.Since(result.TunnelAt)
+		result.Took += result.TunnelTook
 		if ctx.Err() != nil {
 			// Cut short by the user, not by the server.
 			return results[:i]
@@ -101,6 +110,13 @@ func (r *Runner) Run(ctx context.Context, targets []*subscription.Target, done f
 		}
 	}
 	return results
+}
+
+// Marker is the host a run asks for through server n. It ends in .invalid,
+// which no resolver answers: the node logs the request as accepted, with the
+// user it came from, and the lookup fails at once without leaving the node.
+func Marker(runID string, n int) string {
+	return fmt.Sprintf("vpncheck-%s-%02d.invalid", runID, n)
 }
 
 func (r *Runner) network(ctx context.Context, result *Result) {
@@ -153,13 +169,14 @@ func judge(result *Result) {
 // between, so a report can tell "every server fails" from "the internet is
 // down" -- and notice a VPN left running, which would carry every check
 // through itself.
-func Baseline(ctx context.Context, opts Options) []Step {
+func Baseline(ctx context.Context, opts Options) ([]Step, Clock) {
 	client := &http.Client{
 		Transport:     &http.Transport{Proxy: nil, DisableKeepAlives: true},
 		Timeout:       opts.Timeout,
 		CheckRedirect: noRedirect,
 	}
 	var steps []Step
+	var clock Clock
 	status, _, took, err := get(ctx, client, opts.PingURL)
 	switch {
 	case err != nil:
@@ -170,9 +187,11 @@ func Baseline(ctx context.Context, opts Options) []Step {
 			Detail: fmt.Sprintf("%s — HTTP %d за %s", opts.PingURL, status, ms(took))})
 	}
 	if opts.TraceURL != "" {
+		sent := time.Now()
 		status, body, took, err := get(ctx, client, opts.TraceURL)
 		if err == nil && status == http.StatusOK {
 			trace := parseTrace(body)
+			clock = clockFrom(trace["ts"], sent, took)
 			// The address is the customer's own; the country and the
 			// Cloudflare city are enough to tell where the check ran from.
 			steps = append(steps, Step{Name: "Откуда проверка", Status: OK, Took: took,
@@ -183,7 +202,27 @@ func Baseline(ctx context.Context, opts Options) []Step {
 		steps = append(steps, Step{Name: "Другой VPN", Status: Warn, Detail: fmt.Sprintf(
 			"похоже, включён VPN (интерфейс %s): проверки пойдут через него, результаты будут неверными", name)})
 	}
-	return steps
+	return steps, clock
+}
+
+// Clock is how far this computer's clock is from Cloudflare's, so the times
+// a report gives can be looked up in a node's log, which keeps real time.
+type Clock struct {
+	// Add to a local time to get the real one.
+	Offset time.Duration
+	Known  bool
+}
+
+// clockFrom reads the trace's ts=<unix seconds> against the middle of the
+// request that fetched it: good to a fraction of a second, which is all the
+// lookup needs.
+func clockFrom(ts string, sent time.Time, took time.Duration) Clock {
+	seconds, err := strconv.ParseFloat(ts, 64)
+	if err != nil || seconds <= 0 {
+		return Clock{}
+	}
+	actual := time.Unix(0, int64(seconds*float64(time.Second)))
+	return Clock{Offset: actual.Sub(sent.Add(took / 2)).Round(100 * time.Millisecond), Known: true}
 }
 
 // activeTunnel names a network interface that looks like a running VPN

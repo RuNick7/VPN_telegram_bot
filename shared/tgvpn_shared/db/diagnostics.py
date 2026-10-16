@@ -145,3 +145,37 @@ class SupportDiagnosticsRepository:
             "UPDATE support_diagnostics SET decision_announced_at = now() WHERE id = $1",
             request_id,
         )
+
+    async def pending_node_logs(self, limit: int = 5) -> list[dict]:
+        """
+        Reports whose node logs are still to be fetched, oldest first, with
+        what the search needs: the report file, and the names the customer
+        may have in the panel. Only once the report itself has reached the
+        operators, so the logs arrive after it.
+        """
+        pool = await get_pool()
+        rows = await pool.fetch(
+            """
+            SELECT d.id, d.ticket_id, t.subject,
+                   (SELECT a.id::text FROM support_attachments a
+                    WHERE a.message_id = m.id ORDER BY a.id LIMIT 1) AS attachment_id,
+                   u.telegram_id, u.remnawave_username, u.remnawave_uuid::text AS remnawave_uuid
+            FROM support_diagnostics d
+            JOIN support_tickets t ON t.id = d.ticket_id
+            JOIN users u ON u.id = t.user_id
+            JOIN support_messages m ON m.id = d.report_message_id
+            WHERE d.reported_at IS NOT NULL AND d.node_logs_at IS NULL
+              AND m.delivered_at IS NOT NULL
+            ORDER BY d.id
+            LIMIT $1
+            """,
+            limit,
+        )
+        return [dict(row) for row in rows]
+
+    async def mark_node_logs(self, request_id: int) -> None:
+        pool = await get_pool()
+        await pool.execute(
+            "UPDATE support_diagnostics SET node_logs_at = now() WHERE id = $1",
+            request_id,
+        )

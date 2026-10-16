@@ -129,3 +129,46 @@ func TestOneLine(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+// What admin_bot reads to ask the nodes: the window each server's node saw
+// the run in, real time, and its marker. Its parser pins these lines too.
+func TestNodeWindowAndMarker(t *testing.T) {
+	rep, red := sample(t, 1)
+	rep.RunID = "0a1b2c3d"
+	rep.Clock = check.Clock{Offset: -2500 * time.Millisecond, Known: true}
+	result := rep.Results[0]
+	result.TunnelAt = time.Date(2026, 10, 16, 23, 0, 3, 400_000_000, time.FixedZone("MSK", 3*3600))
+	result.TunnelTook = 4 * time.Second
+	result.Marker, result.MarkerSent = check.Marker(rep.RunID, 1), true
+
+	from, to, ok := NodeWindow(rep, result)
+	if !ok || !from.Equal(time.Date(2026, 10, 16, 20, 0, 0, 0, time.UTC)) || !to.Equal(time.Date(2026, 10, 16, 20, 0, 5, 0, time.UTC)) {
+		t.Fatalf("%v %v %v", from, to, ok)
+	}
+	files, err := Write(t.TempDir(), rep, red)
+	if err != nil {
+		t.Fatal(err)
+	}
+	full, _ := os.ReadFile(files.Full)
+	for _, want := range []string{
+		"Часы компьютера: сверены, поправка -2.5 с\n",
+		"Метка проверки в логах нод: vpncheck-0a1b2c3d\n",
+		"\nСервер: de1.example.net:443 — vless · grpc · reality — НЕ РАБОТАЕТ\n",
+		"\nВремя на ноде (UTC): 2026-10-16T20:00:00Z — 2026-10-16T20:00:05Z\n",
+		"\nМетка в логе ноды: vpncheck-0a1b2c3d-01.invalid\n",
+	} {
+		if !strings.Contains(string(full), want) {
+			t.Errorf("report lacks %q", want)
+		}
+	}
+
+	rep.Clock = check.Clock{}
+	result.MarkerSent = false
+	summary := Summary(rep, nil)
+	if !strings.Contains(summary, "Часы компьютера: не сверены") {
+		t.Error(summary)
+	}
+	if log := serverLog(rep, result, red, nil); !strings.Contains(log, "vpncheck-0a1b2c3d-01.invalid (не отправлена)") {
+		t.Error(log)
+	}
+}

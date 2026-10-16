@@ -98,3 +98,37 @@ async def test_answers_wait_to_be_announced():
 
     await diagnostics.mark_announced(granted)
     assert [p["id"] for p in await diagnostics.pending_announcements()] == [declined]
+
+
+async def test_node_logs_wait_for_the_report_to_reach_the_operators():
+    ticket_id = await _ticket()
+    request_id = await diagnostics.create(ticket_id, OPERATOR)
+    await diagnostics.grant(request_id, hash_code("ABCD-EFGH-JKLM"), CODE_TTL_SECONDS)
+    pool = await get_pool()
+    await pool.execute("UPDATE users SET remnawave_username = 'u-abc' WHERE telegram_id = 555")
+    # As the website stores a report: the customer's message, its file, and
+    # the request pointing at it.
+    message_id = await pool.fetchval(
+        "INSERT INTO support_messages (ticket_id, author, body) VALUES ($1, 'user', 'отчёт') RETURNING id",
+        ticket_id,
+    )
+    attachment_id = await pool.fetchval(
+        """
+        INSERT INTO support_attachments (message_id, file_name, content_type, size_bytes)
+        VALUES ($1, 'vpncheck-report.txt', 'text/plain', 5) RETURNING id::text
+        """,
+        message_id,
+    )
+    await pool.execute(
+        "UPDATE support_diagnostics SET reported_at = now(), report_message_id = $2 WHERE id = $1",
+        request_id, message_id,
+    )
+    assert await diagnostics.pending_node_logs() == [], "not before the report itself is delivered"
+
+    await pool.execute("UPDATE support_messages SET delivered_at = now() WHERE id = $1", message_id)
+    [pending] = await diagnostics.pending_node_logs()
+    assert pending["id"] == request_id and pending["attachment_id"] == attachment_id
+    assert (pending["telegram_id"], pending["remnawave_username"]) == (555, "u-abc")
+
+    await diagnostics.mark_node_logs(request_id)
+    assert await diagnostics.pending_node_logs() == []

@@ -11,6 +11,8 @@ package main
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -167,6 +169,7 @@ func checkAll(ctx context.Context, opts options, session *ticket.Session, client
 		Version:  version,
 		Xray:     check.XrayVersion(),
 		Platform: platform(),
+		RunID:    runID(),
 	}
 
 	var targets []*subscription.Target
@@ -206,7 +209,8 @@ func checkAll(ctx context.Context, opts options, session *ticket.Session, client
 	options.SpeedBytes = int64(opts.speed) << 20
 
 	fmt.Println("\nПроверяю соединение без VPN…")
-	rep.Baseline = check.Baseline(ctx, options)
+	options.RunID = rep.RunID
+	rep.Baseline, rep.Clock = check.Baseline(ctx, options)
 	for _, step := range rep.Baseline {
 		fmt.Printf("  %-10s %s — %s\n", step.Status, step.Name, step.Detail)
 		if step.Name == "Другой VPN" {
@@ -386,6 +390,14 @@ func pause() {
 func isTerminal() bool {
 	info, err := os.Stdin.Stat()
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
+// runID names one run in the nodes' logs. Random, so it says nothing about
+// who ran it; eight hex digits, so two runs do not share one.
+func runID() string {
+	var raw [4]byte
+	_, _ = rand.Read(raw[:])
+	return hex.EncodeToString(raw[:])
 }
 
 func usage() {

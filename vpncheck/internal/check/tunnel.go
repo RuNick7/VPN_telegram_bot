@@ -102,6 +102,10 @@ func (r *Runner) tunnel(ctx context.Context, result *Result) {
 	}
 	defer instance.Close()
 	client := httpThrough(instance, r.opts.Timeout)
+	// Last, so whatever it makes Xray log comes after every line the checks
+	// above are judged by -- and still sent when they failed, as a node whose
+	// own outbound is broken logs the request all the same.
+	defer r.mark(ctx, client, result)
 
 	if !r.pings(ctx, client, result, logs) {
 		return
@@ -113,6 +117,19 @@ func (r *Runner) tunnel(ctx context.Context, result *Result) {
 	if r.opts.SpeedBytes > 0 {
 		r.speed(ctx, client, result)
 	}
+}
+
+// mark asks for the run's marker host through the server. The answer does
+// not matter and cannot be good: what counts is the line the node's access
+// log writes when it accepts the request.
+func (r *Runner) mark(ctx context.Context, client *http.Client, result *Result) {
+	if result.Marker == "" || ctx.Err() != nil {
+		return
+	}
+	mctx, cancel := context.WithTimeout(ctx, min(3*time.Second, r.opts.Timeout))
+	defer cancel()
+	_, _, _, _ = get(mctx, client, "http://"+result.Marker+"/")
+	result.MarkerSent = true
 }
 
 // pings makes the health-check request over a fresh connection each time.
@@ -312,7 +329,7 @@ func parseTrace(body []byte) map[string]string {
 	fields := map[string]string{}
 	for _, line := range strings.Split(string(body), "\n") {
 		key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
-		if ok && (key == "ip" || key == "loc" || key == "colo" || key == "warp") {
+		if ok && (key == "ip" || key == "loc" || key == "colo" || key == "warp" || key == "ts") {
 			fields[key] = value
 		}
 	}

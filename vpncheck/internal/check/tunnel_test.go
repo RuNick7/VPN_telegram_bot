@@ -454,3 +454,34 @@ func selfSigned(t *testing.T, name string) (certPEM, keyPEM, pin string) {
 		string(pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})),
 		hex.EncodeToString(sum[:])
 }
+
+// The marker is what finds a run in a node's access log: the node has to
+// log it as accepted, next to the user it authenticated.
+func TestMarkerReachesTheNodeLog(t *testing.T) {
+	web := site(t)
+	port := freePort(t, "tcp")
+	node(t, map[string]any{
+		"listen": "127.0.0.1", "port": port, "protocol": "vless", "tag": "vless-in",
+		"settings": map[string]any{"clients": []any{map[string]any{"id": testUUID, "email": "u-test"}}, "decryption": "none"},
+	})
+	target := targetFromLink(t, fmt.Sprintf("vless://%s@127.0.0.1:%d?type=tcp&security=none#raw", testUUID, port))
+	opts := testOptions(web.URL)
+	opts.RunID = "0a1b2c3d"
+	result := runOne(t, opts, target)
+	requireWorks(t, result)
+	if result.Marker != "vpncheck-0a1b2c3d-01.invalid" || !result.MarkerSent {
+		t.Fatalf("marker %q sent %v", result.Marker, result.MarkerSent)
+	}
+	if result.TunnelAt.IsZero() || result.TunnelTook <= 0 {
+		t.Fatalf("tunnel window %v %v", result.TunnelAt, result.TunnelTook)
+	}
+	// Node and client share this process's log handler, so the node's
+	// access line lands in the captured log.
+	for _, line := range result.Log {
+		if strings.Contains(line, " accepted tcp:"+result.Marker+":80") && strings.HasSuffix(line, " email: u-test") {
+			t.Logf("node line: %s", line)
+			return
+		}
+	}
+	t.Fatalf("no access line with the marker:\n%s", strings.Join(result.Log, "\n"))
+}

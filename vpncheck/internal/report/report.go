@@ -51,6 +51,10 @@ type Report struct {
 	Results  []*check.Result
 	// How many servers there were, of which Results holds the finished ones.
 	Total int
+	// The run's marker in the nodes' logs, and how this computer's clock
+	// compares with real time -- together what finds the run there.
+	RunID string
+	Clock check.Clock
 }
 
 // Files are the paths written, relative names included for printing.
@@ -80,7 +84,7 @@ func Write(root string, rep *Report, red *redact.Redactor) (*Files, error) {
 	logs := make([]string, len(rep.Results))
 	for i, result := range rep.Results {
 		names[i] = filepath.Join("servers", serverFile(i, result))
-		logs[i] = printable(red.String(serverLog(result, red, nil)))
+		logs[i] = printable(red.String(serverLog(rep, result, red, nil)))
 		path := filepath.Join(dir, names[i])
 		if err := os.WriteFile(path, []byte(logs[i]), 0o644); err != nil {
 			return nil, err
@@ -134,6 +138,15 @@ func Summary(rep *Report, logNames []string) string {
 	fmt.Fprintf(&b, "Проверка серверов vpncheck %s (Xray %s)\n", rep.Version, rep.Xray)
 	fmt.Fprintf(&b, "Начало: %s, длилась %s\n", rep.Started.Format("2006-01-02 15:04:05 -07:00"), duration(rep.Finished.Sub(rep.Started)))
 	fmt.Fprintf(&b, "Компьютер: %s\n", rep.Platform)
+	switch {
+	case rep.Clock.Known:
+		fmt.Fprintf(&b, "Часы компьютера: сверены, поправка %+.1f с\n", rep.Clock.Offset.Seconds())
+	default:
+		b.WriteString("Часы компьютера: не сверены, время на нодах указано по часам компьютера\n")
+	}
+	if rep.RunID != "" {
+		fmt.Fprintf(&b, "Метка проверки в логах нод: vpncheck-%s\n", rep.RunID)
+	}
 
 	if len(rep.Baseline) > 0 {
 		b.WriteString("\nСоединение без VPN\n")
@@ -235,14 +248,39 @@ func writeDetails(b *strings.Builder, result *check.Result, indent string) {
 	}
 }
 
+// NodeWindow is when a server's node saw the run, in real time: the tunnel
+// stage, by this computer's clock, corrected when the clock could be checked.
+// Whole seconds rounded outwards, which is how a node's log is searched.
+func NodeWindow(rep *Report, result *check.Result) (from, to time.Time, ok bool) {
+	if result.TunnelAt.IsZero() {
+		return from, to, false
+	}
+	from = result.TunnelAt.Add(rep.Clock.Offset).UTC().Truncate(time.Second)
+	end := result.TunnelAt.Add(result.TunnelTook + rep.Clock.Offset).UTC()
+	if to = end.Truncate(time.Second); to.Before(end) {
+		to = to.Add(time.Second)
+	}
+	return from, to, true
+}
+
 // serverLog is one server's file: the summary of it, the outbound it was
 // reached with, and Xray's log. keep, when set, limits the log to its last
 // lines.
-func serverLog(result *check.Result, red *redact.Redactor, keep *int) string {
+func serverLog(rep *Report, result *check.Result, red *redact.Redactor, keep *int) string {
 	var b strings.Builder
 	t := result.Target
 	fmt.Fprintf(&b, "Сервер: %s — %s — %s\n", t.Endpoint(), t.Kind(), result.Verdict)
 	fmt.Fprintf(&b, "Начало: %s, длилась %s\n", result.Started.Format("2006-01-02 15:04:05 -07:00"), duration(result.Took))
+	if from, to, ok := NodeWindow(rep, result); ok {
+		fmt.Fprintf(&b, "Время на ноде (UTC): %s — %s\n", from.Format(time.RFC3339), to.Format(time.RFC3339))
+	}
+	if result.Marker != "" {
+		sent := ""
+		if !result.MarkerSent {
+			sent = " (не отправлена)"
+		}
+		fmt.Fprintf(&b, "Метка в логе ноды: %s%s\n", result.Marker, sent)
+	}
 	writeDetails(&b, result, "")
 
 	b.WriteString("\nНастройки сервера из подписки (секреты скрыты):\n")
@@ -279,7 +317,7 @@ func fullReport(summary string, rep *Report, red *redact.Redactor, limit int) st
 		b.WriteString(summary)
 		for _, result := range rep.Results {
 			b.WriteString("\n" + strings.Repeat("=", 78) + "\n")
-			b.WriteString(serverLog(result, red, keep))
+			b.WriteString(serverLog(rep, result, red, keep))
 		}
 		return b.String()
 	}
@@ -324,6 +362,10 @@ type jsonServer struct {
 	Mbps     float64           `json:"mbps,omitempty"`
 	Steps    []jsonStep        `json:"steps"`
 	Log      string            `json:"log"`
+	// When the node saw the run, real time, and what to look for there.
+	NodeFrom string `json:"node_from,omitempty"`
+	NodeTo   string `json:"node_to,omitempty"`
+	Marker   string `json:"marker,omitempty"`
 }
 
 func summaryJSON(rep *Report, logNames []string, red *redact.Redactor) ([]byte, error) {
@@ -360,6 +402,12 @@ func summaryJSON(rep *Report, logNames []string, red *redact.Redactor) ([]byte, 
 		for _, ping := range result.Pings {
 			server.PingsMS = append(server.PingsMS, ping.Milliseconds())
 		}
+		if from, to, ok := NodeWindow(rep, result); ok {
+			server.NodeFrom, server.NodeTo = from.Format(time.RFC3339), to.Format(time.RFC3339)
+		}
+		if result.MarkerSent {
+			server.Marker = result.Marker
+		}
 		servers = append(servers, server)
 	}
 	var sources []map[string]any
@@ -379,6 +427,8 @@ func summaryJSON(rep *Report, logNames []string, red *redact.Redactor) ([]byte, 
 		"sources":  sources,
 		"total":    rep.Total,
 		"servers":  servers,
+		"run_id":   rep.RunID,
+		"clock":    map[string]any{"known": rep.Clock.Known, "offset_ms": rep.Clock.Offset.Milliseconds()},
 	}, "", "  ")
 }
 

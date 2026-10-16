@@ -69,6 +69,15 @@ type Result struct {
 	Took    time.Duration
 	Steps   []Step
 
+	// When traffic went through the server, the part of the run its node
+	// sees: the network stages before it run for every server at once.
+	TunnelAt   time.Time
+	TunnelTook time.Duration
+	// The host asked for through this server so its node's log can be
+	// searched for the run (see Marker), and whether the request was made.
+	Marker     string
+	MarkerSent bool
+
 	// Round trips of the health-check request, each over a fresh connection,
 	// so each includes the handshake -- what opening a site costs.
 	Pings []time.Duration

@@ -114,6 +114,44 @@ A subscription only holds the servers its owner is entitled to. To check every
 squad from a server, keep one test account per tier (paid, FREE, LTE) and pass
 all three: `-sub URL1 -sub URL2 -sub URL3`.
 
+## The nodes' side: vpncheck-agent
+
+A report shows what the customer's computer saw. What the node saw is in the
+node's own Xray logs, and the panel's API does not expose them, so each node
+runs a small agent that admin_bot asks.
+
+Every run sends one request through each server to a host named after the
+run, `vpncheck-<run>-<NN>.invalid`; the report prints it per server with the
+time the node saw the run, in UTC and corrected against Cloudflare's clock.
+`.invalid` never resolves, so the request goes nowhere, but the node's access
+log records it with the user it authenticated and the address it came from.
+When a customer's report reaches the admin chats, admin_bot sends every agent
+those windows. Each agent finds the marker, takes the user and address from
+that line, and returns that user's lines and the error lines naming that
+address within the window. admin_bot replies to the ticket card with one file
+covering all the nodes.
+
+- Nothing goes into the ticket: the node lines hold the customer's address,
+  and the ticket is something the customer reads.
+- A server that refused the client (a wrong REALITY key, a Hysteria2
+  password it does not know) never learns the user, so there is no marker
+  line. For a failed server the agent then returns the node's error lines
+  from that time, marked as possibly about other customers.
+- The agent answers only over TLS with its own self-signed certificate,
+  which admin_bot pins, and only to the token it generated on first start.
+  It prints both as the line for `NODE_LOG_AGENTS`.
+
+```
+vpncheck-agent -name de1 -public de1.example.net     # :7443, logs in /var/log/remnanode
+vpncheck-agent -print                                 # the NODE_LOG_AGENTS line again
+```
+
+Flags: `-log` (repeatable; the agent also reads `<log>.1`, the copy
+logrotate leaves), `-tz` (the zone Xray writes its times in, UTC in the
+remnanode container), `-listen`, `-data` (token and certificate, default
+`/var/lib/vpncheck-agent`). Installing it on a node, with the Xray log
+settings it needs: `docs/support-tickets-rollout.md`, step 6.
+
 ## Building
 
 ```bash
@@ -122,7 +160,7 @@ VERSION=1.0.0 SITE=https://example.com ./build.sh
 ```
 
 Writes six binaries and `SHA256SUMS` into `dist/`: Linux, macOS and Windows,
-each for amd64 and arm64. The site is compiled in so `vpncheck CODE` needs no
+each for amd64 and arm64, plus `vpncheck-agent-linux-*` for the nodes. The site is compiled in so `vpncheck CODE` needs no
 flags; `-site` overrides it. Without Go, in Docker:
 
 ```bash
@@ -140,4 +178,6 @@ go test ./...
 
 `internal/check` starts real Xray servers on 127.0.0.1 (VLESS raw, REALITY
 over raw/gRPC/XHTTP, Hysteria2) and checks the tool both gets through and
-explains why it does not with a wrong key or password.
+explains why it does not with a wrong key or password, and that the node logs
+the marker next to the user. `internal/nodelog` pins the search on sample
+logs.

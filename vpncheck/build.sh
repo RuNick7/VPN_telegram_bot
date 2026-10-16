@@ -32,6 +32,14 @@ for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 wi
         -ldflags "-s -w -X main.version=$VERSION -X main.defaultSite=$SITE" \
         -o "dist/$name" .
 done
+# The node agent: Linux only, where the nodes are, and no Xray inside.
+for arch in amd64 arm64; do
+    name="vpncheck-agent-linux-${arch}"
+    echo "building $name"
+    CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath \
+        -ldflags "-s -w -X main.version=$VERSION" \
+        -o "dist/$name" ./cmd/vpncheck-agent
+done
 (cd dist && sha256sum * > SHA256SUMS 2>/dev/null || shasum -a 256 * > SHA256SUMS)
 echo "done: $(ls dist | tr '\n' ' ')"
 [ -n "$SITE" ] || echo "note: no site compiled in; sending by code will need -site" >&2

@@ -33,6 +33,9 @@ CREATE TABLE support_diagnostics (
     -- The customer message the report arrived in.
     report_message_id BIGINT REFERENCES support_messages (id) ON DELETE SET NULL,
     reported_at  TIMESTAMPTZ,
+    -- When admin_bot asked the nodes' agents for their side of the run and
+    -- sent the operators what they found (or that nothing was configured).
+    node_logs_at TIMESTAMPTZ,
     CHECK ((decision IS NULL) = (decided_at IS NULL)),
     CHECK ((decision = 'granted') = (code_hash IS NOT NULL AND code_expires_at IS NOT NULL))
 );
@@ -40,3 +43,6 @@ CREATE INDEX idx_support_diagnostics_ticket ON support_diagnostics (ticket_id, c
 -- What admin_bot polls with the rest of the support outbox.
 CREATE INDEX idx_support_diagnostics_unannounced ON support_diagnostics (id)
     WHERE decided_at IS NOT NULL AND decision_announced_at IS NULL;
+-- Reports whose node logs are still to be fetched.
+CREATE INDEX idx_support_diagnostics_node_logs ON support_diagnostics (id)
+    WHERE reported_at IS NOT NULL AND node_logs_at IS NULL;

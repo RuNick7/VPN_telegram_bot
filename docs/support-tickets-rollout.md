@@ -126,6 +126,97 @@ Run `vpncheck CODE`, answer «да», and the report arrives in the ticket as
 the button tells the operator so, and the customer attaches `report.txt`
 from a run without a code.
 
+## 6. The nodes' side (vpncheck-agent)
+
+Optional, on top of step 5. With it, a customer's report is followed in the
+admin chat by a file with each node's Xray log lines from that check: the
+customer's own connections, found by the run's marker, and for a server that
+refused them, the node's errors at that time. Nothing of it goes into the
+ticket. See "The nodes' side" in `vpncheck/README.md` for how it finds them.
+
+On **each node**:
+
+1. **Have Xray write its logs to files on the host.** In the panel, in the
+   node's config profile, set the `log` section, for example:
+   ```json
+   "log": {
+     "loglevel": "warning",
+     "access": "/var/log/remnanode/access.log",
+     "error": "/var/log/remnanode/error.log"
+   }
+   ```
+   and mount that directory in the node's `docker-compose.yml`:
+   ```yaml
+   services:
+     remnanode:
+       volumes:
+         - /var/log/remnanode:/var/log/remnanode
+   ```
+   The access log grows with traffic; rotate it daily and keep one old copy,
+   which is all the agent reads (`access.log.1`):
+   ```
+   # /etc/logrotate.d/remnanode
+   /var/log/remnanode/*.log {
+       daily
+       rotate 1
+       missingok
+       notifempty
+       copytruncate
+   }
+   ```
+2. **Install the agent** from `vpncheck/dist/` (`build.sh` builds it):
+   ```bash
+   install -m 755 vpncheck-agent-linux-amd64 /usr/local/bin/vpncheck-agent
+   ```
+   ```ini
+   # /etc/systemd/system/vpncheck-agent.service
+   [Unit]
+   Description=vpncheck-agent: node logs for support tickets
+   After=network-online.target
+
+   [Service]
+   ExecStart=/usr/local/bin/vpncheck-agent -name de1 -public de1.example.net
+   DynamicUser=yes
+   StateDirectory=vpncheck-agent
+   Restart=on-failure
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+   ```bash
+   systemctl daemon-reload && systemctl enable --now vpncheck-agent
+   journalctl -u vpncheck-agent -n 5     # prints the NODE_LOG_AGENTS line
+   ```
+   `-public` is the address admin_bot reaches the node by; `-tz` is needed
+   only if the remnanode container is not on UTC.
+3. **Open port 7443 to admin_bot's server only**:
+   ```bash
+   ufw allow from <IP of the bot server> to any port 7443 proto tcp
+   ```
+
+Then on the **bot server**, put every node's line in `.env`, joined with
+commas and no spaces, and recreate the bots:
+
+```
+NODE_LOG_AGENTS=de1=https://<token>@de1.example.net:7443#<fingerprint>,nl1=https://...
+```
+```bash
+docker compose up -d --force-recreate bots
+```
+
+The bot logs `Node logs started for N agent(s).`; an entry it cannot read is
+logged by name and left out. To see which log files an agent can read, on the
+node itself:
+
+```bash
+curl -sk -H "Authorization: Bearer $(cat /var/lib/vpncheck-agent/token)" https://127.0.0.1:7443/v1/health
+```
+
+A file that does not exist or cannot be read is listed with the error. A reinstalled agent with a wiped
+`/var/lib/vpncheck-agent` has a new token and certificate: its line in
+`NODE_LOG_AGENTS` has to be replaced, and until then the file says that
+node answered with the wrong certificate.
+
 ## Operating it
 
 - **Files live in Postgres**, in `support_attachment_data`. The daily dump the

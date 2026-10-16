@@ -3,6 +3,7 @@ package check
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/subscription"
 )
@@ -126,5 +127,23 @@ func TestJudge(t *testing.T) {
 	judge(broken)
 	if broken.Verdict != Broken {
 		t.Errorf("no tunnel step, verdict %s", broken.Verdict)
+	}
+}
+
+func TestClockFrom(t *testing.T) {
+	sent := time.Unix(1_790_000_000, 0)
+	// Cloudflare's clock is 3 s ahead; the reply took 400 ms, so the
+	// moment it describes is 200 ms after sending.
+	clock := clockFrom("1790000003.200", sent, 400*time.Millisecond)
+	if !clock.Known || clock.Offset != 3*time.Second {
+		t.Fatalf("%+v", clock)
+	}
+	for _, ts := range []string{"", "soon", "-5"} {
+		if clockFrom(ts, sent, 0).Known {
+			t.Errorf("%q read as a time", ts)
+		}
+	}
+	if Marker("0a1b2c3d", 7) != "vpncheck-0a1b2c3d-07.invalid" {
+		t.Error(Marker("0a1b2c3d", 7))
 	}
 }
