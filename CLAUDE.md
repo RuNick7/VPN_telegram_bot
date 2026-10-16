@@ -92,7 +92,7 @@ vpncheck is its own module too. Its `internal/check` tests start real Xray serve
 127.0.0.1 (REALITY, Hysteria2, ...), so they take a few seconds:
 ```bash
 cd vpncheck && go test ./...
-cd vpncheck && ./build.sh        # six binaries into dist/
+cd vpncheck && ./build.sh        # binaries for every platform, and the node agent, into dist/
 ```
 
 ## Architecture
@@ -172,7 +172,7 @@ A signed-in customer -- subscribed or not -- opens a ticket at `/app/support`: s
 
 - **The code is stored hashed** (`code_hash`: SHA-256 of its 12 characters, upper-cased, dashes and spaces dropped), like magic links. Python generates and hashes it (`shared/tgvpn_shared/support_diagnostics.py`), Go hashes what vpncheck sends (`web/internal/support/diagnostics.go`), and both test files pin the same vectors -- change the alphabet or normalization on one side alone and they fail.
 - **A code is single-use and per ticket.** `store.AttachDiagnosticsReport` takes the row `FOR UPDATE`, refuses an expired, already-reported or closed one, and inserts the report as the customer's own message, so the existing outbox delivers it; the endpoints need no session. The decision itself is announced to admins by the outbox from `decision_announced_at`.
-- **The nodes' side comes from `vpncheck-agent`** (`vpncheck/cmd/vpncheck-agent`, one per node), because the panel's API exposes no Xray logs. Each run sends every server one request to `vpncheck-<run>-<NN>.invalid`; the node's access log records it with the user and address, and `vpncheck/internal/nodelog` finds that user's lines from there. `admin_bot/app/scheduler/jobs/node_logs.py` asks every agent in `NODE_LOG_AGENTS` once the report is delivered (`support_diagnostics.node_logs_at`) and replies to the card with a file -- admin chats only, never the ticket, since the lines hold the customer's address. Agents are reached over TLS with a pinned self-signed certificate and a bearer token. `app/services/node_logs.py` parses the report's "Время на ноде (UTC)" and "Метка в логе ноды" lines, which `TestNodeWindowAndMarker` in `internal/report` pins on the Go side.
+- **The nodes' side comes from `vpncheck-agent`** (`vpncheck/cmd/vpncheck-agent`, one per node), because the panel's API exposes no Xray logs. Each run sends every server one request to `vpncheck-<run>-<NN>.invalid`; the node's access log records it with the user and address, and `vpncheck/internal/nodelog` finds that user's lines from there. `admin_bot/app/scheduler/jobs/node_logs.py` asks every agent in `NODE_LOG_AGENTS` once the report is delivered (`support_diagnostics.node_logs_at`) and replies to the card with a file -- admin chats only, never the ticket, since the lines hold the customer's address. Agents are reached over TLS with a pinned self-signed certificate and a bearer token. `app/services/node_logs.py` parses the report's "Время на ноде (UTC)" and "Метка в логе ноды" lines, which `TestNodeWindowAndMarker` in `internal/report` pins on the Go side. An operator's own run asks the same agents directly (`vpncheck/operator.go` over `internal/nodes`, enabled by `-env`/`-agents`) for the daily check; a run by support code never does.
 - Redaction is vpncheck's job, before anything is written: `internal/redact` and `internal/report` guarantee no UUID, key, short ID, password, subscription token or local address reaches a file.
 
 ### Payments

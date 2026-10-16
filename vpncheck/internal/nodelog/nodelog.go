@@ -55,6 +55,14 @@ type Section struct {
 	Truncated  bool     `json:"truncated"`
 }
 
+// Response is what an agent answers: its name, the logs it read, and one
+// section per window of the query, in the same order.
+type Response struct {
+	Node     string    `json:"node"`
+	Files    []File    `json:"files"`
+	Sections []Section `json:"sections,omitempty"`
+}
+
 // File says whether a log could be read.
 type File struct {
 	Path  string `json:"path"`

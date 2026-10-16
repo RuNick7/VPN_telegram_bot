@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/check"
+	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/nodelog"
 	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/redact"
 )
 
@@ -55,6 +56,51 @@ type Report struct {
 	// compares with real time -- together what finds the run there.
 	RunID string
 	Clock check.Clock
+	// What each node's agent logged for the run, when the operator running
+	// it gave vpncheck the agents (see internal/nodes). Empty for customers.
+	Nodes []NodeAnswer
+}
+
+// NodeAnswer is one node agent's reply for the whole run. Its sections line
+// up with Results.
+type NodeAnswer struct {
+	Name     string
+	Error    string
+	Files    []nodelog.File
+	Sections []nodelog.Section
+}
+
+type nodeLines struct {
+	node string
+	nodelog.Section
+}
+
+// nodeLinesFor is what the nodes found for one server: every node that has
+// lines for it, in the order the agents were given.
+func nodeLinesFor(rep *Report, result *check.Result) []nodeLines {
+	index := slices.Index(rep.Results, result)
+	var found []nodeLines
+	for _, node := range rep.Nodes {
+		if index >= 0 && index < len(node.Sections) && len(node.Sections[index].Lines) > 0 {
+			found = append(found, nodeLines{node.Name, node.Sections[index]})
+		}
+	}
+	return found
+}
+
+func describeNode(found nodeLines) string {
+	if !found.Attributed {
+		return fmt.Sprintf("нода %s: метки нет, ошибки ноды за это время (могут быть и о других клиентах), строк %d", found.node, len(found.Lines))
+	}
+	return fmt.Sprintf("нода %s: пользователь %s, адрес %s, строк %d", found.node,
+		orDash(strings.Join(found.Emails, ", ")), orDash(strings.Join(found.Addresses, ", ")), len(found.Lines))
+}
+
+func orDash(s string) string {
+	if s == "" {
+		return "—"
+	}
+	return s
 }
 
 // Files are the paths written, relative names included for printing.
@@ -192,7 +238,27 @@ func Summary(rep *Report, logNames []string) string {
 	if missing := rep.Total - len(rep.Results); missing > 0 {
 		fmt.Fprintf(&b, ", не проверено %d (проверку прервали)", missing)
 	}
-	b.WriteString("\n\n")
+	b.WriteString("\n")
+	if len(rep.Nodes) > 0 {
+		b.WriteString("\nЛоги нод\n")
+		for _, node := range rep.Nodes {
+			var unreadable []string
+			for _, file := range node.Files {
+				if file.Error != "" {
+					unreadable = append(unreadable, fmt.Sprintf("%s (%s)", file.Path, file.Error))
+				}
+			}
+			switch {
+			case node.Error != "":
+				fmt.Fprintf(&b, "  %s: не ответила — %s\n", node.Name, node.Error)
+			case len(unreadable) > 0:
+				fmt.Fprintf(&b, "  %s: ответила, но не читает: %s\n", node.Name, strings.Join(unreadable, "; "))
+			default:
+				fmt.Fprintf(&b, "  %s: ответила\n", node.Name)
+			}
+		}
+	}
+	b.WriteString("\n")
 
 	if len(rep.Results) > 0 {
 		fmt.Fprintf(&b, "%3s  %-34s %-32s %8s  %s\n", "#", "Сервер", "Протокол", "Пинг", "Итог")
@@ -209,6 +275,7 @@ func Summary(rep *Report, logNames []string) string {
 		b.WriteString("\n")
 		fmt.Fprintf(&b, "%d. %s — %s — %s\n", i+1, result.Target.Endpoint(), result.Target.Kind(), result.Verdict)
 		writeDetails(&b, result, "   ")
+		writeNodes(&b, rep, result, "   ")
 		if i < len(logNames) {
 			fmt.Fprintf(&b, "   Лог: %s\n", filepath.ToSlash(logNames[i]))
 		}
@@ -245,6 +312,22 @@ func writeDetails(b *strings.Builder, result *check.Result, indent string) {
 		for _, hint := range result.Hints {
 			fmt.Fprintf(b, "%s  - %s\n", indent, hint)
 		}
+	}
+}
+
+// writeNodes says, for one server, which nodes logged the run -- the line
+// that tells which node behind a shared address actually served it.
+func writeNodes(b *strings.Builder, rep *Report, result *check.Result, indent string) {
+	if len(rep.Nodes) == 0 {
+		return
+	}
+	found := nodeLinesFor(rep, result)
+	if len(found) == 0 {
+		fmt.Fprintf(b, "%sНоды: ни на одной нет строк этой проверки\n", indent)
+		return
+	}
+	for _, f := range found {
+		fmt.Fprintf(b, "%sНоды: %s\n", indent, describeNode(f))
 	}
 }
 
@@ -306,6 +389,22 @@ func serverLog(rep *Report, result *check.Result, red *redact.Redactor, keep *in
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
+	if len(rep.Nodes) > 0 {
+		found := nodeLinesFor(rep, result)
+		if len(found) == 0 {
+			b.WriteString("\nЛоги нод: ни на одной нет строк этой проверки\n")
+		}
+		for _, f := range found {
+			fmt.Fprintf(&b, "\nЛог ноды — %s:\n", describeNode(f))
+			for _, line := range f.Lines {
+				b.WriteString(line)
+				b.WriteString("\n")
+			}
+			if f.Truncated {
+				b.WriteString("... дальше строки обрезаны\n")
+			}
+		}
+	}
 	return b.String()
 }
 
@@ -366,6 +465,16 @@ type jsonServer struct {
 	NodeFrom string `json:"node_from,omitempty"`
 	NodeTo   string `json:"node_to,omitempty"`
 	Marker   string `json:"marker,omitempty"`
+	// What each node's agent logged, on an operator's run.
+	Nodes []jsonNode `json:"nodes,omitempty"`
+}
+
+type jsonNode struct {
+	Node       string   `json:"node"`
+	Attributed bool     `json:"attributed"`
+	Emails     []string `json:"emails,omitempty"`
+	Addresses  []string `json:"addresses,omitempty"`
+	Lines      []string `json:"lines"`
 }
 
 func summaryJSON(rep *Report, logNames []string, red *redact.Redactor) ([]byte, error) {
@@ -407,6 +516,10 @@ func summaryJSON(rep *Report, logNames []string, red *redact.Redactor) ([]byte, 
 		}
 		if result.MarkerSent {
 			server.Marker = result.Marker
+		}
+		for _, f := range nodeLinesFor(rep, result) {
+			server.Nodes = append(server.Nodes, jsonNode{Node: f.node, Attributed: f.Attributed,
+				Emails: f.Emails, Addresses: f.Addresses, Lines: strs(f.Lines)})
 		}
 		servers = append(servers, server)
 	}

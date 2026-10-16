@@ -152,6 +152,71 @@ remnanode container), `-listen`, `-data` (token and certificate, default
 `/var/lib/vpncheck-agent`). Installing it on a node, with the Xray log
 settings it needs: `docs/support-tickets-rollout.md`, step 6.
 
+## Daily check for operators
+
+The same binary, run by an operator, asks the agents itself: each server in
+the report then carries the node's lines for that check under the client's
+Xray log, and the summary says which node served it and which nodes did not
+answer. `-env` points at the bot's `.env` for `NODE_LOG_AGENTS`,
+`ADMIN_BOT_TOKEN` and `ADMIN_IDS`; `-notify` sends the one-line result and
+`report.txt` to every admin chat through admin_bot; `-keep N` deletes runs
+older than N days from `-out`.
+
+```bash
+vpncheck -env /opt/tg_vpn/.env -notify -keep 30 \
+  -sub https://sub.example.com/api/sub/PAID -sub https://sub.example.com/api/sub/FREE
+```
+
+Agents only answer the address port 7443 is open to, which is the bot's
+server, so that is where the daily run goes. As a systemd timer there:
+
+```ini
+# /etc/systemd/system/vpncheck-daily.service
+[Unit]
+Description=vpncheck: daily check of every server
+After=network-online.target
+
+[Service]
+Type=oneshot
+# The device id lives in the config directory; without one, every run would
+# be a new device in the panel and the test accounts would hit their limit.
+Environment=XDG_CONFIG_HOME=/var/lib/vpncheck
+StateDirectory=vpncheck
+ExecStart=/usr/local/bin/vpncheck -env /opt/tg_vpn/.env -out /var/lib/vpncheck/reports -notify -keep 30 \
+  -sub https://sub.example.com/api/sub/PAID -sub https://sub.example.com/api/sub/FREE
+# 1 means a server failed: a result for the chat, not a failed unit.
+SuccessExitStatus=1
+```
+```ini
+# /etc/systemd/system/vpncheck-daily.timer
+[Timer]
+OnCalendar=*-*-* 07:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+```bash
+systemctl daemon-reload && systemctl enable --now vpncheck-daily.timer
+systemctl start vpncheck-daily.service     # one run now
+```
+
+From a computer at home the check sees what customers' providers do to the
+traffic, which a data centre does not. Node lines come with it only if that
+computer's address is allowed to port 7443 too; give the agents with
+`-agents` (the `NODE_LOG_AGENTS` value) or `-env` a copy of the `.env`.
+
+Node lines hold the address the check came from, so they are added only to an
+operator's run: a run by support code never asks the agents.
+
+**Balancers.** Happ gets each profile as a balancer over several servers, and
+its log names the balancer, so it shows less than a connection to one server
+would. vpncheck takes every server out of the balancers and connects to each
+one directly, with its own full Xray log; the profiles a server belongs to are
+listed next to it. When an address is itself shared by several nodes, the
+node lines say which one served the check. What it does not reproduce is the
+balancer's own choice of server.
+
 ## Building
 
 ```bash

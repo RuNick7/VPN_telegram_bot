@@ -150,12 +150,6 @@ func (a *agent) authorized(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-type response struct {
-	Node     string            `json:"node"`
-	Files    []nodelog.File    `json:"files"`
-	Sections []nodelog.Section `json:"sections,omitempty"`
-}
-
 func (a *agent) search(w http.ResponseWriter, r *http.Request) {
 	var query nodelog.Query
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
@@ -171,7 +165,7 @@ func (a *agent) search(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	writeJSON(w, response{Node: a.name, Files: files, Sections: sections})
+	writeJSON(w, nodelog.Response{Node: a.name, Files: files, Sections: sections})
 }
 
 // health says which logs the agent can read, for checking an install.
@@ -189,7 +183,7 @@ func (a *agent) health(w http.ResponseWriter, _ *http.Request) {
 		}
 		files = append(files, file)
 	}
-	writeJSON(w, response{Node: a.name, Files: files})
+	writeJSON(w, nodelog.Response{Node: a.name, Files: files})
 }
 
 func writeJSON(w http.ResponseWriter, value any) {

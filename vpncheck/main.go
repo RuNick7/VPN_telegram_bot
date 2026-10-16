@@ -55,6 +55,11 @@ type options struct {
 	speed   int
 	pings   int
 	timeout time.Duration
+	// An operator's run (operator.go).
+	agents string
+	env    string
+	notify bool
+	keep   int
 }
 
 var stdin = bufio.NewReader(os.Stdin)
@@ -76,6 +81,10 @@ func run() int {
 	flag.IntVar(&opts.speed, "speed", 0, "замерить скорость, скачав через каждый сервер столько МБ (0 — не замерять)")
 	flag.IntVar(&opts.pings, "pings", 3, "сколько раз пинговать через каждый сервер")
 	flag.DurationVar(&opts.timeout, "timeout", 10*time.Second, "сколько ждать каждого ответа")
+	flag.StringVar(&opts.agents, "agents", "", "для админа: строки агентов на нодах, как в NODE_LOG_AGENTS — тогда в отчёт попадут и логи нод")
+	flag.StringVar(&opts.env, "env", "", "для админа: .env бота, откуда взять NODE_LOG_AGENTS, ADMIN_BOT_TOKEN и ADMIN_IDS")
+	flag.BoolVar(&opts.notify, "notify", false, "для админа: прислать итог и report.txt в чаты ADMIN_IDS через админ-бота")
+	flag.IntVar(&opts.keep, "keep", 0, "удалять отчёты старше стольких дней (0 — не удалять)")
 	showVersion := flag.Bool("version", false, "показать версию")
 	flag.Usage = usage
 	flag.Parse()
@@ -111,6 +120,16 @@ func run() int {
 			usage()
 			return 2
 		}
+	}
+
+	op, err := loadOperator(opts.agents, opts.env)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	if opts.notify && (op.token == "" || len(op.chats) == 0) {
+		fmt.Fprintln(os.Stderr, "Для -notify нужны ADMIN_BOT_TOKEN и ADMIN_IDS: укажите .env бота через -env или задайте их в окружении.")
+		return 2
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -154,12 +173,12 @@ func run() int {
 		}
 	}
 
-	return checkAll(ctx, opts, session, client, interactive)
+	return checkAll(ctx, opts, op, session, client, interactive)
 }
 
 // checkAll is the run itself, once it is known what to check and where the
 // report goes.
-func checkAll(ctx context.Context, opts options, session *ticket.Session, client *ticket.Client, interactive bool) int {
+func checkAll(ctx context.Context, opts options, op *operator, session *ticket.Session, client *ticket.Client, interactive bool) int {
 	red := redact.New()
 	if opts.code != "" {
 		red.Add(opts.code)
@@ -237,6 +256,25 @@ func checkAll(ctx context.Context, opts options, session *ticket.Session, client
 	if ctx.Err() != nil {
 		fmt.Println("\nПроверка прервана, сохраняю то, что успел.")
 	}
+	// Node lines hold the address the check came from, so they never go into
+	// a report sent to a ticket: only an operator's own run asks for them.
+	if session == nil && len(op.agents) > 0 && len(rep.Results) > 0 && ctx.Err() == nil {
+		fmt.Printf("\nСпрашиваю логи у нод: %d…\n", len(op.agents))
+		rep.Nodes = askNodes(ctx, rep, op.agents)
+		for _, node := range rep.Nodes {
+			if node.Error != "" {
+				fmt.Printf("  %-12s не ответила: %s\n", node.Name, node.Error)
+				continue
+			}
+			found := 0
+			for _, section := range node.Sections {
+				if section.Attributed {
+					found++
+				}
+			}
+			fmt.Printf("  %-12s нашла проверку для серверов: %d\n", node.Name, found)
+		}
+	}
 
 	files, err := report.Write(opts.out, rep, red)
 	if err != nil {
@@ -251,6 +289,22 @@ func checkAll(ctx context.Context, opts options, session *ticket.Session, client
 
 	if session != nil {
 		send(ctx, opts, session, client, rep, files, interactive)
+	}
+	if opts.notify {
+		if errs := notify(ctx, op, notifyCaption(rep), files.Full); len(errs) > 0 {
+			for _, err := range errs {
+				fmt.Fprintf(os.Stderr, "Не удалось отправить итог в Telegram: %v\n", err)
+			}
+		} else {
+			fmt.Printf("Итог отправлен в Telegram: чатов %d.\n", len(op.chats))
+		}
+	}
+	if opts.keep > 0 {
+		if removed, err := prune(opts.out, opts.keep, time.Now()); err != nil {
+			fmt.Fprintf(os.Stderr, "Не удалось удалить старые отчёты: %v\n", err)
+		} else if removed > 0 {
+			fmt.Printf("Удалено старых отчётов: %d.\n", removed)
+		}
 	}
 
 	for _, result := range rep.Results {
@@ -407,6 +461,9 @@ func usage() {
   vpncheck https://адрес-подписки        проверить подписку
   vpncheck ABCD-EFGH-JKLM                проверить и отправить отчёт в обращение (код даёт бот поддержки)
   vpncheck                               спросить, что проверять
+
+Для админа, с логами нод и итогом в админ-чат:
+  vpncheck -env /opt/tg_vpn/.env -notify -keep 30 -sub URL1 -sub URL2
 
 Перед проверкой выключите VPN-приложение.
 

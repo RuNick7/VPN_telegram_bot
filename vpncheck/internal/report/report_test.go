@@ -1,6 +1,7 @@
 package report
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/check"
+	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/nodelog"
 	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/redact"
 	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/subscription"
 )
@@ -170,5 +172,74 @@ func TestNodeWindowAndMarker(t *testing.T) {
 	}
 	if log := serverLog(rep, result, red, nil); !strings.Contains(log, "vpncheck-0a1b2c3d-01.invalid (не отправлена)") {
 		t.Error(log)
+	}
+}
+
+// An operator's run: each node's lines under the server they belong to.
+func TestNodeLinesSitWithTheirServer(t *testing.T) {
+	rep, red := sample(t, 1)
+	second := *rep.Results[0]
+	second.Target = &subscription.Target{Address: "nl1.example.net", Port: 8443, Protocol: "vless"}
+	rep.Results = append(rep.Results, &second)
+	line := "2026/10/16 20:00:03.000000 from 198.51.100.7:50002 accepted tcp:vpncheck-0a1b2c3d-01.invalid:80 [in >> out] email: u-ops"
+	rep.Nodes = []NodeAnswer{
+		{Name: "de1", Files: []nodelog.File{{Path: "/var/log/remnanode/access.log"}}, Sections: []nodelog.Section{
+			{Attributed: true, Emails: []string{"u-ops"}, Addresses: []string{"198.51.100.7"}, Lines: []string{line}},
+			{},
+		}},
+		{Name: "nl1", Files: []nodelog.File{{Path: "/var/log/remnanode/error.log", Error: "permission denied"}}, Sections: []nodelog.Section{
+			{}, {Lines: []string{"2026/10/16 20:00:04.000000 [Warning] something"}, Truncated: true},
+		}},
+		{Name: "fi1", Error: "HTTP 401: unauthorized"},
+	}
+	files, err := Write(t.TempDir(), rep, red)
+	if err != nil {
+		t.Fatal(err)
+	}
+	summary, _ := os.ReadFile(files.Summary)
+	for _, want := range []string{
+		"\nЛоги нод\n  de1: ответила\n  nl1: ответила, но не читает: /var/log/remnanode/error.log (permission denied)\n  fi1: не ответила — HTTP 401: unauthorized\n",
+		"   Ноды: нода de1: пользователь u-ops, адрес 198.51.100.7, строк 1\n",
+		"   Ноды: нода nl1: метки нет, ошибки ноды за это время (могут быть и о других клиентах), строк 1\n",
+	} {
+		if !strings.Contains(string(summary), want) {
+			t.Errorf("summary lacks %q:\n%s", want, summary)
+		}
+	}
+	first, _ := os.ReadFile(files.Servers[0])
+	if !strings.Contains(string(first), "\nЛог ноды — нода de1: пользователь u-ops, адрес 198.51.100.7, строк 1:\n"+line+"\n") ||
+		strings.Contains(string(first), "нода nl1") {
+		t.Errorf("first server:\n%s", first)
+	}
+	secondLog, _ := os.ReadFile(files.Servers[1])
+	if !strings.Contains(string(secondLog), "... дальше строки обрезаны") {
+		t.Errorf("second server:\n%s", secondLog)
+	}
+
+	var parsed struct {
+		Servers []struct {
+			Nodes []struct {
+				Node       string   `json:"node"`
+				Attributed bool     `json:"attributed"`
+				Lines      []string `json:"lines"`
+			} `json:"nodes"`
+		} `json:"servers"`
+	}
+	data, _ := os.ReadFile(files.JSON)
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.Servers) != 2 || len(parsed.Servers[0].Nodes) != 1 || parsed.Servers[0].Nodes[0].Node != "de1" ||
+		!parsed.Servers[0].Nodes[0].Attributed || parsed.Servers[1].Nodes[0].Node != "nl1" {
+		t.Fatalf("%s", data)
+	}
+
+	rep.Nodes[0].Sections, rep.Nodes[1].Sections = nil, nil
+	if log := serverLog(rep, rep.Results[0], red, nil); !strings.Contains(log, "\nЛоги нод: ни на одной нет строк этой проверки\n") {
+		t.Error(log)
+	}
+	rep.Nodes = nil
+	if log := serverLog(rep, rep.Results[0], red, nil); strings.Contains(log, "нод:") || strings.Contains(Summary(rep, nil), "Логи нод") {
+		t.Error("a customer's report mentions nodes")
 	}
 }

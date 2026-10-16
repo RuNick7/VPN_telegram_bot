@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/nodelog"
 )
 
 func init() { failedAuthDelay = 0 }
@@ -44,7 +46,7 @@ func TestSearch(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("%d %s", w.Code, w.Body)
 	}
-	var got response
+	var got nodelog.Response
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +88,7 @@ func TestHealthNamesUnreadableLogs(t *testing.T) {
 	a := testAgent(t)
 	a.logs = append(a.logs, filepath.Join(t.TempDir(), "missing.log"))
 	w := call(a, http.MethodGet, "/v1/health", "secret-token", "")
-	var got response
+	var got nodelog.Response
 	_ = json.Unmarshal(w.Body.Bytes(), &got)
 	if len(got.Files) != 2 || got.Files[0].Error != "" || got.Files[0].Size == 0 || got.Files[1].Error == "" {
 		t.Fatalf("%s", w.Body)
