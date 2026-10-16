@@ -10,6 +10,7 @@ Two independent Telegram bots for a VPN-subscription service (Remnawave panel + 
 - `user_bot/` — customer-facing aiogram bot: signup, subscription purchase via YooKassa, referrals, promo codes, device setup instructions. Two runtime entrypoints against the same codebase: `user_bot/bot.py` (long-polling) and `user_bot/run_webhook.py` (aiohttp server receiving YooKassa payment webhooks at `/webhook-yookassa`).
 - `shared/` — installable package (`tgvpn-shared`, imported as `tgvpn_shared`) holding the Postgres repository layer, the Remnawave client, the settings model, and squad-placement logic. See Architecture below.
 - `web/` — customer web cabinet, **Go**: JSON API plus the site itself, on one origin. Replaced the FastAPI + static-JS MVP outright. Entrypoint `web/cmd/server`. See `web/README.md`.
+- `vpncheck/` — server checker, **Go**, a separate module with Xray compiled in: connects to every server in a subscription the way the app does and writes a log per server, for operators on a server and customers on macOS/Windows. Can send its report into a support ticket by a consent code. See `vpncheck/README.md`.
 
 The overhaul is running in strictly sequential phases, each tested and deployed before the next begins. Phase 0 (webhook security fix), Phase 1 (SQLite → Postgres, Docker), and Phase 2 (this refactor) are done. Comments referencing "Phase N" mean this sequence.
 
@@ -87,6 +88,13 @@ The support store's tests in `internal/api` also run against Postgres when
 Node runner can import the same files the browser loads. There is no build step
 and no dependency tree.
 
+vpncheck is its own module too. Its `internal/check` tests start real Xray servers on
+127.0.0.1 (REALITY, Hysteria2, ...), so they take a few seconds:
+```bash
+cd vpncheck && go test ./...
+cd vpncheck && ./build.sh        # six binaries into dist/
+```
+
 ## Architecture
 
 ### `shared/` — the code both bots use
@@ -159,6 +167,12 @@ A signed-in customer -- subscribed or not -- opens a ticket at `/app/support`: s
 - **Attachment bytes live apart**, in `support_attachment_data`, so the daily dump sent over Telegram (50 MB limit) can exclude them with `--exclude-table-data` and still restore consistently. A missing bytes row is the one meaning of "file gone", whether purged after 90 idle days or lost to a restore.
 - **Merging accounts moves tickets to the survivor** (`UserRepository.apply_merge`); sessions follow the merge, so tickets left on the absorbed row would vanish from the cabinet.
 - Deploying needs nginx to accept uploads: `docs/support-tickets-rollout.md`.
+
+**Diagnostics (vpncheck reports) ride on tickets, and only with the customer's consent.** An operator presses «🩺 Запросить логи» on a ticket card; admin_bot asks the customer through the user_bot token (`app/services/diagnostics.py`); `user_bot/handlers/support_diag.py` handles the answer. Only «Согласен» creates a code, and vpncheck asks once more before uploading. The rows are `support_diagnostics`.
+
+- **The code is stored hashed** (`code_hash`: SHA-256 of its 12 characters, upper-cased, dashes and spaces dropped), like magic links. Python generates and hashes it (`shared/tgvpn_shared/support_diagnostics.py`), Go hashes what vpncheck sends (`web/internal/support/diagnostics.go`), and both test files pin the same vectors -- change the alphabet or normalization on one side alone and they fail.
+- **A code is single-use and per ticket.** `store.AttachDiagnosticsReport` takes the row `FOR UPDATE`, refuses an expired, already-reported or closed one, and inserts the report as the customer's own message, so the existing outbox delivers it; the endpoints need no session. The decision itself is announced to admins by the outbox from `decision_announced_at`.
+- Redaction is vpncheck's job, before anything is written: `internal/redact` and `internal/report` guarantee no UUID, key, short ID, password, subscription token or local address reaches a file.
 
 ### Payments
 

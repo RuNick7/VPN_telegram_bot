@@ -117,6 +117,11 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /api/support/tickets/{id}/messages", s.authenticated(s.supportOnly(s.handleSupportReply)))
 	mux.Handle("POST /api/support/tickets/{id}/close", s.authenticated(s.supportOnly(s.handleCloseSupportTicket)))
 	mux.Handle("GET /api/support/attachments/{id}", s.authenticated(s.supportOnly(s.handleSupportAttachment)))
+	// Reports from the vpncheck program. No session: a one-time code the
+	// customer got in the bot, after agreeing to the check, is the whole
+	// authorisation (diagnostics_handlers.go).
+	mux.HandleFunc("POST /api/support/diagnostics/session", s.handleDiagnosticsSession)
+	mux.HandleFunc("POST /api/support/diagnostics/report", s.handleDiagnosticsReport)
 
 	return s.withRecovery(s.withSecurityHeaders(mux))
 }

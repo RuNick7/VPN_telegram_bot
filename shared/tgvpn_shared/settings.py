@@ -147,6 +147,11 @@ class Settings(BaseSettings):
     # takes tickets while nothing forwards them leaves customers waiting on
     # nobody, so the two halves are enabled together.
     support_enabled: bool = Field(False, validation_alias="SUPPORT_ENABLED")
+    # Where customers download vpncheck, the server-check program an operator
+    # can ask for a report from (the "🩺 Запросить логи" button on a ticket).
+    # Empty hides the button: a customer told to run a program with no link
+    # to it would be stuck at step one.
+    vpncheck_download_url: str = Field("", validation_alias="VPNCHECK_DOWNLOAD_URL")
 
     # -- Outgoing mail -----------------------------------------------------
     # The same SMTP account the website uses, read from the same keys, because

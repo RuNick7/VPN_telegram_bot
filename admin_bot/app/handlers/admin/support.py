@@ -27,7 +27,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import BaseFilter, Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
-from tgvpn_shared.db import SupportRepository
+from tgvpn_shared.db import SupportDiagnosticsRepository, SupportRepository
 
 from app.config.settings import settings
 from app.handlers.admin.pagination import (
@@ -40,7 +40,9 @@ from app.handlers.admin.pagination import (
 )
 from app.handlers.admin.users.common import find_db_row, find_panel_user
 from app.handlers.admin.users.search import build_report
+from app.services.diagnostics import ask_customer
 from app.services.support import (
+    chat_unreachable,
     clean_name,
     escape,
     fresh_card,
@@ -54,6 +56,7 @@ logger = logging.getLogger(__name__)
 router = Router(name="admin_support")
 
 _support = SupportRepository()
+_diagnostics = SupportDiagnosticsRepository()
 
 # The Bot API will not let a bot download anything larger.
 DOWNLOAD_LIMIT = 20 * 1024 * 1024
@@ -268,6 +271,68 @@ async def open_ticket(callback: CallbackQuery) -> None:
         reply_markup=ticket_keyboard(ticket_id, closed=ticket["status"] == "closed"),
     )
     await _support.record_telegram_message(sent.chat.id, sent.message_id, ticket_id, "card")
+
+
+@router.callback_query(F.data.startswith("support:diag:"))
+async def request_diagnostics(callback: CallbackQuery) -> None:
+    """
+    Ask the customer, in user_bot, for a server-check report.
+
+    Only asks. What would be collected is spelled out in the question, the
+    customer answers there, and a report reaches the ticket only after they
+    have agreed in the bot and again in the program, looking at the file.
+    """
+    ticket_id = _ticket_id(callback)
+    ticket = await _support.get_ticket(ticket_id)
+    if ticket is None:
+        await callback.answer("Обращение не найдено.", show_alert=True)
+        return
+    if ticket["status"] == "closed":
+        await callback.answer("Обращение закрыто. Откройте его снова, чтобы запросить логи.", show_alert=True)
+        return
+    download_url = settings.vpncheck_download_url.strip()
+    if not download_url:
+        await callback.answer("Не задан VPNCHECK_DOWNLOAD_URL: клиенту неоткуда скачать программу.", show_alert=True)
+        return
+    if not ticket["telegram_id"] or not settings.user_bot_token.strip():
+        # Consent is asked in the bot; without it there is nowhere to ask.
+        await callback.answer(
+            "У клиента нет Telegram — спросить согласие негде. Напишите ему в ответе, "
+            f"что можно скачать программу ({download_url}), запустить её со ссылкой на подписку "
+            "и приложить файл report.txt к обращению.",
+            show_alert=True,
+        )
+        return
+
+    request_id = await _diagnostics.create(ticket_id, callback.from_user.id)
+    if request_id is None:
+        await callback.answer("Запрос уже отправлен клиенту — ждём его ответа.", show_alert=True)
+        return
+    try:
+        sent = await ask_customer(int(ticket["telegram_id"]), request_id, ticket_id, ticket["subject"])
+    except Exception as exc:
+        # The question never arrived, so neither did the request.
+        await _diagnostics.delete(request_id)
+        if chat_unreachable(exc):
+            await callback.answer(
+                "Клиент заблокировал бота или ни разу его не запускал — спросить согласие негде.",
+                show_alert=True,
+            )
+        else:
+            logger.warning("Could not ask for diagnostics on #%s: %s", ticket_id, exc)
+            await callback.answer(f"Не удалось отправить запрос: {exc}"[:200], show_alert=True)
+        return
+    await _diagnostics.record_question(request_id, sent.chat.id, sent.message_id)
+
+    await callback.answer("Запрос отправлен клиенту.")
+    author = callback.from_user
+    name = f"@{author.username}" if author.username else author.full_name
+    notice = await callback.message.answer(
+        f"🩺 Запрошен отчёт о проверке серверов по <b>#{ticket_id}</b> ({escape(name)}). "
+        f"Клиент ответит в боте; согласие или отказ придут сюда.",
+        reply_parameters=reply_to(callback.message.message_id),
+    )
+    await _support.record_telegram_message(notice.chat.id, notice.message_id, ticket_id, "notice")
 
 
 # -- the queue ------------------------------------------------------------------------

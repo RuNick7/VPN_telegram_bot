@@ -34,6 +34,8 @@ from aiogram.types import (
     ReplyParameters,
 )
 
+from app.config.settings import settings
+
 logger = logging.getLogger(__name__)
 
 MOSCOW = ZoneInfo("Europe/Moscow")
@@ -266,10 +268,15 @@ def ticket_keyboard(ticket_id: int, *, closed: bool = False) -> InlineKeyboardMa
         if closed
         else InlineKeyboardButton(text="✅ Закрыть", callback_data=f"support:close:{ticket_id}")
     )
+    second = [InlineKeyboardButton(text="📜 Вся переписка", callback_data=f"support:history:{ticket_id}")]
+    # Only where it can work: a closed ticket takes no report, and without a
+    # download link the customer would agree to run a program they cannot get.
+    if not closed and settings.vpncheck_download_url.strip():
+        second.append(InlineKeyboardButton(text="🩺 Запросить логи", callback_data=f"support:diag:{ticket_id}"))
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [toggle, InlineKeyboardButton(text="👤 Клиент", callback_data=f"support:client:{ticket_id}")],
-            [InlineKeyboardButton(text="📜 Вся переписка", callback_data=f"support:history:{ticket_id}")],
+            second,
         ]
     )
 

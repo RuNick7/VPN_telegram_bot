@@ -14,9 +14,13 @@ import pytest
 from aiogram import Bot, Dispatcher
 from aiogram.types import CallbackQuery, Chat, Document, Message, PhotoSize, Update, User, Voice
 
+from aiogram.exceptions import TelegramForbiddenError
+from aiogram.methods import SendMessage
+
 from app.handlers.admin import router as admin_router
 from app.handlers.admin import support
 from app.middlewares import AdminAccessMiddleware
+from app.services.support import ticket_keyboard
 
 ADMIN = User(id=111, is_bot=False, first_name="Анна", username="anna_ops")
 OTHER_ADMIN_CHAT = 222
@@ -243,6 +247,96 @@ async def test_reopening_puts_the_close_button_back(monkeypatch):
     assert "и так открыто" in callback.answer.await_args.args[0]
     keyboard = callback.message.edit_reply_markup.await_args.kwargs["reply_markup"]
     assert keyboard.inline_keyboard[0][0].callback_data == "support:close:7"
+
+
+# -- asking for a server-check report ---------------------------------------------------------
+
+
+@pytest.fixture
+def diag(monkeypatch):
+    """The repositories and user_bot's send, stubbed; a ticket of a customer with Telegram."""
+    store = SimpleNamespace(
+        get_ticket=AsyncMock(return_value={"id": 7, "telegram_id": 555, "status": "open", "subject": "Тема"}),
+        record_telegram_message=AsyncMock(),
+    )
+    requests = SimpleNamespace(
+        create=AsyncMock(return_value=3), delete=AsyncMock(), record_question=AsyncMock(),
+    )
+    ask = AsyncMock(return_value=SimpleNamespace(chat=SimpleNamespace(id=555), message_id=77))
+    monkeypatch.setattr(support, "_support", store)
+    monkeypatch.setattr(support, "_diagnostics", requests)
+    monkeypatch.setattr(support, "ask_customer", ask)
+    monkeypatch.setattr(support.settings, "vpncheck_download_url", "https://example.com/vpncheck/")
+    monkeypatch.setattr(support.settings, "user_bot_token", "123:TEST")
+    return SimpleNamespace(store=store, requests=requests, ask=ask)
+
+
+def asked(data: str = "support:diag:7") -> CallbackQuery:
+    callback = pressed(data)
+    object.__setattr__(callback.message, "answer", AsyncMock(
+        return_value=SimpleNamespace(chat=SimpleNamespace(id=111), message_id=950)))
+    return callback
+
+
+async def test_asking_sends_the_question_from_user_bot_and_tells_the_operators(diag):
+    callback = asked()
+    await support.request_diagnostics(callback)
+
+    diag.requests.create.assert_awaited_once_with(7, ADMIN.id)
+    diag.ask.assert_awaited_once_with(555, 3, 7, "Тема")
+    diag.requests.record_question.assert_awaited_once_with(3, 555, 77)
+    assert callback.answer.await_args.args[0] == "Запрос отправлен клиенту."
+    notice = callback.message.answer.await_args.args[0]
+    assert "#7" in notice and "@anna_ops" in notice
+    diag.store.record_telegram_message.assert_awaited_once_with(111, 950, 7, "notice")
+
+
+async def test_a_question_already_waiting_is_not_asked_twice(diag):
+    diag.requests.create.return_value = None
+    callback = asked()
+    await support.request_diagnostics(callback)
+
+    diag.ask.assert_not_awaited()
+    assert "уже отправлен" in callback.answer.await_args.args[0]
+
+
+async def test_a_customer_without_telegram_cannot_be_asked(diag):
+    diag.store.get_ticket.return_value = {"id": 7, "telegram_id": None, "status": "open", "subject": "Тема"}
+    callback = asked()
+    await support.request_diagnostics(callback)
+
+    diag.requests.create.assert_not_awaited()
+    text = callback.answer.await_args.args[0]
+    assert "нет Telegram" in text and "report.txt" in text
+
+
+async def test_a_closed_ticket_is_not_asked_about(diag):
+    diag.store.get_ticket.return_value = {"id": 7, "telegram_id": 555, "status": "closed", "subject": "Тема"}
+    callback = asked()
+    await support.request_diagnostics(callback)
+    diag.requests.create.assert_not_awaited()
+
+
+async def test_a_question_that_could_not_be_sent_is_forgotten(diag):
+    diag.ask.side_effect = TelegramForbiddenError(method=SendMessage(chat_id=555, text="x"), message="blocked")
+    callback = asked()
+    await support.request_diagnostics(callback)
+
+    diag.requests.delete.assert_awaited_once_with(3)
+    diag.requests.record_question.assert_not_awaited()
+    assert "заблокировал" in callback.answer.await_args.args[0]
+
+
+def test_the_button_is_offered_only_where_it_can_work(monkeypatch):
+    def buttons(**kwargs):
+        keyboard = ticket_keyboard(7, **kwargs)
+        return [b.callback_data for row in keyboard.inline_keyboard for b in row]
+
+    monkeypatch.setattr(support.settings, "vpncheck_download_url", "https://example.com/vpncheck/")
+    assert "support:diag:7" in buttons()
+    assert "support:diag:7" not in buttons(closed=True)
+    monkeypatch.setattr(support.settings, "vpncheck_download_url", "")
+    assert "support:diag:7" not in buttons()
 
 
 # -- the queue ---------------------------------------------------------------------------------

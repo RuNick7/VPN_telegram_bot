@@ -82,6 +82,50 @@ customer's notification.
    ticket is opened. A customer with Telegram linked also gets a message from
    user_bot.
 
+## 5. Server check reports (vpncheck)
+
+Optional, on top of tickets. With it, an operator can ask a customer for a
+report from `vpncheck` (see `vpncheck/README.md`) and get it in the ticket,
+only after the customer agrees in Telegram and then confirms the upload in
+the program. Off until `VPNCHECK_DOWNLOAD_URL` is set: no button on the cards.
+
+1. **Migration `0016_support_diagnostics`** runs with the rest on
+   `docker compose up -d --build`; it adds one table and touches nothing else.
+2. **Build the binaries** with the site compiled in, so `vpncheck CODE` needs
+   no flags (`SITE` defaults to `WEB_BASE_URL` from `.env`):
+   ```bash
+   cd vpncheck && VERSION=1.0.0 ./build.sh
+   # or, without Go on the host:
+   docker run --rm -v "$PWD/..:/src" -w /src/vpncheck golang:1.26 ./build.sh
+   ```
+3. **Host `vpncheck/dist/`** where customers can download it, for example
+   from the site's nginx:
+   ```nginx
+   location /vpncheck/ {
+       alias /opt/tg_vpn/vpncheck/dist/;
+       autoindex on;
+   }
+   ```
+   The six files and `SHA256SUMS` are the whole release.
+4. **Set the link** in `.env` and recreate the bots, which read it at
+   start-up (the site does not need it):
+   ```
+   VPNCHECK_DOWNLOAD_URL=https://example.com/vpncheck/
+   ```
+   ```bash
+   docker compose up -d --force-recreate bots
+   ```
+   The `client_max_body_size` from step 1 already covers a report (up to
+   10 MB).
+
+Smoke test: on a ticket from a customer with Telegram linked, press «🩺
+Запросить логи». The customer gets the question from user_bot; «✅ Согласен»
+gives a code and the link, and the admin chat gets a note of the decision.
+Run `vpncheck CODE`, answer «да», and the report arrives in the ticket as
+`vpncheck-report.txt`. A customer without Telegram cannot be asked: pressing
+the button tells the operator so, and the customer attaches `report.txt`
+from a run without a code.
+
 ## Operating it
 
 - **Files live in Postgres**, in `support_attachment_data`. The daily dump the
