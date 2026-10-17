@@ -178,6 +178,10 @@ On **each node**:
    ExecStart=/usr/local/bin/vpncheck-agent -name de1 -public de1.example.net
    DynamicUser=yes
    StateDirectory=vpncheck-agent
+   # Xray creates its log files as root with mode 0600: this lets the agent
+   # read them, and nothing else root could do.
+   AmbientCapabilities=CAP_DAC_READ_SEARCH
+   CapabilityBoundingSet=CAP_DAC_READ_SEARCH
    Restart=on-failure
 
    [Install]

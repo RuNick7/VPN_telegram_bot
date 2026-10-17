@@ -97,6 +97,13 @@ func main() {
 	}
 	log.Printf("vpncheck-agent %s: нода %s, логи %s, пояс %s", version, *name, strings.Join(logs, ", "), *zone)
 	log.Printf("строка для NODE_LOG_AGENTS в .env admin_bot:\n%s", line)
+	// Said at start, so a log the agent cannot read shows up in the journal
+	// on install rather than as empty answers later.
+	for _, file := range openable(logs) {
+		if file.Error != "" {
+			log.Printf("ВНИМАНИЕ: не читается %s", file.Error)
+		}
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -170,8 +177,12 @@ func (a *agent) search(w http.ResponseWriter, r *http.Request) {
 
 // health says which logs the agent can read, for checking an install.
 func (a *agent) health(w http.ResponseWriter, _ *http.Request) {
-	files := make([]nodelog.File, 0, len(a.logs))
-	for _, path := range a.logs {
+	writeJSON(w, nodelog.Response{Node: a.name, Files: openable(a.logs)})
+}
+
+func openable(paths []string) []nodelog.File {
+	files := make([]nodelog.File, 0, len(paths))
+	for _, path := range paths {
 		file := nodelog.File{Path: path}
 		if f, err := os.Open(path); err != nil {
 			file.Error = err.Error()
@@ -183,7 +194,7 @@ func (a *agent) health(w http.ResponseWriter, _ *http.Request) {
 		}
 		files = append(files, file)
 	}
-	writeJSON(w, nodelog.Response{Node: a.name, Files: files})
+	return files
 }
 
 func writeJSON(w http.ResponseWriter, value any) {
