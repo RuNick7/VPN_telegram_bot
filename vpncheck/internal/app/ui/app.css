@@ -5,14 +5,17 @@
   --border: #262b34;
   --text: #e9ebef;
   --muted: #8d94a0;
-  --accent: #4c8dff;
-  --accent-ink: #ffffff;
+  /* The site's ember, with black on it as the site has. */
+  --accent: #ff4f2b;
+  --accent-ink: #000000;
+  --accent-text: #ff6a4a;
   --ok: #3ecf6e;
   --warn: #f2b33d;
-  --bad: #ff5d55;
+  /* Rose rather than a plain red, so a failure never reads as the accent. */
+  --bad: #ff5c7a;
   --queued: #4a505c;
   --warn-bg: rgba(242, 179, 61, 0.12);
-  --bad-bg: rgba(255, 93, 85, 0.12);
+  --bad-bg: rgba(255, 92, 122, 0.12);
   --radius: 14px;
   color-scheme: dark;
 }
@@ -25,13 +28,14 @@
     --border: #e1e4ea;
     --text: #15171c;
     --muted: #697080;
-    --accent: #2f74f0;
+    --accent: #ff4f2b;
+    --accent-text: #c4320f;
     --ok: #1fa855;
     --warn: #c98a12;
-    --bad: #e2413a;
+    --bad: #d92550;
     --queued: #c3c8d1;
     --warn-bg: rgba(201, 138, 18, 0.12);
-    --bad-bg: rgba(226, 65, 58, 0.1);
+    --bad-bg: rgba(217, 37, 80, 0.09);
     color-scheme: light;
   }
 }
@@ -133,7 +137,7 @@ button.big { width: 100%; margin-top: 14px; padding: 15px 18px; font-size: 16px;
   border: 0;
   background: none;
   padding: 0;
-  color: var(--accent);
+  color: var(--accent-text);
   cursor: pointer;
 }
 .link-btn:hover { text-decoration: underline; }
@@ -270,7 +274,7 @@ button.big { width: 100%; margin-top: 14px; padding: 15px 18px; font-size: 16px;
 .detail .hints p + p { margin-top: 6px; }
 .detail .facts-line { color: var(--muted); margin: 8px 0 0; }
 .detail details { margin-top: 10px; }
-.detail summary { cursor: pointer; color: var(--accent); }
+.detail summary { cursor: pointer; color: var(--accent-text); }
 .detail pre {
   margin: 8px 0 0;
   max-height: 260px;
