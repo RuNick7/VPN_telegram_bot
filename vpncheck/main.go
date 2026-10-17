@@ -65,6 +65,7 @@ type options struct {
 var stdin = bufio.NewReader(os.Stdin)
 
 func main() {
+	check.ServeWorker()
 	os.Exit(run())
 }
 

@@ -28,6 +28,11 @@ Every run writes `vpncheck-logs/<date_time>/`:
 | `summary.json` | the same, for scripts |
 | `servers/NN_host_port_kind.log` | one server: the steps, its outbound, the whole Xray log |
 
+Each server's tunnel runs in a process of its own (the same binary, started
+again), so its Xray log holds that server's lines only: Xray's gRPC client
+goes on redialling a dead server after its instance is closed, and in one
+process those retries ended up in every later server's log.
+
 **Secrets are cut from every file.** User UUIDs, passwords, REALITY public
 keys and short IDs, the subscription token and the support code are replaced
 with `[скрыто:…]`, consistently within a run so lines can still be matched up.

@@ -83,6 +83,9 @@ func hints(r *Result) []string {
 		(t.Security == "reality" && strings.Contains(cause, "x509:")):
 		add("Сервер не узнал клиента и ответил сертификатом сайта-маски: publicKey или shortId хоста не совпадают " +
 			"с ключами inbound на ноде, либо SNI не входит в его serverNames.")
+	case strings.Contains(cause, "certificate is expired") || strings.Contains(cause, "certificate has expired"):
+		add("Сертификат на %s просрочен: на ноде не сработало автопродление. Клиенты, которые проверяют "+
+			"сертификат, к этому серверу не подключатся.", t.Endpoint())
 	case strings.Contains(cause, "connection refused") && (tcp == nil || tcp.Status != Fail):
 		add("Сервер отклонил соединение (connection refused) уже внутри протокола: за %s никто не слушает "+
 			"тот порт, куда его передают (например, nginx отдаёт на порт, где нет inbound).", t.Endpoint())

@@ -353,7 +353,13 @@ func serverLog(rep *Report, result *check.Result, red *redact.Redactor, keep *in
 	var b strings.Builder
 	t := result.Target
 	fmt.Fprintf(&b, "Сервер: %s — %s — %s\n", t.Endpoint(), t.Kind(), result.Verdict)
-	fmt.Fprintf(&b, "Начало: %s, длилась %s\n", result.Started.Format("2006-01-02 15:04:05 -07:00"), duration(result.Took))
+	if result.TunnelAt.IsZero() {
+		fmt.Fprintf(&b, "Начало: %s, длилась %s\n", result.Started.Format("2006-01-02 15:04:05 -07:00"), duration(result.Took))
+	} else {
+		// Not Started: the stages before the tunnel run for every server at
+		// once, and the tunnels one by one, so a server can wait minutes.
+		fmt.Fprintf(&b, "Через сервер: %s, длилось %s\n", result.TunnelAt.Format("2006-01-02 15:04:05 -07:00"), duration(result.TunnelTook))
+	}
 	if from, to, ok := NodeWindow(rep, result); ok {
 		fmt.Fprintf(&b, "Время на ноде (UTC): %s — %s\n", from.Format(time.RFC3339), to.Format(time.RFC3339))
 	}

@@ -39,6 +39,8 @@ import (
 // the app would. Nothing leaves the machine.
 
 func TestMain(m *testing.M) {
+	// Tunnels run in this test binary started again as a worker.
+	ServeWorker()
 	// Server-side config warnings would otherwise go to stdout.
 	xlog.RegisterHandler(discard{})
 	os.Exit(m.Run())
@@ -467,6 +469,10 @@ func TestMarkerReachesTheNodeLog(t *testing.T) {
 	target := targetFromLink(t, fmt.Sprintf("vless://%s@127.0.0.1:%d?type=tcp&security=none#raw", testUUID, port))
 	opts := testOptions(web.URL)
 	opts.RunID = "0a1b2c3d"
+	// The client runs in a worker process; what lands here is the node's.
+	nodeLog := &capture{}
+	xlog.RegisterHandler(nodeLog)
+	defer xlog.RegisterHandler(discard{})
 	result := runOne(t, opts, target)
 	requireWorks(t, result)
 	if result.Marker != "vpncheck-0a1b2c3d-01.invalid" || !result.MarkerSent {
@@ -475,13 +481,42 @@ func TestMarkerReachesTheNodeLog(t *testing.T) {
 	if result.TunnelAt.IsZero() || result.TunnelTook <= 0 {
 		t.Fatalf("tunnel window %v %v", result.TunnelAt, result.TunnelTook)
 	}
-	// Node and client share this process's log handler, so the node's
-	// access line lands in the captured log.
-	for _, line := range result.Log {
+	for _, line := range nodeLog.stop() {
 		if strings.Contains(line, " accepted tcp:"+result.Marker+":80") && strings.HasSuffix(line, " email: u-test") {
 			t.Logf("node line: %s", line)
 			return
 		}
 	}
-	t.Fatalf("no access line with the marker:\n%s", strings.Join(result.Log, "\n"))
+	t.Fatal("no access line with the marker in the node's log")
+}
+
+// A gRPC client goes on redialling a dead server after its Xray instance
+// is closed. In one process those retries landed in every later server's
+// log, and the first of them was blamed for the later server's failures.
+func TestEachServerLogsOnlyItself(t *testing.T) {
+	web := site(t)
+	dead := freePort(t, "tcp")
+	port := freePort(t, "tcp")
+	node(t, map[string]any{
+		"listen": "127.0.0.1", "port": port, "protocol": "vless",
+		"settings": map[string]any{"clients": []any{map[string]any{"id": testUUID}}, "decryption": "none"},
+	})
+	targets := []*subscription.Target{
+		targetFromLink(t, fmt.Sprintf("vless://%s@127.0.0.1:%d?type=grpc&serviceName=x&security=none#dead", testUUID, dead)),
+		targetFromLink(t, fmt.Sprintf("vless://%s@127.0.0.1:%d?type=tcp&security=none#raw", testUUID, port)),
+	}
+	opts := testOptions(web.URL)
+	opts.Timeout = 2 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	results := NewRunner(opts).Run(ctx, targets, nil)
+	if len(results) != 2 || results[0].Verdict != Broken {
+		t.Fatalf("dead server: %+v", results[0])
+	}
+	requireWorks(t, results[1])
+	for _, line := range results[1].Log {
+		if strings.Contains(line, fmt.Sprintf(":%d", dead)) {
+			t.Fatalf("second server's log has the first one's line: %s", line)
+		}
+	}
 }

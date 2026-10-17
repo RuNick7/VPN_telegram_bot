@@ -155,7 +155,7 @@ func TestNodeWindowAndMarker(t *testing.T) {
 	for _, want := range []string{
 		"Часы компьютера: сверены, поправка -2.5 с\n",
 		"Метка проверки в логах нод: vpncheck-0a1b2c3d\n",
-		"\nСервер: de1.example.net:443 — vless · grpc · reality — НЕ РАБОТАЕТ\n",
+		"\nСервер: de1.example.net:443 — vless · grpc · reality — НЕ РАБОТАЕТ\nЧерез сервер: 2026-10-16 23:00:03 +03:00, длилось 4 с\n",
 		"\nВремя на ноде (UTC): 2026-10-16T20:00:00Z — 2026-10-16T20:00:05Z\n",
 		"\nМетка в логе ноды: vpncheck-0a1b2c3d-01.invalid\n",
 	} {

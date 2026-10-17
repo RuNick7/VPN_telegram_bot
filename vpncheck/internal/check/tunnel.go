@@ -63,10 +63,19 @@ func (c *capture) Handle(msg xlog.Message) {
 	}
 }
 
-func (c *capture) snapshot() []string {
+// mark is where the log stands now, for since.
+func (c *capture) mark() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return append([]string(nil), c.lines...)
+	return len(c.lines)
+}
+
+// since is what was logged after mark: the lines that can explain one
+// request, and not an earlier request's failure.
+func (c *capture) since(mark int) []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.lines[min(mark, len(c.lines)):]...)
 }
 
 func (c *capture) stop() []string {
@@ -80,9 +89,10 @@ type discard struct{}
 
 func (discard) Handle(xlog.Message) {}
 
-// tunnel connects through the server with Xray and makes the requests a
+// tunnelHere connects through the server with Xray and makes the requests a
 // person would: the health check the app's balancer pings, then real sites.
-func (r *Runner) tunnel(ctx context.Context, result *Result) {
+// It runs in a worker process (see tunnel).
+func (r *Runner) tunnelHere(ctx context.Context, result *Result) {
 	xrayMu.Lock()
 	defer xrayMu.Unlock()
 
@@ -139,10 +149,11 @@ func (r *Runner) pings(ctx context.Context, client *http.Client, result *Result,
 	step := Step{Name: StepPing, Status: OK}
 	var timings []string
 	for i := 0; i < r.opts.Pings; i++ {
+		from := logs.mark()
 		status, _, took, err := get(ctx, client, r.opts.PingURL)
 		step.Took += took
 		if err != nil {
-			result.Cause = tunnelCause(err, logs.snapshot())
+			result.Cause = tunnelCause(err, logs.since(from))
 			if len(result.Pings) == 0 {
 				step.Status = Fail
 				step.Detail = fmt.Sprintf("%s — нет ответа за %s: %s", r.opts.PingURL, ms(took), result.Cause)
@@ -190,12 +201,13 @@ func (r *Runner) exit(ctx context.Context, client *http.Client, result *Result) 
 }
 
 func (r *Runner) probe(ctx context.Context, client *http.Client, result *Result, probe Probe, logs *capture) {
+	from := logs.mark()
 	status, _, took, err := get(ctx, client, probe.URL)
 	step := Step{Name: probe.Name, Took: took}
 	switch {
 	case err != nil:
 		step.Status = Fail
-		step.Detail = fmt.Sprintf("%s — %s", probe.URL, tunnelCause(err, logs.snapshot()))
+		step.Detail = fmt.Sprintf("%s — %s", probe.URL, tunnelCause(err, logs.since(from)))
 	case probe.Want != 0 && status != probe.Want:
 		step.Status = Warn
 		step.Detail = fmt.Sprintf("%s — HTTP %d вместо %d за %s", probe.URL, status, probe.Want, ms(took))
@@ -358,7 +370,9 @@ func xrayCause(lines []string) string {
 		if !strings.Contains(line, "failed to") && !strings.Contains(line, "[Error]") && !strings.Contains(line, "[Warning]") {
 			continue
 		}
-		if strings.Contains(line, "core: Xray") {
+		// Xray's start line, and its notices that a feature is deprecated:
+		// warnings, but never why a request failed.
+		if strings.Contains(line, "core: Xray") || strings.Contains(line, "deprecated") {
 			continue
 		}
 		segments := strings.Split(linePrefix.ReplaceAllString(line, ""), " > ")

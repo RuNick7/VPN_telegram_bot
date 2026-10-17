@@ -71,8 +71,9 @@ func NewRunner(opts Options) *Runner { return &Runner{opts: opts} }
 //
 // The network stages for all servers run first and side by side: they are
 // independent and mostly waiting. The tunnels then run one after another,
-// because Xray's log is process-wide and each server's report has to hold
-// that server's lines and no other's.
+// each in a process of its own (see tunnel): two at once would share this
+// computer's connection, and each node's window in its log would hold the
+// other's traffic too.
 func (r *Runner) Run(ctx context.Context, targets []*subscription.Target, done func(int, *Result)) []*Result {
 	results := make([]*Result, len(targets))
 	limit := make(chan struct{}, max(1, r.opts.Parallel))

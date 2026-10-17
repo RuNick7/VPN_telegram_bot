@@ -48,6 +48,8 @@ func TestXrayCause(t *testing.T) {
 				`common/retry: [rpc error: code = Unavailable desc = "connection error: desc = \"transport: authentication handshake failed: tls: invalid server key share\""] > common/retry: all retry attempts failed`,
 		},
 		"": {
+			"2026/10/17 23:13:00.070670 [Warning] common/errors: The feature gRPC transport (with unnecessary costs, etc.) is deprecated, " +
+				"not recommended for using and might be removed. Please migrate to XHTTP stream-up H2 as soon as possible.",
 			"2026/10/16 10:00:00.000000 [Warning] core: Xray 26.7.28 started",
 			"2026/10/16 10:00:00.000000 [Info] app/dispatcher: default route for tcp:1.1.1.1:80",
 		},
@@ -87,6 +89,12 @@ func TestHints(t *testing.T) {
 			Target: realityTarget("www.example.com", "chrome"), Cause: "connection refused",
 			Steps: []Step{{Name: StepTCP, Status: OK}, {Name: StepTLS, Status: OK}, {Name: StepPing, Status: Fail}},
 		}, "уже внутри протокола"},
+		{"expired certificate", &Result{
+			Target: &subscription.Target{Protocol: "hysteria", Address: "fl2.example.net", Port: 9997, Security: "tls", UDP: true},
+			Cause: "CRYPTO_ERROR 0x12a (local): tls: failed to verify certificate: x509: certificate has expired or is not yet valid: " +
+				"“fl2.example.net” certificate is expired",
+			Steps: []Step{{Name: StepTCP, Status: Skip}, {Name: StepPing, Status: Fail}},
+		}, "просрочен"},
 		{"UDP cut", &Result{
 			Target: &subscription.Target{Protocol: "hysteria", Address: "de5.example.net", Port: 8443, Security: "tls", UDP: true},
 			Cause:  "timeout: no recent network activity",
