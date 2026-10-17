@@ -12,8 +12,9 @@ set -eu
 cd "$(dirname "$0")"
 
 VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo dev)}"
-# Where a report sent with a support code goes: the website, which owns the
-# tickets. Taken from WEB_BASE_URL in the repo's .env unless given.
+# The website: where a report sent to support goes, and what the app asks
+# for a subscription's status. Taken from WEB_BASE_URL in the repo's .env
+# unless given; empty builds leave both out.
 if [ -z "${SITE:-}" ] && [ -f ../.env ]; then
     SITE="$(sed -n 's/^WEB_BASE_URL=//p' ../.env | tail -n 1 | tr -d '"'"'"'\r')"
 fi
@@ -44,7 +45,7 @@ for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 wi
     [ "$os" = darwin ] && name="vpncheck-app-macos-${arch}"
     echo "building $name"
     CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath \
-        -ldflags "-s -w -X main.version=$VERSION -X main.domains=$DOMAINS" \
+        -ldflags "-s -w -X main.version=$VERSION -X main.domains=$DOMAINS -X main.site=$SITE" \
         -o "dist/$name" ./cmd/vpncheck-app
 done
 # A Mac loses a file's executable bit when it is downloaded on its own, and
@@ -70,4 +71,4 @@ for arch in amd64 arm64; do
 done
 (cd dist && sha256sum * > SHA256SUMS 2>/dev/null || shasum -a 256 * > SHA256SUMS)
 echo "done: $(ls dist | tr '\n' ' ')"
-[ -n "$SITE" ] || echo "note: no site compiled in; sending by code will need -site" >&2
+[ -n "$SITE" ] || echo "note: no site compiled in: the app will not show payment status or send reports, and vpncheck -send needs -site" >&2

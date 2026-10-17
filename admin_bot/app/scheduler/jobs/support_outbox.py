@@ -9,7 +9,7 @@ here. Every few seconds this reads what is waiting and delivers it:
   ticket, a reply to that card for a later message, each file as a reply to
   its text;
 * a ticket the customer closed is announced there, so nobody answers one that
-  is finished, and so is a customer's yes or no to a server-check report;
+  is finished;
 * an operator's answer is announced to the customer through user_bot -- the
   bot they actually talk to -- when they have a Telegram to announce it in.
 
@@ -36,10 +36,9 @@ from html import unescape
 from aiogram import Bot
 from aiogram.exceptions import TelegramRetryAfter
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions
-from tgvpn_shared.db import JobRunRepository, SupportDiagnosticsRepository, SupportRepository
+from tgvpn_shared.db import JobRunRepository, SupportRepository
 
 from app.config.settings import settings
-from app.services.diagnostics import decision_notice
 from app.services.support import (
     card_messages,
     chat_unreachable,
@@ -67,7 +66,6 @@ POLL_SECONDS = 5
 RECORD_SUCCESS_EVERY = 60
 
 _support = SupportRepository()
-_diagnostics = SupportDiagnosticsRepository()
 _jobs = JobRunRepository()
 
 _NO_PREVIEW = LinkPreviewOptions(is_disabled=True)
@@ -125,8 +123,6 @@ async def run_pass(bot: Bot) -> None:
             await deliver_to_operators(bot, message, chats, now)
         for ticket in await _support.pending_close_announcements():
             await announce_close(bot, ticket, chats)
-        for request in await _diagnostics.pending_announcements():
-            await announce_diagnostics(bot, request, chats)
     else:
         logger.warning("ADMIN_IDS is empty; support tickets have nowhere to go")
     await notify_customers()
@@ -281,21 +277,6 @@ async def announce_close(bot: Bot, ticket: dict, chats: list[int]) -> None:
             raise
         await _support.record_telegram_message(chat_id, sent.message_id, ticket_id, "notice")
     await _support.mark_close_announced(ticket_id)
-
-
-async def announce_diagnostics(bot: Bot, request: dict, chats: list[int]) -> None:
-    """The customer's answer to a request for a server-check report, on the ticket's card."""
-    ticket_id = int(request["ticket_id"])
-    for chat_id in chats:
-        card = await _support.card_for(ticket_id, chat_id)
-        try:
-            sent = await _send_html(bot, chat_id, decision_notice(request), reply_to_id=card)
-        except Exception as exc:
-            if chat_unreachable(exc):
-                continue
-            raise
-        await _support.record_telegram_message(chat_id, sent.message_id, ticket_id, "notice")
-    await _diagnostics.mark_announced(int(request["id"]))
 
 
 # -- operators -> customer --------------------------------------------------------

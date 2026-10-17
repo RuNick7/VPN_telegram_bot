@@ -30,6 +30,9 @@ var (
 	version = "dev"
 	// The hosts subscription links are on, comma-separated.
 	domains = ""
+	// The website: subscription status, and where «Отправить в поддержку»
+	// sends the report.
+	site = ""
 )
 
 // With the page closed and no check running, the app has nothing left to do.
@@ -72,6 +75,7 @@ func run() int {
 		LinkFile:  configFile("subscription"),
 		UserAgent: subscription.DefaultUserAgent,
 		Options:   opts,
+		Site:      site,
 	}, token)
 
 	server := &http.Server{Handler: a.Handler(), ReadHeaderTimeout: 10 * time.Second}

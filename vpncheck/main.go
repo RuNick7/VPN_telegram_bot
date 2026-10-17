@@ -1,9 +1,9 @@
 // vpncheck connects to every server in a subscription the way the client
 // app does and writes down what happened, one log per server.
 //
-//	vpncheck https://sub.example.com/api/sub/XXXX   check a subscription
-//	vpncheck ABCD-EFGH-JKLM                         check and send the report to a support ticket
-//	vpncheck                                        ask for either
+//	vpncheck https://sub.example.com/api/sub/XXXX         check a subscription
+//	vpncheck -send https://sub.example.com/api/sub/XXXX   check and send the report to support
+//	vpncheck                                              ask for a link
 //
 // See README.md.
 package main
@@ -14,7 +14,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -26,9 +25,9 @@ import (
 	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/check"
 	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/redact"
 	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/report"
+	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/site"
 	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/source"
 	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/subscription"
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/ticket"
 )
 
 // Set at build time (build.sh).
@@ -44,13 +43,13 @@ func (l *listFlag) Set(v string) error { *l = append(*l, v); return nil }
 
 type options struct {
 	subs    listFlag
-	code    string
+	send    bool
+	note    string
 	site    string
 	out     string
 	ua      string
 	only    string
 	list    bool
-	yes     bool
 	speed   int
 	pings   int
 	timeout time.Duration
@@ -71,13 +70,13 @@ func main() {
 func run() int {
 	var opts options
 	flag.Var(&opts.subs, "sub", "ссылка подписки, файл с подпиской или ссылка vless://, hysteria2://... (можно несколько раз)")
-	flag.StringVar(&opts.code, "code", "", "код из поддержки: отчёт уйдёт в ваше обращение")
-	flag.StringVar(&opts.site, "site", defaultSite, "адрес сайта, куда отправлять отчёт по коду")
+	flag.BoolVar(&opts.send, "send", false, "после проверки отправить отчёт в поддержку: он придёт в ваше открытое обращение или откроет новое")
+	flag.StringVar(&opts.note, "note", "", "с -send: коротко, что не работает")
+	flag.StringVar(&opts.site, "site", defaultSite, "адрес сайта, куда отправлять отчёт")
 	flag.StringVar(&opts.out, "out", "vpncheck-logs", "папка для отчётов")
 	flag.StringVar(&opts.ua, "ua", subscription.DefaultUserAgent, "User-Agent для запроса подписки")
 	flag.StringVar(&opts.only, "only", "", "проверить только серверы, в адресе или профиле которых есть эта строка")
 	flag.BoolVar(&opts.list, "list", false, "только показать серверы, не проверять")
-	flag.BoolVar(&opts.yes, "yes", false, "отправить отчёт по коду, не спрашивая")
 	flag.IntVar(&opts.speed, "speed", 0, "замерить скорость, скачав через каждый сервер столько МБ (0 — не замерять)")
 	flag.IntVar(&opts.pings, "pings", 3, "сколько раз пинговать через каждый сервер")
 	flag.DurationVar(&opts.timeout, "timeout", 10*time.Second, "сколько ждать каждого ответа")
@@ -96,28 +95,29 @@ func run() int {
 
 	// Started by double-click: nothing on the command line, a console window
 	// that closes the moment the program ends. Ask, and wait before exiting.
-	interactive := flag.NArg() == 0 && len(opts.subs) == 0 && opts.code == ""
+	interactive := flag.NArg() == 0 && len(opts.subs) == 0
 	if interactive {
 		defer pause()
 	}
 
-	for _, arg := range flag.Args() {
-		if code, ok := ticket.NormalizeCode(arg); ok {
-			opts.code = code
-		} else {
-			opts.subs = append(opts.subs, arg)
-		}
-	}
+	opts.subs = append(opts.subs, flag.Args()...)
 	if interactive {
 		fmt.Printf("vpncheck %s — проверка серверов VPN\n\n", version)
-		fmt.Println("Вставьте ссылку на подписку или код из поддержки и нажмите Enter.")
+		fmt.Println("Вставьте ссылку на подписку и нажмите Enter.")
 		answer := ask("> ")
-		if code, ok := ticket.NormalizeCode(answer); ok {
-			opts.code = code
-		} else if answer != "" {
-			opts.subs = append(opts.subs, answer)
-		} else {
+		if answer == "" {
 			usage()
+			return 2
+		}
+		opts.subs = append(opts.subs, answer)
+	}
+	if opts.send {
+		if opts.site == "" {
+			fmt.Fprintln(os.Stderr, "Не указан сайт для отправки отчёта: запустите с -site https://адрес-сайта")
+			return 2
+		}
+		if _, ok := sendable(opts.subs); !ok {
+			fmt.Fprintln(os.Stderr, "С -send проверяется одна подписка по ссылке https://…: по ней сайт находит, чей это отчёт.")
 			return 2
 		}
 	}
@@ -135,54 +135,24 @@ func run() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	var session *ticket.Session
-	var client *ticket.Client
-	if opts.code != "" {
-		code, ok := ticket.NormalizeCode(opts.code)
-		if !ok {
-			fmt.Fprintf(os.Stderr, "Код %q не похож на код из поддержки: в нём 12 букв и цифр, например ABCD-EFGH-JKLM.\n", opts.code)
-			return 2
-		}
-		opts.code = code
-		if opts.site == "" {
-			fmt.Fprintln(os.Stderr, "Не указан сайт для отправки отчёта: запустите с -site https://адрес-сайта")
-			return 2
-		}
-		client = ticket.New(opts.site)
-		var err error
-		session, err = client.Open(ctx, opts.code)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Код не принят: %v\n", err)
-			return 2
-		}
-		fmt.Printf("Код принят: обращение #%d «%s».\n", session.TicketID, session.Subject)
-		if session.SubscriptionURL != "" && len(opts.subs) == 0 {
-			opts.subs = append(opts.subs, session.SubscriptionURL)
-		}
-		if len(opts.subs) == 0 {
-			if !interactive {
-				fmt.Fprintln(os.Stderr, "Сайт не смог выдать ссылку на подписку: укажите её сами через -sub.")
-				return 2
-			}
-			fmt.Println("Не получилось взять ссылку на подписку автоматически. Вставьте её из бота или личного кабинета:")
-			if link := ask("> "); link != "" {
-				opts.subs = append(opts.subs, link)
-			} else {
-				return 2
-			}
-		}
-	}
+	return checkAll(ctx, opts, op, interactive)
+}
 
-	return checkAll(ctx, opts, op, session, client, interactive)
+// sendable is the one subscription link a report can be sent with: the site
+// finds the customer by it.
+func sendable(subs []string) (string, bool) {
+	if len(subs) != 1 {
+		return "", false
+	}
+	link := strings.TrimSpace(subs[0])
+	lower := strings.ToLower(link)
+	return link, strings.HasPrefix(lower, "https://") || strings.HasPrefix(lower, "http://")
 }
 
 // checkAll is the run itself, once it is known what to check and where the
 // report goes.
-func checkAll(ctx context.Context, opts options, op *operator, session *ticket.Session, client *ticket.Client, interactive bool) int {
+func checkAll(ctx context.Context, opts options, op *operator, interactive bool) int {
 	red := redact.New()
-	if opts.code != "" {
-		red.Add(opts.code)
-	}
 	rep := report.New(version)
 
 	var targets []*subscription.Target
@@ -247,7 +217,7 @@ func checkAll(ctx context.Context, opts options, op *operator, session *ticket.S
 	}
 	// Node lines hold the address the check came from, so they never go into
 	// a report sent to a ticket: only an operator's own run asks for them.
-	if session == nil && len(op.agents) > 0 && len(rep.Results) > 0 && ctx.Err() == nil {
+	if !opts.send && !interactive && len(op.agents) > 0 && len(rep.Results) > 0 && ctx.Err() == nil {
 		fmt.Printf("\nСпрашиваю логи у нод: %d…\n", len(op.agents))
 		rep.Nodes = askNodes(ctx, rep, op.agents)
 		for _, node := range rep.Nodes {
@@ -276,8 +246,8 @@ func checkAll(ctx context.Context, opts options, op *operator, session *ticket.S
 	fmt.Printf("  summary.txt — итог по всем серверам, report.txt — всё в одном файле, servers/ — лог каждого сервера.\n")
 	fmt.Println("  Ключи, пароли, идентификаторы и ссылка на подписку в отчёте заменены на [скрыто:…].")
 
-	if session != nil {
-		send(ctx, opts, session, client, rep, files, interactive)
+	if opts.send || (interactive && opts.site != "" && isTerminal()) {
+		send(ctx, opts, rep, files, interactive)
 	}
 	if opts.notify {
 		if errs := notify(ctx, op, notifyCaption(rep), files.Full); len(errs) > 0 {
@@ -307,35 +277,40 @@ func checkAll(ctx context.Context, opts options, op *operator, session *ticket.S
 	return 0
 }
 
-// send asks once more, now that the report exists and can be read, and
-// only then uploads it.
-func send(ctx context.Context, opts options, session *ticket.Session, client *ticket.Client, rep *report.Report, files *report.Files, interactive bool) {
+// send uploads the report to support. With -send that was decided on the
+// command line; a double-clicked run asks, now that the report exists and
+// can be read first.
+func send(ctx context.Context, opts options, rep *report.Report, files *report.Files, interactive bool) {
+	link, ok := sendable(opts.subs)
+	if !ok || len(rep.Nodes) > 0 {
+		return
+	}
 	full, _ := filepath.Abs(files.Full)
-	if !opts.yes {
-		if !interactive && !isTerminal() {
-			fmt.Printf("\nОтчёт не отправлен: подтвердить отправку некому. Запустите с -yes или приложите %s к обращению сами.\n", full)
-			return
-		}
-		fmt.Printf("\nВ обращение #%d «%s» уйдёт файл:\n  %s\nЕго можно открыть и посмотреть перед отправкой.\n", session.TicketID, session.Subject, full)
+	note := opts.note
+	if !opts.send {
+		fmt.Printf("\nОтчёт можно отправить в поддержку: он придёт в ваше открытое обращение или откроет новое.\n"+
+			"Это файл %s — его можно открыть и посмотреть перед отправкой.\n", full)
 		answer := strings.ToLower(ask("Отправить? Введите «да» или «нет»: "))
 		if answer != "да" && answer != "д" && answer != "y" && answer != "yes" {
 			fmt.Println("Не отправлено. Отчёт остался только на этом компьютере.")
 			return
 		}
+		note = ask("Коротко, что не работает (можно пропустить, нажав Enter): ")
 	}
 	summary := fmt.Sprintf("Отчёт проверки серверов (vpncheck %s): %s", version, report.OneLine(rep))
-	uctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Minute)
+	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Minute)
 	defer cancel()
-	if err := client.Upload(uctx, opts.code, summary, files.Full); err != nil {
-		var siteErr *ticket.Error
-		if errors.As(err, &siteErr) && siteErr.Status == http.StatusConflict {
+	sent, err := site.New(opts.site).Send(sctx, link, summary, note, files.Full)
+	if err != nil {
+		var siteErr *site.Error
+		if errors.As(err, &siteErr) && siteErr.Message != "" {
 			fmt.Printf("Не отправлено: %v\n", err)
 		} else {
-			fmt.Printf("Не удалось отправить: %v\nПриложите %s к обращению на сайте сами.\n", err, full)
+			fmt.Printf("Не удалось отправить: %v\nПриложите %s к обращению сами.\n", err, full)
 		}
 		return
 	}
-	fmt.Printf("Отчёт отправлен в обращение #%d. Поддержка ответит там же.\n", session.TicketID)
+	fmt.Printf("Отправлено в обращение №%d. Ответ придёт в бота и в личный кабинет.\n", sent.TicketID)
 }
 
 func filter(targets []*subscription.Target, needle string) []*subscription.Target {
@@ -373,9 +348,9 @@ func usage() {
 	fmt.Fprintf(os.Stderr, `vpncheck %s — подключается к каждому серверу подписки так же, как приложение, и сохраняет лог по каждому.
 
 Запуск:
-  vpncheck https://адрес-подписки        проверить подписку
-  vpncheck ABCD-EFGH-JKLM                проверить и отправить отчёт в обращение (код даёт бот поддержки)
-  vpncheck                               спросить, что проверять
+  vpncheck https://адрес-подписки          проверить подписку
+  vpncheck -send https://адрес-подписки    проверить и отправить отчёт в поддержку
+  vpncheck                                 спросить ссылку
 
 Для админа, с логами нод и итогом в админ-чат:
   vpncheck -env /opt/tg_vpn/.env -notify -keep 30 -sub URL1 -sub URL2

@@ -116,29 +116,8 @@ class FakeBot:
         return [c for c in self.calls if c["chat_id"] == chat_id]
 
 
-class FakeDiagnostics:
-    """Customers' answers to requests for a server-check report."""
-
-    def __init__(self):
-        self.answers: list[dict] = []
-        self.announced: list[int] = []
-
-    async def pending_announcements(self):
-        return [a for a in self.answers if a["id"] not in self.announced]
-
-    async def mark_announced(self, request_id):
-        self.announced.append(request_id)
-
-
 @pytest.fixture
-def diagnostics(monkeypatch):
-    fake = FakeDiagnostics()
-    monkeypatch.setattr(support_outbox, "_diagnostics", fake)
-    return fake
-
-
-@pytest.fixture
-def support(monkeypatch, diagnostics):
+def support(monkeypatch):
     fake = FakeSupport()
     monkeypatch.setattr(support_outbox, "_support", fake)
     monkeypatch.setattr(support_outbox.settings, "admin_ids_raw", f"{ADMIN} {OTHER}")
@@ -325,25 +304,6 @@ async def test_a_customer_closing_a_ticket_is_announced_on_its_card(support, bot
     assert "Клиент закрыл обращение" in notice["text"]
     assert notice["reply_parameters"].message_id == card["message_id"]
     assert support.announced == [7]
-
-
-async def test_a_customers_answer_to_a_report_request_is_announced_on_its_card(support, diagnostics, bot):
-    add(support, ticket_message())
-    await support_outbox.run_pass(bot)
-    diagnostics.answers += [
-        {"id": 3, "ticket_id": 7, "decision": "granted", "subject": "<Тема>"},
-        {"id": 4, "ticket_id": 7, "decision": "declined", "subject": "<Тема>"},
-    ]
-
-    await support_outbox.run_pass(bot)
-
-    card, granted, declined = bot.to(ADMIN)
-    assert "согласился" in granted["text"] and "&lt;Тема&gt;" in granted["text"]
-    assert "отказался" in declined["text"]
-    assert granted["reply_parameters"].message_id == card["message_id"]
-    assert diagnostics.announced == [3, 4]
-    # Replying to the notice reaches the ticket like replying to the card.
-    assert len(support.sent_to(ADMIN, "notice")) == 2
 
 
 # -- operators -> customer ------------------------------------------------------------------

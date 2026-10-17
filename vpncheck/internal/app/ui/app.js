@@ -137,6 +137,17 @@ $("save").addEventListener("click", async () => {
   }
 });
 
+$("send").addEventListener("click", async () => {
+  $("send").disabled = true;
+  try {
+    const { status, data } = await api("/api/send", { note: $("note").value });
+    if (status === 200) render(data);
+    else toast(data && data.problem ? data.problem.title + ". " + data.problem.text : "Не удалось отправить");
+  } finally {
+    $("send").disabled = Boolean(current && current.sending);
+  }
+});
+
 $("copy").addEventListener("click", async () => {
   $("copy").disabled = true;
   try {
@@ -313,6 +324,8 @@ function render(state) {
       " в " + card.profiles + " " + plural(card.profiles, "профиле", "профилях", "профилях"));
     if (card.traffic) meta.push(card.traffic);
     $("card-meta").textContent = meta.join(" · ");
+    $("card-note").textContent = card.note || "";
+    $("card-note").hidden = !card.note;
   }
 
   const running = busy.has(state.phase);
@@ -356,6 +369,24 @@ function drawResult(state) {
     $("result-line").textContent = sum.line;
   }
   showProblem($("failure"), state.problem);
+  const fix = state.problem && state.problem.link;
+  $("fix").hidden = !fix;
+  if (fix) {
+    $("fix").href = state.problem.link;
+    $("fix").textContent = state.problem.link_text || "Открыть";
+  }
+
+  // Sending is the main way out once it is possible; saving and copying stay
+  // for Telegram, where support is too.
+  const sent = state.sent;
+  $("send-block").hidden = !state.can_send || Boolean(sent);
+  $("send").disabled = Boolean(state.sending);
+  $("sent").hidden = !sent;
+  if (sent) {
+    $("sent-title").textContent = (sent.created ? "Открыто обращение №" : "Отправлено в обращение №") + sent.ticket_id;
+  }
+  // One main button: sending, or the way out of the problem when there is one.
+  $("save").className = (state.can_send && !sent) || fix ? "secondary" : "primary";
   $("report-actions").hidden = !state.report;
   $("report-hint").hidden = !state.report;
 }

@@ -1,55 +1,27 @@
 """
-Asking a customer for a server-check report.
+Asking a customer to check the servers with the vpncheck program.
 
-The question goes out through user_bot, the bot the customer talks to, with
-the list of what would be collected; the answer is handled there
-(user_bot/handlers/support_diag.py). Nothing is collected unless they say yes,
-and even then the vpncheck program asks again before sending anything.
+The ask is an answer in the ticket, written on the operator's behalf, so it
+reaches the customer wherever answers do: in user_bot when they have
+Telegram, and in the cabinet either way. The program does the rest: the
+customer pastes their subscription link, and «Отправить в поддержку» puts
+the report into their open ticket. Pressing it is the consent; nothing is
+collected before.
 """
 
 from __future__ import annotations
 
-from aiogram import Bot
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, LinkPreviewOptions, Message
-from tgvpn_shared.support_diagnostics import CALLBACK_ALLOW, CALLBACK_DENY, consent_text
 
-from app.config.settings import settings
-from app.services.support import escape
-
-
-def consent_keyboard(request_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[[
-            InlineKeyboardButton(text="✅ Согласен", callback_data=f"{CALLBACK_ALLOW}{request_id}"),
-            InlineKeyboardButton(text="❌ Не согласен", callback_data=f"{CALLBACK_DENY}{request_id}"),
-        ]]
+def check_request_text(download_url: str) -> str:
+    """The answer the customer gets, as plain text: it is stored as a ticket message."""
+    return (
+        "Чтобы понять, почему не работает VPN, проверьте серверы с компьютера:\n"
+        f"1. Скачайте программу «KairaVPN Проверка» для Windows, macOS или Linux: {download_url}\n"
+        "2. Выключите VPN-приложение (Happ и другие).\n"
+        "3. Запустите программу, вставьте ссылку на подписку и нажмите «Проверить».\n"
+        "4. Нажмите «Отправить в поддержку» — отчёт придёт в это обращение. "
+        "Можно и «Скопировать файл», чтобы прислать его в чат поддержки в Telegram.\n\n"
+        "Из отчёта вырезаются ключи, ссылка на подписку и ваш IP-адрес. "
+        "На Mac при первом запуске откройте Системные настройки → Конфиденциальность и безопасность "
+        "и нажмите «Всё равно открыть»."
     )
-
-
-async def ask_customer(telegram_id: int, request_id: int, ticket_id: int, subject: str) -> Message:
-    """
-    Send the question from user_bot. A fresh Bot per send, as the support
-    outbox does it: this is rare, and a held session would outlive its loop.
-    """
-    bot = Bot(token=settings.user_bot_token.strip())
-    try:
-        return await bot.send_message(
-            telegram_id,
-            consent_text(ticket_id, subject),
-            parse_mode="HTML",
-            reply_markup=consent_keyboard(request_id),
-            link_preview_options=LinkPreviewOptions(is_disabled=True),
-        )
-    finally:
-        await bot.session.close()
-
-
-def decision_notice(request: dict) -> str:
-    """What the operators are told once the customer has answered."""
-    ticket = f"<b>#{int(request['ticket_id'])}</b> · {escape(request['subject'])}"
-    if request["decision"] == "granted":
-        return (
-            f"🩺 Клиент согласился на проверку серверов по {ticket}. "
-            f"Отчёт придёт сюда файлом, когда клиент запустит программу и подтвердит отправку."
-        )
-    return f"🩺 Клиент отказался от проверки серверов по {ticket}."

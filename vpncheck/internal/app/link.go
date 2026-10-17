@@ -12,6 +12,9 @@ import (
 type Problem struct {
 	Title string `json:"title"`
 	Text  string `json:"text"`
+	// A page that puts it right, such as where to pay, and its button.
+	Link     string `json:"link,omitempty"`
+	LinkText string `json:"link_text,omitempty"`
 }
 
 func (p *Problem) Error() string { return p.Title + ": " + p.Text }
@@ -30,7 +33,7 @@ var (
 func CleanLink(pasted string, domains []string) (string, *Problem) {
 	text := strings.TrimSpace(pasted)
 	if text == "" {
-		return "", &Problem{"Вставьте ссылку", "Ссылка подписки есть в боте и в личном кабинете на сайте."}
+		return "", &Problem{Title: "Вставьте ссылку", Text: "Ссылка подписки есть в боте и в личном кабинете на сайте."}
 	}
 	if strings.Contains(strings.ToLower(text), "%3a%2f%2f") {
 		if decoded, err := url.QueryUnescape(text); err == nil {
@@ -42,19 +45,19 @@ func CleanLink(pasted string, domains []string) (string, *Problem) {
 		lower := strings.ToLower(text)
 		switch {
 		case strings.HasPrefix(lower, "happ://crypt"):
-			return "", &Problem{"Это зашифрованная ссылка Happ",
-				"Из неё не достать адрес подписки. Скопируйте обычную ссылку подписки в боте или личном кабинете."}
+			return "", &Problem{Title: "Это зашифрованная ссылка Happ",
+				Text: "Из неё не достать адрес подписки. Скопируйте обычную ссылку подписки в боте или личном кабинете."}
 		case strings.Contains(lower, "://"):
-			return "", &Problem{"Это ссылка на один сервер",
-				"Нужна ссылка на всю подписку: она начинается с https://. Скопируйте её в боте или личном кабинете."}
+			return "", &Problem{Title: "Это ссылка на один сервер",
+				Text: "Нужна ссылка на всю подписку: она начинается с https://. Скопируйте её в боте или личном кабинете."}
 		}
-		return "", &Problem{"Это не ссылка", "Скопируйте ссылку подписки в боте или личном кабинете целиком и вставьте сюда."}
+		return "", &Problem{Title: "Это не ссылка", Text: "Скопируйте ссылку подписки в боте или личном кабинете целиком и вставьте сюда."}
 	}
 	found = strings.TrimRight(found, ".,;:!?)]}")
 
 	u, err := url.Parse(found)
 	if err != nil || u.Host == "" {
-		return "", &Problem{"Ссылка скопировалась не целиком", "Скопируйте её в боте или личном кабинете ещё раз."}
+		return "", &Problem{Title: "Ссылка скопировалась не целиком", Text: "Скопируйте её в боте или личном кабинете ещё раз."}
 	}
 	u.Fragment, u.RawFragment = "", ""
 	host := strings.ToLower(u.Hostname())
@@ -64,15 +67,15 @@ func CleanLink(pasted string, domains []string) (string, *Problem) {
 			ours = ours || host == strings.ToLower(domain)
 		}
 		if !ours {
-			return "", &Problem{"Это ссылка не на нашу подписку",
-				"Ссылка ведёт на " + host + ", а подписка начинается с https://" + domains[0] + "/. Скопируйте её в боте или личном кабинете."}
+			return "", &Problem{Title: "Это ссылка не на нашу подписку",
+				Text: "Ссылка ведёт на " + host + ", а подписка начинается с https://" + domains[0] + "/. Скопируйте её в боте или личном кабинете."}
 		}
 		u.Scheme = "https"
 	}
 	segments := strings.Split(strings.Trim(u.Path, "/"), "/")
 	if !shortID.MatchString(segments[len(segments)-1]) {
-		return "", &Problem{"Ссылка скопировалась не целиком",
-			"В конце ссылки должен быть код подписки из букв и цифр. Скопируйте её в боте или личном кабинете ещё раз."}
+		return "", &Problem{Title: "Ссылка скопировалась не целиком",
+			Text: "В конце ссылки должен быть код подписки из букв и цифр. Скопируйте её в боте или личном кабинете ещё раз."}
 	}
 	return u.String(), nil
 }

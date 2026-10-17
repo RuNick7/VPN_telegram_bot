@@ -84,15 +84,22 @@ customer's notification.
 
 ## 5. Server check reports (vpncheck)
 
-Optional, on top of tickets. With it, an operator can ask a customer for a
-report from `vpncheck` (see `vpncheck/README.md`) and get it in the ticket,
-only after the customer agrees in Telegram and then confirms the upload in
-the program. Off until `VPNCHECK_DOWNLOAD_URL` is set: no button on the cards.
+Optional, on top of tickets. With it, a customer runs «KairaVPN Проверка»
+(`vpncheck-app`, or the `vpncheck` command line; see `vpncheck/README.md`),
+pastes their subscription link and presses «Отправить в поддержку»: the
+report lands in their open ticket, or opens «Проверка серверов». Nothing is
+sent before that press. The app also asks the site whether the subscription
+is paid, and offers «Продлить» instead of checking an expired one. user_bot's
+«🩺 Проверить серверы» and the cards' «🩺 Запросить логи» stay hidden until
+`VPNCHECK_DOWNLOAD_URL` is set.
 
-1. **Migration `0016_support_diagnostics`** runs with the rest on
+1. **Migration `0016_vpncheck_reports`** runs with the rest on
    `docker compose up -d --build`; it adds one table and touches nothing else.
-2. **Build the binaries** with the site compiled in, so `vpncheck CODE` needs
-   no flags (`SITE` defaults to `WEB_BASE_URL` from `.env`):
+   The site's two new endpoints (`/api/vpncheck/status`, `/api/vpncheck/report`)
+   are under `/api/`, which nginx already passes on.
+2. **Build the binaries** with the site compiled in, so neither the app nor
+   `vpncheck -send` needs flags (`SITE` defaults to `WEB_BASE_URL` from
+   `.env`):
    ```bash
    cd vpncheck && VERSION=1.0.0 ./build.sh
    # or, without Go on the host:
@@ -106,7 +113,7 @@ the program. Off until `VPNCHECK_DOWNLOAD_URL` is set: no button on the cards.
        autoindex on;
    }
    ```
-   The six files and `SHA256SUMS` are the whole release.
+   The files in it and `SHA256SUMS` are the whole release.
 4. **Set the link** in `.env` and recreate the bots, which read it at
    start-up (the site does not need it):
    ```
@@ -118,13 +125,12 @@ the program. Off until `VPNCHECK_DOWNLOAD_URL` is set: no button on the cards.
    The `client_max_body_size` from step 1 already covers a report (up to
    10 MB).
 
-Smoke test: on a ticket from a customer with Telegram linked, press «🩺
-Запросить логи». The customer gets the question from user_bot; «✅ Согласен»
-gives a code and the link, and the admin chat gets a note of the decision.
-Run `vpncheck CODE`, answer «да», and the report arrives in the ticket as
-`vpncheck-report.txt`. A customer without Telegram cannot be asked: pressing
-the button tells the operator so, and the customer attaches `report.txt`
-from a run without a code.
+Smoke test: run the app, paste a test account's subscription link and check.
+The card says until when it is paid. Type a line and press «Отправить в
+поддержку»: the app says which ticket it went to, and the admin chat gets the
+card with `vpncheck-report.txt` under it. On an existing ticket, «🩺 Запросить
+логи» sends the customer the download link and these steps as an answer in
+the ticket, through user_bot and the cabinet.
 
 ## 6. The nodes' side (vpncheck-agent)
 

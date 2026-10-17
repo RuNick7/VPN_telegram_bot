@@ -34,7 +34,7 @@ goes on redialling a dead server after its instance is closed, and in one
 process those retries ended up in every later server's log.
 
 **Secrets are cut from every file.** User UUIDs, passwords, REALITY public
-keys and short IDs, the subscription token and the support code are replaced
+keys and short IDs and the subscription token are replaced
 with `[скрыто:…]`, consistently within a run so lines can still be matched up.
 The machine's own address in Xray's connection lines becomes `[мой адрес]`,
 and the hostname is never recorded, only the OS and architecture.
@@ -45,16 +45,17 @@ Switch the VPN app off first: the check is meaningless through another
 tunnel, and it warns when it sees one.
 
 ```
-vpncheck https://sub.example.com/api/sub/XXXX     check a subscription
-vpncheck ABCD-EFGH-JKLM                           check and send the report to a support ticket
-vpncheck                                          ask what to check (what a double-click does)
+vpncheck https://sub.example.com/api/sub/XXXX         check a subscription
+vpncheck -send https://sub.example.com/api/sub/XXXX   check and send the report to support
+vpncheck                                              ask what to check (what a double-click does)
 ```
 
 Useful flags: `-only de1` (servers whose address or profile contains `de1`),
 `-list` (show the servers, check nothing), `-speed 20` (download 20 MB through
-each), `-timeout 15s`, `-sub` repeatable or a file, `-out DIR`. `-h` lists them
+each), `-timeout 15s`, `-sub` repeatable or a file, `-out DIR`, `-note TEXT`
+(with `-send`: what does not work). `-h` lists them
 all. Exit code 0 means every server works, 1 that some don't, 2 that the run
-could not happen (bad arguments, a code the site refused, nowhere to save).
+could not happen (bad arguments, nowhere to save).
 
 ### Linux server
 
@@ -80,14 +81,14 @@ chmod +x vpncheck-macos-arm64
 
 Download `vpncheck-windows-amd64.exe` and double-click it, or run it from
 PowerShell with arguments. SmartScreen may ask once ("More info", then "Run
-anyway"). Started by double-click, it asks for a link or a code and waits for
+anyway"). Started by double-click, it asks for a link and waits for
 Enter before the window closes.
 
 ### The customers' app: vpncheck-app
 
 The same check behind a page, for customers who should not meet a terminal:
-one field for the subscription link, a button to check, and buttons to save
-or copy the report. `cmd/vpncheck-app` starts it, `internal/app` is the page
+one field for the subscription link, a button to check, and buttons to send,
+save or copy the report. `cmd/vpncheck-app` starts it, `internal/app` is the page
 and everything behind it. For now the page opens in the browser; the window
 stays open beside it while a check runs, and the app exits a few minutes
 after the page is closed.
@@ -98,12 +99,22 @@ after the page is closed.
   limit, and a page that is not a subscription. The link is remembered in the
   user's config directory (`vpncheck/subscription`, mode 0600) until
   «Забыть ссылку».
-- **What the customer sees** is the subscription card (name, traffic, until
-  when), the servers grouped by profile with a dot each, and a line saying
-  which ones do not work. A server opens into the same steps and Xray log the
-  report holds.
+- **What the customer sees** is the subscription card (name, traffic, and
+  whether it is paid), the servers grouped by profile with a dot each, and a
+  line saying which ones do not work. A server opens into the same steps and
+  Xray log the report holds.
+- **Payment status comes from the site** (`/api/vpncheck/status`, asked
+  while the subscription loads), not from the panel's date, which with the
+  free tier on is ten years out for everyone. An expired subscription is not
+  checked at all: the app says so and offers «Продлить», a link to the
+  site's plans. The free tier is said on the card, since only some servers
+  are open to it. When the site does not answer, the check goes on and the
+  card says payment could not be confirmed.
+- **«Отправить в поддержку»** sends the report, with an optional line of the
+  customer's own words, into their open ticket, or opens «Проверка
+  серверов»; see Sending a report to support below.
 - **Reports** are kept in the user's cache directory, the last ten runs.
-  «Сохранить отчёт» puts a zip of the run into Downloads and shows it in the
+  For a customer without a ticket in mind, «Сохранить отчёт» puts a zip of the run into Downloads and shows it in the
   file manager; «Скопировать файл» puts the same zip on the clipboard as a
   file, to paste into a Telegram chat with support.
 - **Only this computer can reach it.** It listens on 127.0.0.1 on a free
@@ -126,6 +137,10 @@ VPNCHECK_DEMO=127.0.0.1:8765 go test ./internal/app -run TestDemo -v -timeout 1h
 # then open http://127.0.0.1:8765/#k=demo
 ```
 
+With `VPNCHECK_DEMO_SITE=http://127.0.0.1:8080` it asks a running `web/` for
+the status and sends reports there; that site's panel must know the demo
+link's short UUID (`SayZcYcdx7zRHfxe`).
+
 ### Not covered
 
 Phones. The tool runs on a computer or a server; for a phone-only problem,
@@ -133,20 +148,27 @@ support can ask for the Happ app's own logs as an attachment.
 
 ## Sending a report to support
 
-Nothing leaves the computer unless the customer agrees twice:
+Nothing leaves the computer until the customer sends it: «Отправить в
+поддержку» in the app, `-send` on the command line, or «да» to the question a
+double-clicked `vpncheck` asks once the report is written (and can be read).
 
-1. An operator presses «🩺 Запросить логи» on the ticket card in admin_bot.
-2. user_bot asks the customer in Telegram, listing what is collected and what
-   is not. Only on «Согласен» does it show a one-off code (72 hours) and the
-   download link.
-3. `vpncheck CODE` opens the ticket by that code, takes the subscription link
-   from the site, runs the check, and shows where `report.txt` is.
-4. It asks again: «Отправить? Введите «да» или «нет»». Only «да» uploads it; the report lands in
-   the ticket as the customer's message, and the admins get it like any other.
+1. The program sends `report.txt`, the one-line summary and the customer's
+   note, if any, to the site (`POST /api/vpncheck/report`) with the
+   subscription link.
+2. The site asks the panel whose subscription that is and finds the customer
+   from it. The link is the only authorisation: whoever holds it already uses
+   that VPN, and all it allows is a message in that customer's own ticket.
+   The site never fetches the link, and cuts its identifier out of the
+   report once more in case an old build left it in.
+3. The report lands as the customer's message in their latest open ticket,
+   or opens «Проверка серверов», and reaches the admins like any other. The
+   answer comes to the bot and the cabinet.
 
-A code is single-use and works for one ticket only; a closed ticket refuses it.
-Customers without Telegram cannot be asked in the bot: they run the check
-without a code and attach `report.txt` to the ticket themselves.
+A few reports per customer a day are taken. An operator can ask for one with
+«🩺 Запросить логи» on the ticket card: the customer gets the download link
+and these steps as an answer in the ticket. Without the site (or Telegram as
+the only channel) «Скопировать файл» still puts the report on the clipboard
+for the support chat.
 
 ## Device limits
 
@@ -255,7 +277,8 @@ computer's address is allowed to port 7443 too; give the agents with
 `-agents` (the `NODE_LOG_AGENTS` value) or `-env` a copy of the `.env`.
 
 Node lines hold the address the check came from, so they are added only to an
-operator's run: a run by support code never asks the agents.
+operator's run: a customer's run never asks the agents, and a run that has
+them is never sent to a ticket.
 
 **Balancers.** Happ gets each profile as a balancer over several servers, and
 its log names the balancer, so it shows less than a connection to one server
@@ -275,8 +298,8 @@ VERSION=1.0.0 SITE=https://example.com ./build.sh
 Writes into `dist/`, with `SHA256SUMS`: `vpncheck-*` and `vpncheck-app-*` for
 Linux, macOS and Windows, each for amd64 and arm64; the macOS app zipped as
 `vpncheck-app-macos-*.zip`; and `vpncheck-agent-linux-*` for the nodes. The
-site is compiled into `vpncheck` so `vpncheck CODE` needs no flags (`-site`
-overrides it), and the subscription hosts into the app (`DOMAINS=a,b`).
+site is compiled into both, so sending needs no flags (`-site` overrides it
+for `vpncheck`), and the subscription hosts into the app (`DOMAINS=a,b`).
 Without Go, in Docker:
 
 ```bash

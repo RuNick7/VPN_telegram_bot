@@ -7,7 +7,6 @@ from handlers.menu import router as menu_router
 from handlers.payments import router as payments_router
 from handlers.referrals import router as referrals_router
 from handlers.setup import router as setup_router
-from handlers.support_diag import router as support_diag_router
 
 
 router = Router()
@@ -20,4 +19,3 @@ router.include_router(setup_router)
 router.include_router(payments_router)
 router.include_router(devices_router)
 router.include_router(documents_router)
-router.include_router(support_diag_router)

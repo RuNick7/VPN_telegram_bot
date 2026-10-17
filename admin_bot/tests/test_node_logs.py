@@ -225,16 +225,16 @@ class FakeSupport:
         self.telegram.append((chat_id, telegram_message_id, ticket_id, kind))
 
 
-class FakeDiagnostics:
-    def __init__(self, requests):
-        self.requests = requests
+class FakeReports:
+    def __init__(self, reports):
+        self.reports = reports
         self.marked = []
 
     async def pending_node_logs(self):
-        return [r for r in self.requests if r["id"] not in self.marked]
+        return [r for r in self.reports if r["id"] not in self.marked]
 
-    async def mark_node_logs(self, request_id):
-        self.marked.append(request_id)
+    async def mark_node_logs(self, report_id):
+        self.marked.append(report_id)
 
 
 class FakeBot:
@@ -251,7 +251,7 @@ class FakeBot:
         return SimpleNamespace(message_id=900 + len(self.documents))
 
 
-def request(**changes):
+def report(**changes):
     return {"id": 3, "ticket_id": 7, "subject": "Не работает", "attachment_id": "att-1",
             "telegram_id": 42, "remnawave_username": "u-1", "remnawave_uuid": None, **changes}
 
@@ -265,8 +265,8 @@ def repos(monkeypatch):
 
 
 async def test_node_logs_reach_every_admin_chat_on_the_ticket_card(monkeypatch, repos):
-    diagnostics = FakeDiagnostics([request()])
-    monkeypatch.setattr(job, "_diagnostics", diagnostics)
+    reports = FakeReports([report()])
+    monkeypatch.setattr(job, "_reports", reports)
     asked = []
 
     async def ask(agents, query):
@@ -287,15 +287,15 @@ async def test_node_logs_reach_every_admin_chat_on_the_ticket_card(monkeypatch, 
     assert sent["document"].filename == "node-logs-7.txt" and b"found" in sent["document"].data
     assert "нашлись на de1" in sent["caption"]
     assert repos.telegram == [(ADMIN, 901, 7, "notice")]
-    assert diagnostics.marked == [3]
+    assert reports.marked == [3]
 
     await job.run_pass(bot, [agent("de1")])
     assert len(asked) == 1, "a report is looked up once"
 
 
 async def test_a_report_with_nothing_to_look_for_is_marked_without_asking(monkeypatch, repos):
-    diagnostics = FakeDiagnostics([request(attachment_id=None), request(id=4, attachment_id="purged")])
-    monkeypatch.setattr(job, "_diagnostics", diagnostics)
+    reports = FakeReports([report(attachment_id=None), report(id=4, attachment_id="purged")])
+    monkeypatch.setattr(job, "_reports", reports)
 
     async def ask(*_):
         raise AssertionError("no agent should be asked")
@@ -303,4 +303,4 @@ async def test_a_report_with_nothing_to_look_for_is_marked_without_asking(monkey
     monkeypatch.setattr(job, "ask_agents", ask)
     bot = FakeBot()
     await job.run_pass(bot, [agent("de1")])
-    assert diagnostics.marked == [3, 4] and bot.documents == []
+    assert reports.marked == [3, 4] and bot.documents == []

@@ -16,7 +16,7 @@ import asyncio
 import logging
 
 from aiogram import Bot
-from tgvpn_shared.db import SupportDiagnosticsRepository, SupportRepository
+from tgvpn_shared.db import SupportRepository, VpncheckReportRepository
 
 from app.config.settings import settings
 from app.services.node_logs import (
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 POLL_SECONDS = 15
 
 _support = SupportRepository()
-_diagnostics = SupportDiagnosticsRepository()
+_reports = VpncheckReportRepository()
 
 
 async def run_node_logs(bot: Bot, agents: list[Agent]) -> None:
@@ -53,23 +53,23 @@ async def run_pass(bot: Bot, agents: list[Agent]) -> None:
     chats = settings.admin_ids
     if not chats:
         return
-    for request in await _diagnostics.pending_node_logs():
-        await send_node_logs(bot, request, agents, chats)
+    for report in await _reports.pending_node_logs():
+        await send_node_logs(bot, report, agents, chats)
 
 
-async def send_node_logs(bot: Bot, request: dict, agents: list[Agent], chats: list[int]) -> None:
-    ticket_id = int(request["ticket_id"])
-    data = await _support.attachment_data(request["attachment_id"]) if request["attachment_id"] else None
+async def send_node_logs(bot: Bot, report: dict, agents: list[Agent], chats: list[int]) -> None:
+    ticket_id = int(report["ticket_id"])
+    data = await _support.attachment_data(report["attachment_id"]) if report["attachment_id"] else None
     windows, clock_checked = parse_report(data.decode("utf-8", "replace")) if data else ([], True)
     if not windows:
         # A report with no server in it, or its file already purged: there
         # is nothing to look for.
-        await _diagnostics.mark_node_logs(int(request["id"]))
+        await _reports.mark_node_logs(int(report["id"]))
         return
 
-    query = build_query(windows, clock_checked, panel_names(request))
+    query = build_query(windows, clock_checked, panel_names(report))
     answers = await ask_agents(agents, query)
-    document, caption = render(ticket_id, request["subject"], query, answers)
+    document, caption = render(ticket_id, report["subject"], query, answers)
     for chat_id in chats:
         card = await _support.card_for(ticket_id, chat_id)
         try:
@@ -82,4 +82,4 @@ async def send_node_logs(bot: Bot, request: dict, agents: list[Agent], chats: li
                 continue
             raise
         await _support.record_telegram_message(chat_id, sent.message_id, ticket_id, "notice")
-    await _diagnostics.mark_node_logs(int(request["id"]))
+    await _reports.mark_node_logs(int(report["id"]))

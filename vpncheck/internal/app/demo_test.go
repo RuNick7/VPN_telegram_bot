@@ -14,7 +14,8 @@ import (
 //
 //	VPNCHECK_DEMO=127.0.0.1:8765 go test ./internal/app -run TestDemo -v -timeout 1h
 //
-// then open http://127.0.0.1:8765/#k=demo. Server names like de1.kaira.test
+// then open http://127.0.0.1:8765/#k=demo. VPNCHECK_DEMO_SITE names a
+// website to talk to. Server names like de1.kaira.test
 // are used where they resolve to this machine (an /etc/hosts line), plain
 // 127.0.0.1 otherwise.
 func TestDemo(t *testing.T) {
@@ -56,6 +57,9 @@ func TestDemo(t *testing.T) {
 
 	h := newHarness(t, web.URL)
 	h.app.token = "demo"
+	// A website to ask for the status and send the report to, when there is
+	// one running (web/, with a panel that knows this link).
+	h.app.cfg.Site = os.Getenv("VPNCHECK_DEMO_SITE")
 	h.app.cfg.Options.Resolvers = nil
 	h.app.cfg.Options.Parallel = 2
 	listener, err := net.Listen("tcp", addr)

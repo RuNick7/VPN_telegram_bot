@@ -270,7 +270,7 @@ def ticket_keyboard(ticket_id: int, *, closed: bool = False) -> InlineKeyboardMa
     )
     second = [InlineKeyboardButton(text="📜 Вся переписка", callback_data=f"support:history:{ticket_id}")]
     # Only where it can work: a closed ticket takes no report, and without a
-    # download link the customer would agree to run a program they cannot get.
+    # download link the customer would be asked to run a program they cannot get.
     if not closed and settings.vpncheck_download_url.strip():
         second.append(InlineKeyboardButton(text="🩺 Запросить логи", callback_data=f"support:diag:{ticket_id}"))
     return InlineKeyboardMarkup(

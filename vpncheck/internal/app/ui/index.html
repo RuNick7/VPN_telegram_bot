@@ -56,6 +56,7 @@
         <span id="card-status" class="pill"></span>
       </div>
       <div id="card-meta" class="muted small"></div>
+      <div id="card-note" class="card-note small" hidden></div>
     </div>
 
     <div id="progress" class="card progress" hidden>
@@ -72,6 +73,20 @@
       <div id="result-count" class="result-count"></div>
       <p id="result-line" class="result-line"></p>
       <div id="failure" class="problem" hidden><strong></strong><span></span></div>
+      <a id="fix" class="button primary" target="_blank" rel="noopener noreferrer" hidden></a>
+      <div id="send-block" class="send" hidden>
+        <label for="note" class="sr-only">Что не работает?</label>
+        <input id="note" class="input" type="text" maxlength="500" autocomplete="off" placeholder="Что не работает? Можно не заполнять">
+        <button type="button" id="send" class="primary">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12 20 4l-4 16-4-7-8-1Z"/><path d="m12 13 8-9"/></svg>
+          Отправить в поддержку
+        </button>
+        <p class="note consent">Уйдёт отчёт о проверке серверов. Ключи, ссылка и ваш адрес из него вырезаны.</p>
+      </div>
+      <div id="sent" class="sent" role="status" hidden>
+        <strong id="sent-title"></strong>
+        <span>Ответ придёт в бота и в личный кабинет.</span>
+      </div>
       <div id="report-actions" class="actions" hidden>
         <button type="button" id="save" class="primary">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19h14"/></svg>

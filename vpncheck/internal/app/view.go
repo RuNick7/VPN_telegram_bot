@@ -3,8 +3,10 @@ package app
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/check"
+	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/site"
 )
 
 // state is everything the page draws, read every half second while it is
@@ -25,6 +27,10 @@ type state struct {
 	Summary  *summary     `json:"summary,omitempty"`
 	Report   bool         `json:"report"`
 	Saved    string       `json:"saved,omitempty"`
+	// The report can go to support from here, and where it went once it has.
+	CanSend bool       `json:"can_send"`
+	Sending bool       `json:"sending,omitempty"`
+	Sent    *site.Sent `json:"sent,omitempty"`
 }
 
 type progress struct {
@@ -67,6 +73,7 @@ func (r *run) view(s *state) {
 		s.VPN = r.vpn
 	}
 	s.Report, s.Saved = r.files != nil, r.saved
+	s.Sending, s.Sent = r.sending, r.sent
 	if len(r.targets) == 0 {
 		return
 	}
@@ -78,7 +85,7 @@ func (r *run) view(s *state) {
 		}
 		if result := r.results[i]; result != nil {
 			view.State = verdictState(result.Verdict)
-			view.Ping = result.Best().Milliseconds()
+			view.Ping = pingMs(result.Best())
 			view.Mbps = result.Mbps
 			view.Note = r.red.String(note(result))
 		}
@@ -110,6 +117,15 @@ func (r *run) view(s *state) {
 	if r.phase == phaseDone || r.phase == phaseStopped {
 		s.Summary = r.summarize(s.Groups, s.Servers)
 	}
+}
+
+// pingMs rounds up: a reply under a millisecond is still a reply, and 0
+// reads as none.
+func pingMs(d time.Duration) int64 {
+	if d <= 0 {
+		return 0
+	}
+	return max(1, d.Milliseconds())
 }
 
 func verdictState(v check.Verdict) string {

@@ -5,9 +5,12 @@
 package app
 
 import (
+	"context"
 	"crypto/subtle"
 	"embed"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net"
@@ -18,6 +21,8 @@ import (
 	"time"
 
 	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/check"
+	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/report"
+	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/site"
 )
 
 //go:embed ui
@@ -35,6 +40,9 @@ type Config struct {
 	LinkFile  string
 	UserAgent string
 	Options   check.Options
+	// The website: what the subscription's status is, and where a report
+	// goes. Empty leaves both out.
+	Site string
 }
 
 type App struct {
@@ -82,6 +90,7 @@ func (a *App) Handler() http.Handler {
 	api.HandleFunc("GET /api/server/{i}", a.handleServer)
 	api.HandleFunc("POST /api/save", a.handleSave)
 	api.HandleFunc("POST /api/copy", a.handleCopy)
+	api.HandleFunc("POST /api/send", a.handleSend)
 	api.HandleFunc("GET /api/paste", a.handlePaste)
 	api.HandleFunc("POST /api/forget", a.handleForget)
 
@@ -129,6 +138,7 @@ func (a *App) state() state {
 	s := state{Phase: phaseIdle, Version: a.cfg.Version, Link: a.link, Run: a.runs}
 	if a.run != nil {
 		a.run.view(&s)
+		s.CanSend = a.cfg.Site != "" && a.run.sendable()
 	}
 	if a.run == nil || !a.run.active() {
 		// Asked afresh between runs, so the warning goes away as soon as
@@ -156,7 +166,7 @@ func (a *App) handleCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if a.Busy() {
-		writeJSON(w, http.StatusConflict, map[string]any{"problem": &Problem{"Проверка уже идёт", "Дождитесь её конца или остановите её."}})
+		writeJSON(w, http.StatusConflict, map[string]any{"problem": &Problem{Title: "Проверка уже идёт", Text: "Дождитесь её конца или остановите её."}})
 		return
 	}
 	a.start(link)
@@ -199,11 +209,11 @@ func (a *App) report() (*run, string, *Problem) {
 	r := a.run
 	a.mu.Unlock()
 	if r == nil || r.files == nil {
-		return nil, "", &Problem{"Отчёта ещё нет", "Сначала дождитесь конца проверки."}
+		return nil, "", &Problem{Title: "Отчёта ещё нет", Text: "Сначала дождитесь конца проверки."}
 	}
 	path, err := archive(r.files.Dir)
 	if err != nil {
-		return nil, "", &Problem{"Не удалось собрать отчёт", err.Error()}
+		return nil, "", &Problem{Title: "Не удалось собрать отчёт", Text: err.Error()}
 	}
 	return r, path, nil
 }
@@ -216,7 +226,7 @@ func (a *App) handleSave(w http.ResponseWriter, r *http.Request) {
 	}
 	saved, err := saveCopy(path, a.cfg.Downloads)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"problem": &Problem{"Не удалось сохранить отчёт", err.Error()}})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"problem": &Problem{Title: "Не удалось сохранить отчёт", Text: err.Error()}})
 		return
 	}
 	a.update(func() { run.saved = saved })
@@ -233,8 +243,8 @@ func (a *App) handleCopy(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := a.desk.CopyFile(path); err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"problem": &Problem{
-			"Не получилось скопировать файл",
-			"Сохраните отчёт и перетащите файл в чат поддержки. (" + err.Error() + ")",
+			Title: "Не получилось скопировать файл",
+			Text:  "Сохраните отчёт и перетащите файл в чат поддержки. (" + err.Error() + ")",
 		}})
 		return
 	}
@@ -247,15 +257,61 @@ func (a *App) handleCopy(w http.ResponseWriter, r *http.Request) {
 func (a *App) handlePaste(w http.ResponseWriter, r *http.Request) {
 	text, err := a.desk.ReadText()
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"problem": &Problem{"Буфер обмена недоступен", "Вставьте ссылку в поле сами: Cmd+V на Mac, Ctrl+V на Windows."}})
+		writeJSON(w, http.StatusOK, map[string]any{"problem": &Problem{Title: "Буфер обмена недоступен", Text: "Вставьте ссылку в поле сами: Cmd+V на Mac, Ctrl+V на Windows."}})
 		return
 	}
 	link, problem := CleanLink(text, a.cfg.Domains)
 	if problem != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"problem": &Problem{"В буфере обмена нет ссылки подписки", "Скопируйте её в боте или личном кабинете и нажмите «Вставить» ещё раз."}})
+		writeJSON(w, http.StatusOK, map[string]any{"problem": &Problem{Title: "В буфере обмена нет ссылки подписки", Text: "Скопируйте её в боте или личном кабинете и нажмите «Вставить» ещё раз."}})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"link": link})
+}
+
+// handleSend puts the report into the customer's support ticket. Pressing
+// the button is the consent; the page says what goes before it is pressed.
+func (a *App) handleSend(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Note string `json:"note"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<10)).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	a.mu.Lock()
+	run := a.run
+	ready := run != nil && run.files != nil && a.cfg.Site != "" && run.sendable()
+	already := ready && (run.sent != nil || run.sending)
+	if ready && !already {
+		run.sending = true
+	}
+	a.mu.Unlock()
+	switch {
+	case !ready:
+		writeJSON(w, http.StatusConflict, map[string]any{"problem": &Problem{Title: "Отправить нельзя", Text: "Сначала дождитесь конца проверки."}})
+		return
+	case already:
+		// Once is enough: a second press, or a second tab, sends nothing.
+		writeJSON(w, http.StatusOK, a.state())
+		return
+	}
+
+	summary := fmt.Sprintf("Отчёт проверки серверов (vpncheck %s): %s", a.cfg.Version, run.red.String(report.OneLine(run.rep)))
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	sent, err := site.New(a.cfg.Site).Send(ctx, run.link, summary, body.Note, run.files.Full)
+	a.update(func() { run.sending, run.sent = false, sent })
+	if err != nil {
+		problem := &Problem{Title: "Не удалось отправить",
+			Text: "Сайт поддержки не ответил. Сохраните отчёт или скопируйте файл и пришлите его в чат поддержки в Telegram."}
+		var siteErr *site.Error
+		if errors.As(err, &siteErr) && siteErr.Message != "" {
+			problem.Text = siteErr.Message
+		}
+		writeJSON(w, http.StatusBadGateway, map[string]any{"problem": problem})
+		return
+	}
+	writeJSON(w, http.StatusOK, a.state())
 }
 
 func (a *App) handleForget(w http.ResponseWriter, r *http.Request) {
