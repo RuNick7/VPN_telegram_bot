@@ -19,13 +19,17 @@ type Profile struct {
 // ErrUnknownFormat means the body is neither Xray JSON nor a list of links.
 var ErrUnknownFormat = errors.New("неизвестный формат подписки")
 
+// ErrEmpty means the panel answered with nothing at all, which is how it
+// turns away a subscription it will not serve.
+var ErrEmpty = errors.New("подписка пустая")
+
 // Parse reads whichever of the two formats the panel answered with: Xray
 // JSON configs (what Happ gets) or share links, plain or base64-encoded
 // (what everything else gets).
 func Parse(body []byte) ([]Profile, error) {
 	trimmed := bytes.TrimSpace(bytes.TrimPrefix(body, []byte("\xef\xbb\xbf")))
 	if len(trimmed) == 0 {
-		return nil, errors.New("подписка пустая")
+		return nil, ErrEmpty
 	}
 	if trimmed[0] == '[' || trimmed[0] == '{' {
 		return parseJSON(trimmed)

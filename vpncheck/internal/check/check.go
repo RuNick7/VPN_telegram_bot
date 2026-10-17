@@ -62,9 +62,28 @@ func DefaultOptions() Options {
 	}
 }
 
-type Runner struct{ opts Options }
+type Runner struct {
+	opts     Options
+	progress Progress
+}
 
 func NewRunner(opts Options) *Runner { return &Runner{opts: opts} }
+
+// Progress is told where a run is, for a window that shows it as it goes.
+// Either may be nil. Network is called from several goroutines at once.
+type Progress struct {
+	// Network: server i's network stages are done. They run for every
+	// server side by side before any tunnel does.
+	Network func(i int)
+	// Tunnel: server i's tunnel is about to start.
+	Tunnel func(i int)
+}
+
+// Watch sets who is told about the run's progress.
+func (r *Runner) Watch(progress Progress) *Runner {
+	r.progress = progress
+	return r
+}
 
 // Run checks every target and reports each as it finishes. Cancelled midway,
 // it returns the servers it finished, in order.
@@ -89,6 +108,9 @@ func (r *Runner) Run(ctx context.Context, targets []*subscription.Target, done f
 			limit <- struct{}{}
 			defer func() { <-limit }()
 			r.network(ctx, results[i])
+			if r.progress.Network != nil {
+				r.progress.Network(i)
+			}
 		}()
 	}
 	wg.Wait()
@@ -96,6 +118,9 @@ func (r *Runner) Run(ctx context.Context, targets []*subscription.Target, done f
 	for i, result := range results {
 		if ctx.Err() != nil {
 			return results[:i]
+		}
+		if r.progress.Tunnel != nil {
+			r.progress.Tunnel(i)
 		}
 		result.TunnelAt = time.Now()
 		r.tunnel(ctx, result)
@@ -199,7 +224,7 @@ func Baseline(ctx context.Context, opts Options) ([]Step, Clock) {
 				Detail: fmt.Sprintf("страна %s, Cloudflare %s", orDash(trace["loc"]), orDash(trace["colo"]))})
 		}
 	}
-	if name := activeTunnel(); name != "" {
+	if name := ActiveTunnel(); name != "" {
 		steps = append(steps, Step{Name: "Другой VPN", Status: Warn, Detail: fmt.Sprintf(
 			"похоже, включён VPN (интерфейс %s): проверки пойдут через него, результаты будут неверными", name)})
 	}
@@ -226,10 +251,10 @@ func clockFrom(ts string, sent time.Time, took time.Duration) Clock {
 	return Clock{Offset: actual.Sub(sent.Add(took / 2)).Round(100 * time.Millisecond), Known: true}
 }
 
-// activeTunnel names a network interface that looks like a running VPN
+// ActiveTunnel names a network interface that looks like a running VPN
 // client's TUN: Happ and Xray put theirs in 198.18.0.0/15, sing-box in
 // 172.19.0.0/30 (the "Happ Tunnel" with DNS 172.19.0.2 in report 3).
-func activeTunnel() string {
+func ActiveTunnel() string {
 	interfaces, err := net.Interfaces()
 	if err != nil {
 		return ""

@@ -11,8 +11,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -28,6 +26,7 @@ import (
 	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/check"
 	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/redact"
 	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/report"
+	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/source"
 	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/subscription"
 	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/ticket"
 )
@@ -184,31 +183,20 @@ func checkAll(ctx context.Context, opts options, op *operator, session *ticket.S
 	if opts.code != "" {
 		red.Add(opts.code)
 	}
-	rep := &report.Report{
-		Started:  time.Now(),
-		Version:  version,
-		Xray:     check.XrayVersion(),
-		Platform: platform(),
-		RunID:    runID(),
-	}
+	rep := report.New(version)
 
 	var targets []*subscription.Target
 	var profiles []subscription.Profile
 	for _, sub := range opts.subs {
-		source, found := load(ctx, sub, opts.ua, red)
-		rep.Sources = append(rep.Sources, source)
-		if source.Error != "" {
-			fmt.Printf("Подписка %s: %s\n", red.String(source.URL), red.String(source.Error))
+		src, found := source.Load(ctx, sub, opts.ua, red)
+		rep.Sources = append(rep.Sources, src)
+		if src.Error != "" {
+			fmt.Printf("Подписка %s: %s\n", red.String(src.URL), red.String(src.Error))
 		} else {
 			fmt.Printf("Подписка %s: %s, профилей %d, серверов %d\n",
-				red.String(source.URL), source.Format, source.Profiles, source.Servers)
+				red.String(src.URL), src.Format, src.Profiles, src.Servers)
 		}
 		profiles = append(profiles, found...)
-	}
-	for _, profile := range profiles {
-		for _, outbound := range profile.Outbounds {
-			red.AddConfig(outbound)
-		}
 	}
 	targets = subscription.Targets(profiles)
 	if opts.only != "" {
@@ -350,62 +338,6 @@ func send(ctx context.Context, opts options, session *ticket.Session, client *ti
 	fmt.Printf("Отчёт отправлен в обращение #%d. Поддержка ответит там же.\n", session.TicketID)
 }
 
-// load reads one source: a subscription URL, a file with a subscription in
-// it, or a single share link.
-func load(ctx context.Context, source, userAgent string, red *redact.Redactor) (report.Source, []subscription.Profile) {
-	source = strings.TrimSpace(source)
-	lower := strings.ToLower(source)
-	switch {
-	case strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://"):
-		red.AddURL(source)
-		out := report.Source{URL: source}
-		fctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-		client := &http.Client{Transport: &http.Transport{Proxy: nil}}
-		fetched, err := subscription.Fetch(fctx, client, source, userAgent)
-		if err != nil {
-			out.Error = "не скачивается: " + err.Error()
-			return out, nil
-		}
-		out.Status, out.Took, out.Title, out.UserInfo, out.Notices = fetched.Status, fetched.Took, fetched.Title, fetched.UserInfo, fetched.Notices
-		if fetched.Status != http.StatusOK {
-			out.Error = fmt.Sprintf("панель ответила HTTP %d", fetched.Status)
-			return out, nil
-		}
-		return parsed(out, fetched.Body)
-	case strings.Contains(source, "://"):
-		red.Add(source)
-		out := report.Source{URL: "ссылка " + strings.SplitN(source, "://", 2)[0] + "://"}
-		return parsed(out, []byte(source))
-	default:
-		out := report.Source{URL: "файл " + filepath.Base(source)}
-		data, err := os.ReadFile(source)
-		if err != nil {
-			out.Error = "не читается: " + err.Error()
-			return out, nil
-		}
-		return parsed(out, data)
-	}
-}
-
-func parsed(out report.Source, body []byte) (report.Source, []subscription.Profile) {
-	profiles, err := subscription.Parse(body)
-	if err != nil {
-		out.Error = err.Error()
-		return out, nil
-	}
-	out.Format = "ссылки"
-	if trimmed := strings.TrimSpace(string(body)); strings.HasPrefix(trimmed, "[") || strings.HasPrefix(trimmed, "{") {
-		out.Format = "Xray JSON"
-	}
-	out.Profiles = len(profiles)
-	out.Servers = len(subscription.Targets(profiles))
-	if out.Servers == 0 {
-		out.Error = "в подписке нет серверов: подписка закончилась, достигнут лимит устройств или панель не знает это приложение"
-	}
-	return out, profiles
-}
-
 func filter(targets []*subscription.Target, needle string) []*subscription.Target {
 	needle = strings.ToLower(needle)
 	var kept []*subscription.Target
@@ -416,16 +348,6 @@ func filter(targets []*subscription.Target, needle string) []*subscription.Targe
 		}
 	}
 	return kept
-}
-
-func platform() string {
-	name := map[string]string{"darwin": "macOS", "windows": "Windows", "linux": "Linux"}[runtime.GOOS]
-	if name == "" {
-		name = runtime.GOOS
-	}
-	// Not the computer's name: support has no use for it, and it often
-	// names a person.
-	return name + " " + runtime.GOARCH
 }
 
 func ask(prompt string) string {
@@ -445,14 +367,6 @@ func pause() {
 func isTerminal() bool {
 	info, err := os.Stdin.Stat()
 	return err == nil && info.Mode()&os.ModeCharDevice != 0
-}
-
-// runID names one run in the nodes' logs. Random, so it says nothing about
-// who ran it; eight hex digits, so two runs do not share one.
-func runID() string {
-	var raw [4]byte
-	_, _ = rand.Read(raw[:])
-	return hex.EncodeToString(raw[:])
 }
 
 func usage() {

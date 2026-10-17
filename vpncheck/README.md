@@ -83,6 +83,49 @@ PowerShell with arguments. SmartScreen may ask once ("More info", then "Run
 anyway"). Started by double-click, it asks for a link or a code and waits for
 Enter before the window closes.
 
+### The customers' app: vpncheck-app
+
+The same check behind a page, for customers who should not meet a terminal:
+one field for the subscription link, a button to check, and buttons to save
+or copy the report. `cmd/vpncheck-app` starts it, `internal/app` is the page
+and everything behind it. For now the page opens in the browser; the window
+stays open beside it while a check runs, and the app exits a few minutes
+after the page is closed.
+
+- **The subscription link is the only input.** No codes. A link on another
+  host than the ones built in (`DOMAINS`, default `sub.kairavpn.pro`) is
+  turned away with an explanation, as are an expired subscription, a device
+  limit, and a page that is not a subscription. The link is remembered in the
+  user's config directory (`vpncheck/subscription`, mode 0600) until
+  «Забыть ссылку».
+- **What the customer sees** is the subscription card (name, traffic, until
+  when), the servers grouped by profile with a dot each, and a line saying
+  which ones do not work. A server opens into the same steps and Xray log the
+  report holds.
+- **Reports** are kept in the user's cache directory, the last ten runs.
+  «Сохранить отчёт» puts a zip of the run into Downloads and shows it in the
+  file manager; «Скопировать файл» puts the same zip on the clipboard as a
+  file, to paste into a Telegram chat with support.
+- **Only this computer can reach it.** It listens on 127.0.0.1 on a free
+  port, every API call carries a token generated at start (handed to the page
+  in the URL fragment, never sent to a server), the Host header must be
+  127.0.0.1 so a DNS-rebinding page cannot talk to it, and the page has no
+  inline script or style under a strict CSP.
+
+On a Mac it ships as a zip (`vpncheck-app-macos-*.zip` holding
+`KairaVPN-Check`), because a bare binary loses its executable bit on download
+and opens in TextEdit. Unsigned, so the first start is blocked once: System
+Settings → Privacy & Security → «Open Anyway».
+
+`go test ./internal/app` runs it end to end against a fake panel and real Xray
+nodes. `TestDemo` serves it on a fixed address with made-up servers, for
+looking at the page:
+
+```bash
+VPNCHECK_DEMO=127.0.0.1:8765 go test ./internal/app -run TestDemo -v -timeout 1h
+# then open http://127.0.0.1:8765/#k=demo
+```
+
 ### Not covered
 
 Phones. The tool runs on a computer or a server; for a phone-only problem,
@@ -229,9 +272,12 @@ balancer's own choice of server.
 VERSION=1.0.0 SITE=https://example.com ./build.sh
 ```
 
-Writes six binaries and `SHA256SUMS` into `dist/`: Linux, macOS and Windows,
-each for amd64 and arm64, plus `vpncheck-agent-linux-*` for the nodes. The site is compiled in so `vpncheck CODE` needs no
-flags; `-site` overrides it. Without Go, in Docker:
+Writes into `dist/`, with `SHA256SUMS`: `vpncheck-*` and `vpncheck-app-*` for
+Linux, macOS and Windows, each for amd64 and arm64; the macOS app zipped as
+`vpncheck-app-macos-*.zip`; and `vpncheck-agent-linux-*` for the nodes. The
+site is compiled into `vpncheck` so `vpncheck CODE` needs no flags (`-site`
+overrides it), and the subscription hosts into the app (`DOMAINS=a,b`).
+Without Go, in Docker:
 
 ```bash
 docker run --rm -v "$PWD/..:/src" -w /src/vpncheck golang:1.26 ./build.sh

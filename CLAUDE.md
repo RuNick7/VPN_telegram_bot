@@ -10,7 +10,7 @@ Two independent Telegram bots for a VPN-subscription service (Remnawave panel + 
 - `user_bot/` — customer-facing aiogram bot: signup, subscription purchase via YooKassa, referrals, promo codes, device setup instructions. Two runtime entrypoints against the same codebase: `user_bot/bot.py` (long-polling) and `user_bot/run_webhook.py` (aiohttp server receiving YooKassa payment webhooks at `/webhook-yookassa`).
 - `shared/` — installable package (`tgvpn-shared`, imported as `tgvpn_shared`) holding the Postgres repository layer, the Remnawave client, the settings model, and squad-placement logic. See Architecture below.
 - `web/` — customer web cabinet, **Go**: JSON API plus the site itself, on one origin. Replaced the FastAPI + static-JS MVP outright. Entrypoint `web/cmd/server`. See `web/README.md`.
-- `vpncheck/` — server checker, **Go**, a separate module with Xray compiled in: connects to every server in a subscription the way the app does and writes a log per server, for operators on a server and customers on macOS/Windows. Can send its report into a support ticket by a consent code. See `vpncheck/README.md`.
+- `vpncheck/` — server checker, **Go**, a separate module with Xray compiled in: connects to every server in a subscription the way the app does and writes a log per server, for operators on a server and customers on macOS/Windows. Can send its report into a support ticket by a consent code. `vpncheck-app` (`cmd/vpncheck-app` over `internal/app`) is the same check for customers: a page on 127.0.0.1 with a link field and save/copy buttons. See `vpncheck/README.md`.
 
 The overhaul is running in strictly sequential phases, each tested and deployed before the next begins. Phase 0 (webhook security fix), Phase 1 (SQLite → Postgres, Docker), and Phase 2 (this refactor) are done. Comments referencing "Phase N" mean this sequence.
 
@@ -92,7 +92,7 @@ vpncheck is its own module too. Its `internal/check` tests start real Xray serve
 127.0.0.1 (REALITY, Hysteria2, ...), so they take a few seconds:
 ```bash
 cd vpncheck && go test ./...
-cd vpncheck && ./build.sh        # binaries for every platform, and the node agent, into dist/
+cd vpncheck && ./build.sh        # CLI and app for every platform, and the node agent, into dist/
 ```
 
 ## Architecture

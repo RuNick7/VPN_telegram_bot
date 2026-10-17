@@ -7,12 +7,15 @@
 package report
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -59,6 +62,35 @@ type Report struct {
 	// What each node's agent logged for the run, when the operator running
 	// it gave vpncheck the agents (see internal/nodes). Empty for customers.
 	Nodes []NodeAnswer
+}
+
+// New starts the report of a run on this computer.
+func New(version string) *Report {
+	return &Report{
+		Started:  time.Now(),
+		Version:  version,
+		Xray:     check.XrayVersion(),
+		Platform: platform(),
+		RunID:    runID(),
+	}
+}
+
+func platform() string {
+	name := map[string]string{"darwin": "macOS", "windows": "Windows", "linux": "Linux"}[runtime.GOOS]
+	if name == "" {
+		name = runtime.GOOS
+	}
+	// Not the computer's name: support has no use for it, and it often
+	// names a person.
+	return name + " " + runtime.GOARCH
+}
+
+// runID names one run in the nodes' logs. Random, so it says nothing about
+// who ran it; eight hex digits, so two runs do not share one.
+func runID() string {
+	var raw [4]byte
+	_, _ = rand.Read(raw[:])
+	return hex.EncodeToString(raw[:])
 }
 
 // NodeAnswer is one node agent's reply for the whole run. Its sections line
@@ -571,10 +603,18 @@ func OneLine(rep *Report) string {
 	return line
 }
 
-// userInfo reads subscription-userinfo: "upload=1; download=2; total=3; expire=4".
-func userInfo(raw string) string {
+// UserInfo is what the panel's subscription-userinfo header says.
+type UserInfo struct {
+	// Bytes, up and down together; Total 0 means no limit.
+	Used, Total int64
+	// Zero when the subscription does not expire.
+	Expire time.Time
+}
+
+// ParseUserInfo reads "upload=1; download=2; total=3; expire=4".
+func ParseUserInfo(raw string) (UserInfo, bool) {
 	if raw == "" {
-		return ""
+		return UserInfo{}, false
 	}
 	values := map[string]int64{}
 	for _, part := range strings.Split(raw, ";") {
@@ -587,13 +627,24 @@ func userInfo(raw string) string {
 			values[key] = n
 		}
 	}
-	used := values["upload"] + values["download"]
-	parts := []string{"трафик " + gigabytes(used)}
-	if total := values["total"]; total > 0 {
-		parts[0] += " из " + gigabytes(total)
-	}
+	info := UserInfo{Used: values["upload"] + values["download"], Total: values["total"]}
 	if expire := values["expire"]; expire > 0 {
-		parts = append(parts, "действует до "+time.Unix(expire, 0).Format("2006-01-02 15:04"))
+		info.Expire = time.Unix(expire, 0)
+	}
+	return info, true
+}
+
+func userInfo(raw string) string {
+	info, ok := ParseUserInfo(raw)
+	if !ok {
+		return ""
+	}
+	parts := []string{"трафик " + gigabytes(info.Used)}
+	if info.Total > 0 {
+		parts[0] += " из " + gigabytes(info.Total)
+	}
+	if !info.Expire.IsZero() {
+		parts = append(parts, "действует до "+info.Expire.Format("2006-01-02 15:04"))
 	}
 	return strings.Join(parts, ", ")
 }

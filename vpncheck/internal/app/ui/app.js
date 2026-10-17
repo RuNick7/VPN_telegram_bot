@@ -1,0 +1,394 @@
+// The page of vpncheck's app. It only draws what /api/state says and sends
+// the buttons back; the check, the files and the clipboard are all the app's.
+
+const $ = (id) => document.getElementById(id);
+
+// The key the app handed this page in the address (#k=...). Kept for a
+// reload, and taken out of the address bar so it does not get copied along.
+const token = (() => {
+  const match = /(?:^#|&)k=([^&]+)/.exec(location.hash);
+  let key = match ? decodeURIComponent(match[1]) : "";
+  try {
+    if (key) sessionStorage.setItem("vpncheck-key", key);
+    else key = sessionStorage.getItem("vpncheck-key") || "";
+  } catch {
+    // Storage blocked: the key in hand still works until a reload.
+  }
+  if (match) history.replaceState(null, "", location.pathname);
+  return key;
+})();
+
+async function api(path, body) {
+  const options = { headers: { Authorization: "Bearer " + token } };
+  if (body !== undefined) {
+    options.method = "POST";
+    options.headers["Content-Type"] = "application/json";
+    options.body = JSON.stringify(body);
+  }
+  const response = await fetch(path, options);
+  if (response.status === 401 || response.status === 403) {
+    $("expired").hidden = false;
+    throw new Error("unauthorized");
+  }
+  let data = null;
+  try {
+    data = await response.json();
+  } catch {
+    // Not JSON: a plain error page.
+  }
+  return { status: response.status, data };
+}
+
+function showProblem(box, problem) {
+  box.hidden = !problem;
+  if (!problem) return;
+  box.querySelector("strong").textContent = problem.title;
+  box.querySelector("span").textContent = problem.text;
+}
+
+let toastTimer = 0;
+function toast(text) {
+  const box = $("toast");
+  box.textContent = text;
+  box.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { box.hidden = true; }, 5000);
+}
+
+function plural(n, one, few, many) {
+  const tens = n % 100, units = n % 10;
+  if (tens >= 11 && tens <= 14) return many;
+  if (units === 1) return one;
+  if (units >= 2 && units <= 4) return few;
+  return many;
+}
+
+// -- the first screen --------------------------------------------------------
+
+let current = null;
+let linkTouched = false;
+
+$("link").addEventListener("input", () => {
+  linkTouched = true;
+  showProblem($("link-problem"), null);
+});
+
+$("link-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  $("start").disabled = true;
+  try {
+    const { status, data } = await api("/api/check", { link: $("link").value });
+    if (status !== 200) {
+      showProblem($("link-problem"), data && data.problem);
+      return;
+    }
+    render(data);
+  } finally {
+    $("start").disabled = false;
+  }
+});
+
+$("paste").addEventListener("click", async () => {
+  const { data } = await api("/api/paste");
+  if (data && data.link) {
+    $("link").value = data.link;
+    linkTouched = true;
+    showProblem($("link-problem"), null);
+  } else {
+    showProblem($("link-problem"), data && data.problem);
+  }
+});
+
+$("forget").addEventListener("click", async () => {
+  const { data } = await api("/api/forget", {});
+  $("link").value = "";
+  linkTouched = false;
+  render(data);
+});
+
+// -- the run screen ----------------------------------------------------------
+
+$("stop").addEventListener("click", async () => {
+  $("stop").disabled = true;
+  render((await api("/api/stop", {})).data);
+});
+
+$("again").addEventListener("click", async () => {
+  const { status, data } = await api("/api/check", { link: (current && current.link) || $("link").value });
+  if (status === 200) render(data);
+  else toast(data && data.problem ? data.problem.title : "Не удалось начать проверку");
+});
+
+$("other").addEventListener("click", async () => {
+  render((await api("/api/reset", {})).data);
+  $("link").value = "";
+  linkTouched = true;
+  $("link").focus();
+});
+
+$("save").addEventListener("click", async () => {
+  $("save").disabled = true;
+  try {
+    const { status, data } = await api("/api/save", {});
+    if (status === 200) toast("Сохранено: " + data.path);
+    else toast(data && data.problem ? data.problem.title + ". " + data.problem.text : "Не удалось сохранить отчёт");
+  } finally {
+    $("save").disabled = false;
+  }
+});
+
+$("copy").addEventListener("click", async () => {
+  $("copy").disabled = true;
+  try {
+    const { status, data } = await api("/api/copy", {});
+    if (status === 200) {
+      const keys = navigator.platform.startsWith("Mac") ? "Cmd+V" : "Ctrl+V";
+      toast("Файл " + data.name + " скопирован. Вставьте его в чат поддержки в Telegram: " + keys + ".");
+    } else {
+      toast(data && data.problem ? data.problem.title + ". " + data.problem.text : "Не удалось скопировать файл");
+    }
+  } finally {
+    $("copy").disabled = false;
+  }
+});
+
+// The list is built once per run and then only updated, so a server opened
+// to read stays open while the check goes on.
+let builtRun = -1;
+const groupRows = [];
+const serverRows = [];
+
+function buildList(state) {
+  const list = $("groups");
+  list.replaceChildren();
+  groupRows.length = 0;
+  serverRows.length = 0;
+  for (const group of state.groups || []) {
+    const item = $("group-template").content.firstElementChild.cloneNode(true);
+    item.querySelector(".group-name").textContent = group.name;
+    const button = item.querySelector(".group-row");
+    const servers = item.querySelector(".servers");
+    button.addEventListener("click", () => {
+      const open = button.getAttribute("aria-expanded") !== "true";
+      button.setAttribute("aria-expanded", String(open));
+      servers.hidden = !open;
+    });
+    for (const index of group.servers) {
+      const server = state.servers[index];
+      const row = $("server-template").content.firstElementChild.cloneNode(true);
+      row.querySelector(".server-host").textContent = server.host + ":" + server.port;
+      const rowButton = row.querySelector(".server-row");
+      rowButton.addEventListener("click", () => toggleDetail(index, row));
+      servers.append(row);
+      (serverRows[index] ||= []).push(row);
+    }
+    list.append(item);
+    groupRows.push(item);
+  }
+  $("groups-title").hidden = groupRows.length === 0;
+  builtRun = state.run;
+}
+
+function serverEnd(server) {
+  switch (server.state) {
+    case "ok":
+    case "warn":
+      return server.ping ? server.ping + " мс" : "";
+    case "bad":
+      return "не работает";
+    case "running":
+      return "проверяю…";
+  }
+  return "";
+}
+
+function updateList(state) {
+  (state.groups || []).forEach((group, i) => {
+    const item = groupRows[i];
+    if (!item) return;
+    item.dataset.state = group.state;
+    const total = group.servers.length;
+    item.querySelector(".group-row .row-sub").textContent =
+      total === 1 ? state.servers[group.servers[0]].kind : total + " " + plural(total, "сервер", "сервера", "серверов");
+    let end = "";
+    if (group.state === "ok") end = group.ping ? group.ping + " мс" : "";
+    else if (group.state === "warn") end = "работает " + group.working + " из " + total;
+    else if (group.state === "bad") end = "не работает";
+    else if (group.state === "running") end = "проверяю…";
+    item.querySelector(".group-row .row-end").textContent = end;
+  });
+  (state.servers || []).forEach((server, i) => {
+    for (const row of serverRows[i] || []) {
+      row.dataset.state = server.state;
+      row.querySelector(".row-sub").textContent = server.note || server.kind;
+      row.querySelector(".row-end").textContent = serverEnd(server);
+    }
+  });
+}
+
+async function toggleDetail(index, row) {
+  const button = row.querySelector(".server-row");
+  const box = row.querySelector(".detail");
+  const open = button.getAttribute("aria-expanded") !== "true";
+  button.setAttribute("aria-expanded", String(open));
+  box.hidden = !open;
+  if (!open) return;
+  box.textContent = "Загружаю…";
+  const { status, data } = await api("/api/server/" + index);
+  if (status !== 200) {
+    box.textContent = "Нет данных.";
+    return;
+  }
+  drawDetail(box, data);
+}
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function drawDetail(box, d) {
+  box.replaceChildren();
+  const facts = [d.kind];
+  if (d.sni) facts.push("SNI " + d.sni);
+  if (d.profiles && d.profiles.length) facts.push("профили: " + d.profiles.join(", "));
+  box.append(el("p", "facts-line", facts.join(" · ")));
+  if (!d.steps || !d.steps.length) {
+    box.append(el("p", "facts-line", "Ещё не проверен."));
+    return;
+  }
+  const steps = el("ul", "steps");
+  for (const step of d.steps) {
+    const li = el("li");
+    li.dataset.state = step.status;
+    const text = el("div");
+    text.append(el("div", "step-name", step.name), el("div", "step-detail", step.detail));
+    li.append(el("span", "dot"), text);
+    steps.append(li);
+  }
+  box.append(steps);
+  if (d.hints && d.hints.length) {
+    const hints = el("div", "hints");
+    for (const hint of d.hints) hints.append(el("p", "", hint));
+    box.append(hints);
+  }
+  if (d.exit) box.append(el("p", "facts-line", "Выход в интернет: " + d.exit));
+  if (d.log && d.log.length) {
+    const details = el("details");
+    details.append(el("summary", "", "Лог Xray для поддержки"), el("pre", "", d.log.join("\n")));
+    box.append(details);
+  }
+}
+
+// -- drawing the state -------------------------------------------------------
+
+const busy = new Set(["fetching", "network", "tunnels"]);
+
+function render(state) {
+  if (!state) return;
+  current = state;
+  $("version").textContent = state.version ? "версия " + state.version : "";
+  $("vpn-warning").hidden = !state.vpn;
+
+  const idle = state.phase === "idle";
+  $("screen-link").hidden = !idle;
+  $("screen-run").hidden = idle;
+  if (idle) {
+    if (!linkTouched && state.link && !$("link").value) $("link").value = state.link;
+    $("remembered").hidden = !state.link;
+    builtRun = -1;
+    return;
+  }
+  const card = state.card;
+  $("card").hidden = !card;
+  if (card) {
+    $("card-title").textContent = card.title;
+    $("card-status").textContent = card.status || "";
+    $("card-status").hidden = !card.status;
+    $("card-status").dataset.tone = card.tone || "";
+    const meta = [];
+    if (card.servers) meta.push(card.servers + " " + plural(card.servers, "сервер", "сервера", "серверов") +
+      " в " + card.profiles + " " + plural(card.profiles, "профиле", "профилях", "профилях"));
+    if (card.traffic) meta.push(card.traffic);
+    $("card-meta").textContent = meta.join(" · ");
+  }
+
+  const running = busy.has(state.phase);
+  $("progress").hidden = !running;
+  $("result").hidden = running;
+  if (running) {
+    $("stop").disabled = false;
+    const p = state.progress;
+    if (state.phase === "fetching" || !p) {
+      $("progress-label").textContent = "Скачиваю подписку…";
+      $("progress-count").textContent = "";
+      $("bar-fill").style.width = "4%";
+      $("progress-current").textContent = "";
+    } else {
+      $("progress-label").textContent = state.phase === "network" ? "Проверяю сеть до серверов…" : "Подключаюсь к серверам";
+      $("progress-count").textContent = p.done + " из " + p.total;
+      $("bar-fill").style.width = Math.max(4, p.percent) + "%";
+      $("progress-current").textContent = p.current ? "Сейчас: " + p.current : "";
+    }
+  } else {
+    drawResult(state);
+  }
+
+  if (state.run !== builtRun && state.groups) buildList(state);
+  if (!state.groups) {
+    $("groups").replaceChildren();
+    $("groups-title").hidden = true;
+  }
+  updateList(state);
+}
+
+function drawResult(state) {
+  const sum = state.summary;
+  $("result-count").hidden = !sum;
+  $("result-line").hidden = !sum;
+  if (sum) {
+    $("result-count").textContent = sum.works === sum.total && sum.total > 0
+      ? "Работают все " + sum.total
+      : "Работают " + sum.works + " из " + sum.total;
+    $("result-count").dataset.tone = sum.tone;
+    $("result-line").textContent = sum.line;
+  }
+  showProblem($("failure"), state.problem);
+  $("report-actions").hidden = !state.report;
+  $("report-hint").hidden = !state.report;
+}
+
+// -- polling -----------------------------------------------------------------
+
+async function poll() {
+  try {
+    const { status, data } = await api("/api/state");
+    if (status === 200) render(data);
+  } catch {
+    // The app was closed, or the key was refused; the banner says which.
+  }
+  const fast = current && busy.has(current.phase) && !document.hidden;
+  setTimeout(poll, fast ? 500 : 1500);
+}
+
+async function offerClipboard() {
+  // A link the customer has just copied goes straight into the field.
+  if ($("link").value) return;
+  try {
+    const { data } = await api("/api/paste");
+    if (data && data.link && !$("link").value) $("link").value = data.link;
+  } catch {
+    // Nothing to offer.
+  }
+}
+
+(async () => {
+  if (!token) {
+    $("expired").hidden = false;
+    return;
+  }
+  await poll();
+  if (current && current.phase === "idle" && !current.link) offerClipboard();
+})();
