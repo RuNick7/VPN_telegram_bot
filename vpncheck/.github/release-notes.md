@@ -4,7 +4,7 @@
 
 | Система | Файл |
 |---|---|
-| macOS 12 и новее (Apple M1–M4 и Intel) | `KairaVPN-Check.dmg` |
+| Любой Mac с macOS 12 и новее | `KairaVPN-Check.dmg` |
 | Windows 10 и 11 | `KairaVPN-Check-x64.exe`; на Windows для ARM — `KairaVPN-Check-arm64.exe` |
 | Linux с рабочим столом | `KairaVPN-Check-linux-x64` или `-linux-arm64`: откроется в браузере |
 | Сервер, терминал | `vpncheck-<система>-<архитектура>` |
