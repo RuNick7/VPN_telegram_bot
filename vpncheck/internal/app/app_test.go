@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -339,7 +340,8 @@ func TestCheckFromLinkToCopiedReport(t *testing.T) {
 	if got := readLink(h.cfg.LinkFile); got != p.link() {
 		t.Errorf("remembered %q", got)
 	}
-	if info, err := os.Stat(h.cfg.LinkFile); err != nil || info.Mode().Perm() != 0o600 {
+	// Windows keeps only a read-only bit; the profile's ACL is what guards it there.
+	if info, err := os.Stat(h.cfg.LinkFile); err != nil || runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Errorf("link file %v %v", info, err)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -112,7 +113,8 @@ func TestCredentialsSurviveRestarts(t *testing.T) {
 	if first.fingerprint != hex.EncodeToString(sum[:]) {
 		t.Fatal("fingerprint is not the certificate's sha256")
 	}
-	if info, _ := os.Stat(filepath.Join(dir, "key.pem")); info.Mode().Perm() != 0o600 {
+	// Windows keeps only a read-only bit; the profile's ACL is what guards it there.
+	if info, _ := os.Stat(filepath.Join(dir, "key.pem")); runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Errorf("key mode %v", info.Mode())
 	}
 	line := connectionLine("de1", first, "de1.example.net:7443")
