@@ -19,7 +19,9 @@ const token = (() => {
 })();
 
 async function api(path, body) {
-  const options = { headers: { Authorization: "Bearer " + token } };
+  // The app's own window asks with no key: it is the app itself that
+  // answers, not a port another page could reach.
+  const options = { headers: token ? { Authorization: "Bearer " + token } : {} };
   if (body !== undefined) {
     options.method = "POST";
     options.headers["Content-Type"] = "application/json";
@@ -425,10 +427,6 @@ async function offerClipboard() {
 }
 
 (async () => {
-  if (!token) {
-    $("expired").hidden = false;
-    return;
-  }
   await poll();
   if (current && current.phase === "idle" && !current.link) offerClipboard();
 })();
