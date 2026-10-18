@@ -45,17 +45,17 @@ WINVER="$(printf '%s.0.0.0' "${NUMBER:-0}" | cut -d. -f1-4)"
 go run github.com/tc-hib/go-winres@v0.3.3 make --in packaging/winres.json --arch amd64,arm64 \
     --out cmd/vpncheck-app/rsrc --product-version "$WINVER" --file-version "$WINVER"
 trap 'rm -f cmd/vpncheck-app/rsrc_windows_*.syso' EXIT
-for arch in amd64 arm64; do
-    name="KairaVPN-Check-$arch.exe"
-    [ "$arch" = amd64 ] && name="KairaVPN-Check-x64.exe"
+# Named in full: the service's download page links these names, and its
+# tests look for them here.
+for target in amd64:KairaVPN-Check-x64.exe arm64:KairaVPN-Check-arm64.exe; do
+    arch="${target%%:*}" name="${target#*:}"
     echo "building $name"
     CGO_ENABLED=0 GOOS=windows GOARCH="$arch" go build -trimpath -tags desktop,production \
         -ldflags "-s -w -H windowsgui -X main.version=$VERSION -X main.domains=$DOMAINS -X main.site=$SITE" \
         -o "dist/$name" ./cmd/vpncheck-app
 done
-for arch in amd64 arm64; do
-    name="KairaVPN-Check-linux-$arch"
-    [ "$arch" = amd64 ] && name="KairaVPN-Check-linux-x64"
+for target in amd64:KairaVPN-Check-linux-x64 arm64:KairaVPN-Check-linux-arm64; do
+    arch="${target%%:*}" name="${target#*:}"
     echo "building $name"
     CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath \
         -ldflags "-s -w -X main.version=$VERSION -X main.domains=$DOMAINS -X main.site=$SITE" \

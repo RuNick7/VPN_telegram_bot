@@ -1039,6 +1039,34 @@ main {
   margin-top: 0.15rem;
 }
 
+/* -- the server checker's download page (/check) ------------------------ */
+
+/* Numbered in the markup, as .steps are: the <ol> keeps the order for a
+   screen reader without drawing a second set of numbers. */
+ol.checklist {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.check-hero > * {
+  max-width: 44rem;
+}
+
+.check-hero .btn {
+  align-self: flex-start;
+}
+
+.check-steps {
+  max-width: 48rem;
+}
+
+.check-shot {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+}
+
 /* -- os tabs ------------------------------------------------------------ */
 
 .chips {

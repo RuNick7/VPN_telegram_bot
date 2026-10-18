@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Проверка серверов — KairaVPN</title>
+<meta name="description" content="Программа «KairaVPN Проверка»: проверяет каждый сервер подписки и отправляет отчёт в поддержку. Windows, macOS и Linux.">
+<meta name="theme-color" content="#000000">
+<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png">
+<link rel="preload" href="/assets/fonts/inter-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/assets/fonts/jetbrains-mono-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/assets/css/app.css">
+<script type="module" src="/assets/js/check.js"></script>
+<script type="module" src="/assets/js/footer.js"></script>
+</head>
+<body>
+<!--icon-sprite-->
+
+<header class="site-header">
+  <a class="brand" href="/">
+    <svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg>
+    <span>KairaVPN</span>
+  </a>
+  <nav class="row">
+    <a class="mono muted" href="/">На главную</a>
+    <a class="btn btn-sm" href="/app">Личный кабинет</a>
+  </nav>
+</header>
+
+<main>
+  <section class="section">
+    <div class="wrap stack check-hero">
+      <span class="section-tag">Проверка серверов</span>
+      <h1 class="h-md">KairaVPN Проверка</h1>
+      <p class="lead">Если VPN не подключается или работает медленно, программа проверит каждый сервер вашей подписки так же, как Happ, и одной кнопкой отправит отчёт в поддержку.</p>
+
+      <!-- Without a script this is a link down to the full list; check.js puts
+           the visitor's own system on it. -->
+      <div class="stack">
+        <a class="btn btn-lg" href="#files" data-primary>
+          <svg class="icon" aria-hidden="true"><use href="#i-download"></use></svg>
+          <span data-primary-label>Скачать</span>
+        </a>
+        <p class="mono-sm muted" data-primary-note>Windows, macOS и Linux</p>
+        <div class="notice" data-phone hidden>
+          <span data-icon="laptop"></span>
+          <span>Программа работает на компьютере: Windows, macOS или Linux. Откройте эту страницу на нём.</span>
+        </div>
+      </div>
+      <p class="mono-sm muted">Бесплатно. Исходный код открыт: <a class="accent" href="https://github.com/RuNick7/vpn-check">github.com/RuNick7/vpn-check</a></p>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <span class="section-tag">01 // Как проверить</span>
+      <ol class="steps check-steps">
+        <li class="step">
+          <span class="step-num num">01</span>
+          <div class="step-body">
+            <h2 class="mono strong">Выключите VPN</h2>
+            <p class="mono-sm muted">Happ или любое другое VPN-приложение: иначе проверка пойдёт через него и покажет не то.</p>
+          </div>
+        </li>
+        <li class="step">
+          <span class="step-num num">02</span>
+          <div class="step-body">
+            <h2 class="mono strong">Откройте программу</h2>
+            <p class="mono-sm muted">На Mac откройте .dmg и перетащите «KairaVPN Проверка» в «Программы». На Windows запустите скачанный файл, устанавливать ничего не нужно. При первом запуске система спросит разрешения: как его дать, написано ниже.</p>
+          </div>
+        </li>
+        <li class="step">
+          <span class="step-num num">03</span>
+          <div class="step-body">
+            <h2 class="mono strong">Вставьте ссылку и нажмите «Проверить»</h2>
+            <p class="mono-sm muted">Ссылка на подписку есть в <a class="accent" href="/app">личном кабинете</a> и в боте, в инструкции к любому устройству. Если она уже скопирована, программа подставит её сама.</p>
+          </div>
+        </li>
+        <li class="step">
+          <span class="step-num num">04</span>
+          <div class="step-body">
+            <h2 class="mono strong">Отправьте отчёт</h2>
+            <p class="mono-sm muted">Нажмите «Отправить в поддержку»: отчёт придёт в ваше обращение, а ответ — в бота и в личный кабинет. Ключи, ссылка на подписку и ваш IP-адрес из отчёта вырезаются, и без нажатия ничего не отправляется.</p>
+          </div>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <span class="section-tag">02 // Первый запуск</span>
+      <div class="grid-lines cols-2">
+        <div class="stack">
+          <h2 class="mono strong">macOS</h2>
+          <p class="mono-sm muted">Программа не подписана в Apple, поэтому в первый раз macOS скажет, что не может проверить разработчика. Нажмите «Готово», а затем:</p>
+          <ol class="checklist">
+            <li><span class="accent mono">1</span><span>Откройте «Системные настройки» → «Конфиденциальность и безопасность».</span></li>
+            <li><span class="accent mono">2</span><span>Внизу, в разделе «Безопасность», нажмите «Всё равно открыть» и подтвердите паролем.</span></li>
+          </ol>
+          <img class="check-shot" src="/assets/img/macos-open-anyway.svg" width="640" height="400"
+               alt="Системные настройки macOS, раздел «Конфиденциальность и безопасность»: кнопка «Всё равно открыть» рядом с сообщением о программе «KairaVPN Проверка»">
+          <p class="mono-sm muted">Это нужно один раз: дальше программа открывается сразу.</p>
+        </div>
+        <div class="stack">
+          <h2 class="mono strong">Windows</h2>
+          <p class="mono-sm muted">Если появится окно «Система Windows защитила ваш компьютер»:</p>
+          <ol class="checklist">
+            <li><span class="accent mono">1</span><span>Нажмите «Подробнее».</span></li>
+            <li><span class="accent mono">2</span><span>Нажмите «Выполнить в любом случае».</span></li>
+          </ol>
+          <p class="mono-sm muted">Внутри программы то же ядро Xray, что и в VPN-приложениях, и некоторые антивирусы относятся к таким файлам с подозрением. Код программы открыт, а контрольные суммы файлов есть на странице выпуска.</p>
+          <p class="mono-sm muted">Если окно программы не открылось, она откроется в браузере: так бывает на Windows 10 без компонента WebView2.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="files">
+    <div class="wrap stack">
+      <span class="section-tag">03 // Все файлы</span>
+      <div class="panel check-files">
+        <ul class="rows">
+          <li>
+            <div class="stack grow"><span class="mono strong">macOS 12 и новее</span><span class="mono-sm muted">Apple M1–M4 и Intel</span></div>
+            <a class="btn btn-sm btn-outline" href="https://github.com/RuNick7/vpn-check/releases/latest/download/KairaVPN-Check.dmg">.dmg</a>
+          </li>
+          <li>
+            <div class="stack grow"><span class="mono strong">Windows 10 и 11</span><span class="mono-sm muted">обычные компьютеры (x64)</span></div>
+            <a class="btn btn-sm btn-outline" href="https://github.com/RuNick7/vpn-check/releases/latest/download/KairaVPN-Check-x64.exe">.exe</a>
+          </li>
+          <li>
+            <div class="stack grow"><span class="mono strong">Windows 11 на ARM</span><span class="mono-sm muted">Snapdragon и другие ARM</span></div>
+            <a class="btn btn-sm btn-outline" href="https://github.com/RuNick7/vpn-check/releases/latest/download/KairaVPN-Check-arm64.exe">.exe</a>
+          </li>
+          <li>
+            <div class="stack grow"><span class="mono strong">Linux с рабочим столом</span><span class="mono-sm muted">x64, откроется в браузере</span></div>
+            <a class="btn btn-sm btn-outline" href="https://github.com/RuNick7/vpn-check/releases/latest/download/KairaVPN-Check-linux-x64">x64</a>
+          </li>
+          <li>
+            <div class="stack grow"><span class="mono strong">Linux с рабочим столом</span><span class="mono-sm muted">ARM64, откроется в браузере</span></div>
+            <a class="btn btn-sm btn-outline" href="https://github.com/RuNick7/vpn-check/releases/latest/download/KairaVPN-Check-linux-arm64">ARM64</a>
+          </li>
+        </ul>
+      </div>
+      <p class="mono-sm muted">Все версии и контрольные суммы — на <a class="accent" href="https://github.com/RuNick7/vpn-check/releases/latest">странице выпуска</a>. На телефонах программа не работает.</p>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap row between wrap-row">
+    <div class="stack">
+      <span class="mono accent">KairaVPN</span>
+      <p class="mono-sm muted">Быстрый доступ к любым сайтам. Мы не смотрим, что вы открываете.</p>
+    </div>
+    <nav aria-label="Документы">
+      <span class="mono-sm strong">Документы</span>
+      <a class="mono-sm muted" href="/docs/license" data-doc="license">Лицензионное соглашение</a>
+      <a class="mono-sm muted" href="/docs/privacy" data-doc="privacy">Политика конфиденциальности</a>
+    </nav>
+    <nav aria-label="Связь">
+      <span class="mono-sm strong">Связь</span>
+      <a class="mono-sm muted" href="#" data-support hidden>Поддержка в Telegram</a>
+      <a class="mono-sm muted" href="#" data-channel hidden>Канал с новостями</a>
+      <button class="mono-sm muted as-link" type="button"
+              data-copy-mail="kaira.supp@gmail.com">kaira.supp@gmail.com</button>
+    </nav>
+  </div>
+</footer>
+
+</body>
+</html>

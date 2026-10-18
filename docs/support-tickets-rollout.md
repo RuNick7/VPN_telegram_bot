@@ -102,14 +102,16 @@ is paid, and offers «Продлить» instead of checking an expired one. use
    `https://kairavpn.pro`, and `DOMAINS` are repository variables there). A
    release is a tag: `vpncheck/publish.sh v1.0.0` from this repository, or
    Actions → build → Run workflow there with the version in «release».
-3. **Nothing to host**: customers download from the release page,
-   `https://github.com/RuNick7/vpn-check/releases/latest`. To host the files
-   on the site instead, build them with `vpncheck/build.sh` (and
-   `packaging/macos.sh` on a Mac) and serve `vpncheck/dist/` from nginx.
+3. **Nothing to host**: the site's page `/check` («Проверка серверов») offers
+   the visitor's own system on one button, lists every file, and shows how to
+   get past macOS's and Windows' first-launch warnings. Its links point at
+   `https://github.com/RuNick7/vpn-check/releases/latest/download/<file>`,
+   which only resolves once a release **without** a suffix exists (a
+   pre-release such as `v1.0.0-beta.1` is never "latest").
 4. **Set the link** in `.env` and recreate the bots, which read it at
    start-up (the site does not need it):
    ```
-   VPNCHECK_DOWNLOAD_URL=https://github.com/RuNick7/vpn-check/releases/latest
+   VPNCHECK_DOWNLOAD_URL=https://kairavpn.pro/check
    ```
    ```bash
    docker compose up -d --force-recreate bots

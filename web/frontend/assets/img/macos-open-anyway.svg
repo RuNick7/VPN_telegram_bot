@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 400" width="640" height="400" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif">
+  <!-- A drawing of macOS System Settings, not a screenshot: where «Всё равно
+       открыть» is, for a customer opening the unsigned app the first time. -->
+  <rect width="640" height="400" fill="#000"/>
+  <rect x="8" y="8" width="624" height="384" rx="12" fill="#1e1e1e" stroke="#3a3a3a"/>
+  <path d="M20 8h228v384H20a12 12 0 0 1-12-12V20A12 12 0 0 1 20 8z" fill="#262626"/>
+  <circle cx="28" cy="28" r="6" fill="#ff5f57"/>
+  <circle cx="48" cy="28" r="6" fill="#febc2e"/>
+  <circle cx="68" cy="28" r="6" fill="#28c840"/>
+
+  <g font-size="12" fill="#d0d0d0">
+    <rect x="20" y="62" width="16" height="16" rx="4" fill="#0a84ff"/><text x="44" y="75">Wi‑Fi</text>
+    <rect x="20" y="92" width="16" height="16" rx="4" fill="#0a84ff"/><text x="44" y="105">Bluetooth</text>
+    <rect x="20" y="122" width="16" height="16" rx="4" fill="#0a84ff"/><text x="44" y="135">Сеть</text>
+    <rect x="20" y="152" width="16" height="16" rx="4" fill="#8e8e93"/><text x="44" y="165">Основные</text>
+    <rect x="20" y="182" width="16" height="16" rx="4" fill="#8e8e93"/><text x="44" y="195">Оформление</text>
+    <rect x="14" y="206" width="226" height="40" rx="6" fill="#0a64d0"/>
+    <rect x="20" y="218" width="16" height="16" rx="4" fill="#fff"/>
+    <text x="44" y="224" fill="#fff">Конфиденциальность</text>
+    <text x="44" y="239" fill="#fff">и безопасность</text>
+    <rect x="20" y="262" width="16" height="16" rx="4" fill="#8e8e93"/><text x="44" y="275">Рабочий стол и Dock</text>
+    <rect x="20" y="292" width="16" height="16" rx="4" fill="#8e8e93"/><text x="44" y="305">Экран</text>
+  </g>
+  <circle cx="226" cy="226" r="11" fill="#ff4f2b"/>
+  <text x="226" y="231" font-size="13" font-weight="700" fill="#000" text-anchor="middle">1</text>
+
+  <text x="270" y="48" font-size="15" font-weight="700" fill="#f2f2f2">Конфиденциальность и безопасность</text>
+  <g font-size="12" fill="#bdbdbd">
+    <rect x="270" y="66" width="346" height="92" rx="8" fill="#262626"/>
+    <text x="284" y="90">Службы геолокации</text><text x="602" y="90" text-anchor="end" fill="#7a7a7a">›</text>
+    <path d="M284 104h318" stroke="#333"/>
+    <text x="284" y="122">Контакты</text><text x="602" y="122" text-anchor="end" fill="#7a7a7a">›</text>
+    <path d="M284 134h318" stroke="#333"/>
+    <text x="284" y="150" fill="#7a7a7a">…</text>
+  </g>
+
+  <text x="270" y="190" font-size="13" font-weight="700" fill="#f2f2f2">Безопасность</text>
+  <rect x="270" y="202" width="346" height="150" rx="8" fill="#262626"/>
+  <g font-size="12" fill="#d0d0d0">
+    <text x="284" y="228">Разрешить программы, загруженные из</text>
+    <text x="284" y="246" fill="#9a9a9a">App Store и от известных разработчиков</text>
+    <path d="M284 262h318" stroke="#333"/>
+    <text x="284" y="284">Программа «KairaVPN Проверка» заблокирована:</text>
+    <text x="284" y="302">не удалось проверить разработчика.</text>
+  </g>
+  <rect x="460" y="316" width="142" height="26" rx="6" fill="#4a4a4c"/>
+  <text x="531" y="333" font-size="12" fill="#fff" text-anchor="middle">Всё равно открыть</text>
+  <rect x="455" y="311" width="152" height="36" rx="9" fill="none" stroke="#ff4f2b" stroke-width="3"/>
+  <circle cx="440" cy="329" r="11" fill="#ff4f2b"/>
+  <text x="440" y="334" font-size="13" font-weight="700" fill="#000" text-anchor="middle">2</text>
+</svg>
