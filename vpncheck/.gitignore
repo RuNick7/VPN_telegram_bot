@@ -1,0 +1,4 @@
+dist/
+vpncheck-logs/
+# Windows resources, made by build.sh from packaging/winres.json
+cmd/vpncheck-app/rsrc_windows_*.syso

@@ -82,6 +82,145 @@ customer's notification.
    ticket is opened. A customer with Telegram linked also gets a message from
    user_bot.
 
+## 5. Server check reports (vpncheck)
+
+Optional, on top of tickets. With it, a customer runs «KairaVPN Проверка»
+(`vpncheck-app`, or the `vpncheck` command line; see `vpncheck/README.md`),
+pastes their subscription link and presses «Отправить в поддержку»: the
+report lands in their open ticket, or opens «Проверка серверов». Nothing is
+sent before that press. The app also asks the site whether the subscription
+is paid, and offers «Продлить» instead of checking an expired one. user_bot's
+«🩺 Проверить серверы» and the cards' «🩺 Запросить логи» stay hidden until
+`VPNCHECK_DOWNLOAD_URL` is set.
+
+1. **Migration `0016_vpncheck_reports`** runs with the rest on
+   `docker compose up -d --build`; it adds one table and touches nothing else.
+   The site's two new endpoints (`/api/vpncheck/status`, `/api/vpncheck/report`)
+   are under `/api/`, which nginx already passes on.
+2. **The files** are built by GitHub Actions in the public repository
+   github.com/RuNick7/vpn-check, with the site compiled in (`SITE`, default
+   `https://kairavpn.pro`, and `DOMAINS` are repository variables there). A
+   release is a tag: `vpncheck/publish.sh v1.0.0` from this repository, or
+   Actions → build → Run workflow there with the version in «release».
+3. **Nothing to host**: the site's page `/check` («Проверка серверов») offers
+   the visitor's own system on one button, lists every file, and shows how to
+   get past macOS's and Windows' first-launch warnings. Its links point at
+   `https://github.com/RuNick7/vpn-check/releases/latest/download/<file>`,
+   which only resolves once a release **without** a suffix exists (a
+   pre-release such as `v1.0.0-beta.1` is never "latest").
+4. **Set the link** in `.env` and recreate the bots, which read it at
+   start-up (the site does not need it):
+   ```
+   VPNCHECK_DOWNLOAD_URL=https://kairavpn.pro/check
+   ```
+   ```bash
+   docker compose up -d --force-recreate bots
+   ```
+   The `client_max_body_size` from step 1 already covers a report (up to
+   10 MB).
+
+Smoke test: run the app, paste a test account's subscription link and check.
+The card says until when it is paid. Type a line and press «Отправить в
+поддержку»: the app says which ticket it went to, and the admin chat gets the
+card with `vpncheck-report.txt` under it. On an existing ticket, «🩺 Запросить
+логи» sends the customer the download link and these steps as an answer in
+the ticket, through user_bot and the cabinet.
+
+## 6. The nodes' side (vpncheck-agent)
+
+Optional, on top of step 5. With it, a customer's report is followed in the
+admin chat by a file with each node's Xray log lines from that check: the
+customer's own connections, found by the run's marker, and for a server that
+refused them, the node's errors at that time. Nothing of it goes into the
+ticket. See "The nodes' side" in `vpncheck/README.md` for how it finds them.
+
+On **each node**:
+
+1. **Have Xray write its logs to files on the host.** In the panel, in the
+   node's config profile, set the `log` section, for example:
+   ```json
+   "log": {
+     "loglevel": "warning",
+     "access": "/var/log/remnanode/access.log",
+     "error": "/var/log/remnanode/error.log"
+   }
+   ```
+   and mount that directory in the node's `docker-compose.yml`:
+   ```yaml
+   services:
+     remnanode:
+       volumes:
+         - /var/log/remnanode:/var/log/remnanode
+   ```
+   The access log grows with traffic; rotate it daily and keep one old copy,
+   which is all the agent reads (`access.log.1`):
+   ```
+   # /etc/logrotate.d/remnanode
+   /var/log/remnanode/*.log {
+       daily
+       rotate 1
+       missingok
+       notifempty
+       copytruncate
+   }
+   ```
+2. **Install the agent** from `vpncheck/dist/` (`build.sh` builds it):
+   ```bash
+   install -m 755 vpncheck-agent-linux-amd64 /usr/local/bin/vpncheck-agent
+   ```
+   ```ini
+   # /etc/systemd/system/vpncheck-agent.service
+   [Unit]
+   Description=vpncheck-agent: node logs for support tickets
+   After=network-online.target
+
+   [Service]
+   ExecStart=/usr/local/bin/vpncheck-agent -name de1 -public de1.example.net
+   DynamicUser=yes
+   StateDirectory=vpncheck-agent
+   # Xray creates its log files as root with mode 0600: this lets the agent
+   # read them, and nothing else root could do.
+   AmbientCapabilities=CAP_DAC_READ_SEARCH
+   CapabilityBoundingSet=CAP_DAC_READ_SEARCH
+   Restart=on-failure
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+   ```bash
+   systemctl daemon-reload && systemctl enable --now vpncheck-agent
+   journalctl -u vpncheck-agent -n 5     # prints the NODE_LOG_AGENTS line
+   ```
+   `-public` is the address admin_bot reaches the node by; `-tz` is needed
+   only if the remnanode container is not on UTC.
+3. **Open port 7443 to admin_bot's server only**:
+   ```bash
+   ufw allow from <IP of the bot server> to any port 7443 proto tcp
+   ```
+
+Then on the **bot server**, put every node's line in `.env`, joined with
+commas and no spaces, and recreate the bots:
+
+```
+NODE_LOG_AGENTS=de1=https://<token>@de1.example.net:7443#<fingerprint>,nl1=https://...
+```
+```bash
+docker compose up -d --force-recreate bots
+```
+
+The bot logs `Node logs started for N agent(s).`; an entry it cannot read is
+logged by name and left out. To see which log files an agent can read, on the
+node itself:
+
+```bash
+curl -sk -H "Authorization: Bearer $(cat /var/lib/vpncheck-agent/token)" https://127.0.0.1:7443/v1/health
+```
+
+A file that does not exist or cannot be read is listed with the error. A reinstalled agent with a wiped
+`/var/lib/vpncheck-agent` has a new token and certificate: its line in
+`NODE_LOG_AGENTS` has to be replaced, and until then the file says that
+node answered with the wrong certificate.
+
 ## Operating it
 
 - **Files live in Postgres**, in `support_attachment_data`. The daily dump the

@@ -10,6 +10,7 @@ Two independent Telegram bots for a VPN-subscription service (Remnawave panel + 
 - `user_bot/` — customer-facing aiogram bot: signup, subscription purchase via YooKassa, referrals, promo codes, device setup instructions. Two runtime entrypoints against the same codebase: `user_bot/bot.py` (long-polling) and `user_bot/run_webhook.py` (aiohttp server receiving YooKassa payment webhooks at `/webhook-yookassa`).
 - `shared/` — installable package (`tgvpn-shared`, imported as `tgvpn_shared`) holding the Postgres repository layer, the Remnawave client, the settings model, and squad-placement logic. See Architecture below.
 - `web/` — customer web cabinet, **Go**: JSON API plus the site itself, on one origin. Replaced the FastAPI + static-JS MVP outright. Entrypoint `web/cmd/server`. See `web/README.md`.
+- `vpncheck/` — server checker, **Go**, a separate module with Xray compiled in: connects to every server in a subscription the way the app does and writes a log per server, for operators on a server and customers on macOS/Windows. Can send its report into the customer's support ticket with nothing but their subscription link. `vpncheck-app` (`cmd/vpncheck-app` over `internal/app`) is the same check for customers: one page with a link field, the subscription's status from the site, and send/save/copy buttons, in a Wails window on macOS/Windows and the browser on Linux. **vpncheck is published as its own public repository**, github.com/RuNick7/vpn-check (module path `github.com/RuNick7/vpn-check`, MIT): this directory is the source, `vpncheck/publish.sh` copies it there as committed, and that repository's GitHub Actions test on three systems, build the .dmg/.exe and publish releases on a `v*` tag. Everything under `vpncheck/` is therefore public — no hostnames, IPs, keys or notes from this repo's private side go into it. See `vpncheck/README.md`.
 
 The overhaul is running in strictly sequential phases, each tested and deployed before the next begins. Phase 0 (webhook security fix), Phase 1 (SQLite → Postgres, Docker), and Phase 2 (this refactor) are done. Comments referencing "Phase N" mean this sequence.
 
@@ -87,6 +88,13 @@ The support store's tests in `internal/api` also run against Postgres when
 Node runner can import the same files the browser loads. There is no build step
 and no dependency tree.
 
+vpncheck is its own module too. Its `internal/check` tests start real Xray servers on
+127.0.0.1 (REALITY, Hysteria2, ...), so they take a few seconds:
+```bash
+cd vpncheck && go test ./...
+cd vpncheck && ./build.sh        # CLI and app for every platform, and the node agent, into dist/ (the macOS app only on a Mac)
+```
+
 ## Architecture
 
 ### `shared/` — the code both bots use
@@ -159,6 +167,14 @@ A signed-in customer -- subscribed or not -- opens a ticket at `/app/support`: s
 - **Attachment bytes live apart**, in `support_attachment_data`, so the daily dump sent over Telegram (50 MB limit) can exclude them with `--exclude-table-data` and still restore consistently. A missing bytes row is the one meaning of "file gone", whether purged after 90 idle days or lost to a restore.
 - **Merging accounts moves tickets to the survivor** (`UserRepository.apply_merge`); sessions follow the merge, so tickets left on the absorbed row would vanish from the cabinet.
 - Deploying needs nginx to accept uploads: `docs/support-tickets-rollout.md`.
+
+**Server-check reports (vpncheck) ride on tickets, and only when the customer sends one.** The customer pastes their subscription link into vpncheck-app and presses «Отправить в поддержку» (`vpncheck -send` on the command line); that press is the consent, and nothing leaves their computer before it. An operator can ask for one with «🩺 Запросить логи» on a ticket card, which writes the instructions into the ticket as that operator's answer (`app/services/diagnostics.py`), so they travel like any answer. Both the button and user_bot's «🩺 Проверить серверы» stay hidden until `VPNCHECK_DOWNLOAD_URL` is set; it names the site's `/check` page, which links the files on the public repository's latest release (`web/frontend/assets/js/checker.js`, whose names a jstest pins against `vpncheck/build.sh`).
+
+- **The subscription link is the whole authorisation.** `POST /api/vpncheck/status` and `/api/vpncheck/report` take no session: the site takes the short UUID (the link's last segment) out of the link, never fetches the link itself, asks the panel whose account that is (`panel.UserByShortUUID`) and maps it to our user by `remnawave_uuid`, `remnawave_username`, then legacy `str(telegram_id)`, following `merged_into` (`store.UserByPanelAccount`). Whoever holds the link already uses that VPN, and neither endpoint gives back more than the status their own app shows; nothing reads a ticket back. Both are rate-limited per address, and a report needs `SUPPORT_ENABLED`.
+- **Status comes from our records, not the panel's date**, which with the free tier on is ten years out for everyone: `active`/`free`/`expired`/`none` plus `renew_url` (`WEB_BASE_URL/app/plans`). The app stops before checking an expired subscription and shows «Продлить» instead.
+- **A report lands as the customer's own message** in their latest open ticket, or opens «Проверка серверов» (`store.AttachVpncheckReport`), so the existing outbox delivers it. Only a text file starting with `support.ReportHeader` is taken, the site cuts the subscription's identifier out once more (`support.ScrubReport`) in case an old build left it in, and `vpncheck_reports` counts a few per customer a day, through the ticket's owner so a merge carries the count.
+- **The nodes' side comes from `vpncheck-agent`** (`vpncheck/cmd/vpncheck-agent`, one per node), because the panel's API exposes no Xray logs. Each run sends every server one request to `vpncheck-<run>-<NN>.invalid`; the node's access log records it with the user and address, and `vpncheck/internal/nodelog` finds that user's lines from there. `admin_bot/app/scheduler/jobs/node_logs.py` asks every agent in `NODE_LOG_AGENTS` once the report is delivered (`vpncheck_reports.node_logs_at`) and replies to the card with a file -- admin chats only, never the ticket, since the lines hold the customer's address. Agents are reached over TLS with a pinned self-signed certificate and a bearer token. `app/services/node_logs.py` parses the report's "Время на ноде (UTC)" and "Метка в логе ноды" lines, which `TestNodeWindowAndMarker` in `internal/report` pins on the Go side. An operator's own run asks the same agents directly (`vpncheck/operator.go` over `internal/nodes`, enabled by `-env`/`-agents`) for the daily check; a customer's run never does.
+- Redaction is vpncheck's job, before anything is written: `internal/redact` and `internal/report` guarantee no UUID, key, short ID, password, subscription token or local address reaches a file.
 
 ### Payments
 

@@ -6,6 +6,18 @@ _settings = get_settings()
 SUPPORT_URL = _settings.support_url
 FAQ_URL = _settings.faq_url
 STATUS_CHANNEL_URL = _settings.status_channel_url
+VPNCHECK_DOWNLOAD_URL = _settings.vpncheck_download_url.strip()
+
+
+def _check_servers_row() -> list[list[InlineKeyboardButton]]:
+    """
+    The server-check program, where people go when something does not work.
+    Its report goes straight into a support ticket. No row without a download
+    link: a button that leads nowhere is worse than none.
+    """
+    if not VPNCHECK_DOWNLOAD_URL:
+        return []
+    return [[InlineKeyboardButton(text="🩺 Проверить серверы", url=VPNCHECK_DOWNLOAD_URL)]]
 
 
 def os_keyboard() -> InlineKeyboardMarkup:
@@ -103,6 +115,7 @@ def help_menu_keyboard() -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="📢 Канал бота", url=STATUS_CHANNEL_URL),
             ],
+            *_check_servers_row(),
             [
                 InlineKeyboardButton(text="✉️ Поменять email", callback_data="change_email"),
             ],
@@ -147,6 +160,7 @@ def support_faq_back_to_devices_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="🛠 Тех. поддержка", url=SUPPORT_URL)],
             [InlineKeyboardButton(text="📖 Частые вопросы", url=FAQ_URL)],
             [InlineKeyboardButton(text="📢 Канал бота", url=STATUS_CHANNEL_URL)],
+            *_check_servers_row(),
             [
                 InlineKeyboardButton(text="📱 Мои устройства", callback_data="my_devices"),
                 InlineKeyboardButton(text="🔄 Сбросить ссылку", callback_data="sub_reset"),

@@ -147,6 +147,15 @@ class Settings(BaseSettings):
     # takes tickets while nothing forwards them leaves customers waiting on
     # nobody, so the two halves are enabled together.
     support_enabled: bool = Field(False, validation_alias="SUPPORT_ENABLED")
+    # Where customers download vpncheck, the server-check program an operator
+    # can ask for a report from (the "🩺 Запросить логи" button on a ticket).
+    # Empty hides the button: a customer told to run a program with no link
+    # to it would be stuck at step one.
+    vpncheck_download_url: str = Field("", validation_alias="VPNCHECK_DOWNLOAD_URL")
+    # vpncheck-agent on each node, one entry per node as the agent prints it
+    # (name=https://token@host:port#fingerprint), separated by commas. With any set, admin_bot asks them for their side of every
+    # report a customer sends. Kept raw for the same reason as ADMIN_IDS.
+    node_log_agents: str = Field("", validation_alias="NODE_LOG_AGENTS")
 
     # -- Outgoing mail -----------------------------------------------------
     # The same SMTP account the website uses, read from the same keys, because

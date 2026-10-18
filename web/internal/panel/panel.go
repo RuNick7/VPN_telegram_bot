@@ -278,6 +278,7 @@ type User struct {
 	UUID            string      `json:"uuid"`
 	ID              json.Number `json:"id"`
 	Username        string      `json:"username"`
+	ShortUUID       string      `json:"shortUuid"`
 	SubscriptionURL string      `json:"subscriptionUrl"`
 	ExpireAt        string      `json:"expireAt"`
 	Status          string      `json:"status"`
@@ -339,7 +340,25 @@ func (c *Client) UserByRef(ctx context.Context, ref string) (*User, error) {
 }
 
 func (c *Client) UserByUsername(ctx context.Context, username string) (*User, error) {
-	raw, err := c.do(ctx, http.MethodGet, "/users/by-username/"+url.PathEscape(username), nil)
+	return c.userBy(ctx, "/users/by-username/"+url.PathEscape(username))
+}
+
+// UserByShortUUID finds the account a subscription link belongs to: the
+// link's last segment is the account's short UUID.
+func (c *Client) UserByShortUUID(ctx context.Context, shortUUID string) (*User, error) {
+	user, err := c.userBy(ctx, "/users/by-short-uuid/"+url.PathEscape(shortUUID))
+	if err != nil {
+		return nil, err
+	}
+	// A panel that matched loosely (case, a prefix) has not found this link.
+	if user.ShortUUID != "" && user.ShortUUID != shortUUID {
+		return nil, ErrUserNotFound
+	}
+	return user, nil
+}
+
+func (c *Client) userBy(ctx context.Context, path string) (*User, error) {
+	raw, err := c.do(ctx, http.MethodGet, path, nil)
 	if errors.Is(err, ErrNotFound) {
 		return nil, ErrUserNotFound
 	}

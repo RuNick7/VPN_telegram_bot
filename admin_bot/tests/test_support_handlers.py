@@ -14,9 +14,11 @@ import pytest
 from aiogram import Bot, Dispatcher
 from aiogram.types import CallbackQuery, Chat, Document, Message, PhotoSize, Update, User, Voice
 
+
 from app.handlers.admin import router as admin_router
 from app.handlers.admin import support
 from app.middlewares import AdminAccessMiddleware
+from app.services.support import ticket_keyboard
 
 ADMIN = User(id=111, is_bot=False, first_name="Анна", username="anna_ops")
 OTHER_ADMIN_CHAT = 222
@@ -243,6 +245,79 @@ async def test_reopening_puts_the_close_button_back(monkeypatch):
     assert "и так открыто" in callback.answer.await_args.args[0]
     keyboard = callback.message.edit_reply_markup.await_args.kwargs["reply_markup"]
     assert keyboard.inline_keyboard[0][0].callback_data == "support:close:7"
+
+
+# -- asking for a server-check report ---------------------------------------------------------
+
+
+@pytest.fixture
+def diag(monkeypatch):
+    """The repository stubbed; an open ticket with nothing in it yet from the operators."""
+    store = SimpleNamespace(
+        get_ticket=AsyncMock(return_value={"id": 7, "telegram_id": 555, "status": "open", "subject": "Тема"}),
+        thread=AsyncMock(return_value=[{"author": "user", "body": "Не работает"}]),
+        add_admin_reply=AsyncMock(return_value=40),
+        record_telegram_message=AsyncMock(),
+    )
+    monkeypatch.setattr(support, "_support", store)
+    monkeypatch.setattr(support.settings, "vpncheck_download_url", "https://example.com/vpncheck/")
+    return store
+
+
+def asked(data: str = "support:diag:7") -> CallbackQuery:
+    callback = pressed(data)
+    object.__setattr__(callback.message, "answer", AsyncMock(
+        return_value=SimpleNamespace(chat=SimpleNamespace(id=111), message_id=950)))
+    return callback
+
+
+async def test_asking_answers_the_ticket_with_the_instructions_and_tells_the_operators(diag):
+    callback = asked()
+    await support.request_diagnostics(callback)
+
+    # As this operator's answer, so the outbox takes it to the customer
+    # wherever answers go: user_bot, and the cabinet.
+    ticket_id, operator, text = diag.add_admin_reply.await_args.args
+    assert (ticket_id, operator) == (7, ADMIN.id)
+    assert "https://example.com/vpncheck/" in text and "Отправить в поддержку" in text
+    assert callback.answer.await_args.args[0] == "Просьба отправлена клиенту."
+    notice = callback.message.answer.await_args.args[0]
+    assert "#7" in notice and "@anna_ops" in notice
+    diag.record_telegram_message.assert_awaited_once_with(111, 950, 7, "notice")
+
+
+async def test_a_second_press_does_not_ask_again(diag):
+    text = support.check_request_text("https://example.com/vpncheck/")
+    diag.thread.return_value = [{"author": "admin", "body": text}]
+    callback = asked()
+    await support.request_diagnostics(callback)
+
+    diag.add_admin_reply.assert_not_awaited()
+    assert "уже отправлена" in callback.answer.await_args.args[0]
+
+
+async def test_a_customer_without_telegram_is_asked_in_the_cabinet(diag):
+    diag.get_ticket.return_value = {"id": 7, "telegram_id": None, "status": "open", "subject": "Тема"}
+    await support.request_diagnostics(asked())
+    diag.add_admin_reply.assert_awaited_once()
+
+
+async def test_a_closed_ticket_is_not_asked_about(diag):
+    diag.get_ticket.return_value = {"id": 7, "telegram_id": 555, "status": "closed", "subject": "Тема"}
+    await support.request_diagnostics(asked())
+    diag.add_admin_reply.assert_not_awaited()
+
+
+def test_the_button_is_offered_only_where_it_can_work(monkeypatch):
+    def buttons(**kwargs):
+        keyboard = ticket_keyboard(7, **kwargs)
+        return [b.callback_data for row in keyboard.inline_keyboard for b in row]
+
+    monkeypatch.setattr(support.settings, "vpncheck_download_url", "https://example.com/vpncheck/")
+    assert "support:diag:7" in buttons()
+    assert "support:diag:7" not in buttons(closed=True)
+    monkeypatch.setattr(support.settings, "vpncheck_download_url", "")
+    assert "support:diag:7" not in buttons()
 
 
 # -- the queue ---------------------------------------------------------------------------------

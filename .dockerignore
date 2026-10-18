@@ -23,3 +23,7 @@ backups/
 
 *.md
 node_modules/
+
+# vpncheck is built by its own build.sh and copied into no image; its dist/
+# alone is ~200 MB of binaries every build would otherwise upload.
+vpncheck/

@@ -40,6 +40,7 @@ from app.handlers.admin.pagination import (
 )
 from app.handlers.admin.users.common import find_db_row, find_panel_user
 from app.handlers.admin.users.search import build_report
+from app.services.diagnostics import check_request_text
 from app.services.support import (
     clean_name,
     escape,
@@ -268,6 +269,47 @@ async def open_ticket(callback: CallbackQuery) -> None:
         reply_markup=ticket_keyboard(ticket_id, closed=ticket["status"] == "closed"),
     )
     await _support.record_telegram_message(sent.chat.id, sent.message_id, ticket_id, "card")
+
+
+@router.callback_query(F.data.startswith("support:diag:"))
+async def request_diagnostics(callback: CallbackQuery) -> None:
+    """
+    Ask the customer to check the servers with the vpncheck program.
+
+    Written into the ticket as this operator's answer, so the outbox takes it
+    to the customer the way it takes any answer: through user_bot if they
+    have Telegram, and to the cabinet regardless. The report comes back into
+    the ticket when they press «Отправить в поддержку» in the program.
+    """
+    ticket_id = _ticket_id(callback)
+    ticket = await _support.get_ticket(ticket_id)
+    if ticket is None:
+        await callback.answer("Обращение не найдено.", show_alert=True)
+        return
+    if ticket["status"] == "closed":
+        await callback.answer("Обращение закрыто. Откройте его снова, чтобы запросить логи.", show_alert=True)
+        return
+    download_url = settings.vpncheck_download_url.strip()
+    if not download_url:
+        await callback.answer("Не задан VPNCHECK_DOWNLOAD_URL: клиенту неоткуда скачать программу.", show_alert=True)
+        return
+
+    text = check_request_text(download_url)
+    thread = await _support.thread(ticket_id)
+    if thread and thread[-1]["author"] == "admin" and thread[-1]["body"] == text:
+        await callback.answer("Просьба уже отправлена — ждём отчёт.", show_alert=True)
+        return
+    await _support.add_admin_reply(ticket_id, callback.from_user.id, text)
+
+    await callback.answer("Просьба отправлена клиенту.")
+    author = callback.from_user
+    name = f"@{author.username}" if author.username else author.full_name
+    notice = await callback.message.answer(
+        f"🩺 Клиента попросили проверить серверы по <b>#{ticket_id}</b> ({escape(name)}). "
+        f"Отчёт придёт сюда, когда клиент нажмёт «Отправить в поддержку» в программе.",
+        reply_parameters=reply_to(callback.message.message_id),
+    )
+    await _support.record_telegram_message(notice.chat.id, notice.message_id, ticket_id, "notice")
 
 
 # -- the queue ------------------------------------------------------------------------

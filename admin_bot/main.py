@@ -8,9 +8,11 @@ from app.bot.factory import create_bot, create_dp
 from app.bot.routers import get_all_routers
 from app.config.settings import settings
 from app.notify.log_setup import setup_logging
+from app.scheduler.jobs.node_logs import run_node_logs
 from app.scheduler.jobs.subscription_expire_monitor import run_catchup_sweep
 from app.scheduler.jobs.support_outbox import run_support_outbox
 from app.scheduler.setup import create_scheduler
+from app.services.node_logs import parse_agents
 from app.services.users import user_service
 from tgvpn_shared.db import close_pool
 
@@ -45,6 +47,12 @@ async def main() -> None:
     support_task = asyncio.create_task(run_support_outbox(bot)) if settings.support_enabled else None
     if support_task:
         logger.info("Support outbox started.")
+    # Each node's side of a customer's server-check report, from the agents
+    # on the nodes. Nothing to ask without them.
+    agents = parse_agents(settings.node_log_agents) if settings.support_enabled else []
+    node_logs_task = asyncio.create_task(run_node_logs(bot, agents)) if agents else None
+    if node_logs_task:
+        logger.info("Node logs started for %d agent(s).", len(agents))
 
     logger.info("Bot started.")
     try:
@@ -52,6 +60,8 @@ async def main() -> None:
     finally:
         if support_task:
             support_task.cancel()
+        if node_logs_task:
+            node_logs_task.cancel()
         await user_service.close()
         await close_pool()
 

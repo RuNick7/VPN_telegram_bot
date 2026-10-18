@@ -81,6 +81,11 @@ var pageRoutes = map[string]string{
 	// offer.
 	"/docs/license": "docs/license.html",
 	"/docs/privacy": "docs/privacy.html",
+
+	// «KairaVPN Проверка», the server checker: where the bot's «🩺 Проверить
+	// серверы» leads (VPNCHECK_DOWNLOAD_URL). The files themselves are on
+	// the program's GitHub releases.
+	"/check": "check.html",
 }
 
 // PageRoutes lists every clean URL the site answers, sorted.

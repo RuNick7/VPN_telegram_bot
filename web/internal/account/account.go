@@ -279,6 +279,29 @@ func (s *Service) SubscriptionURL(ctx context.Context, user *store.User) (string
 	return profile.SubscriptionURL, nil
 }
 
+// ErrUnknownSubscription is a subscription link that leads to nobody: the
+// panel does not know it (mistyped, or reset since), or it is an account we
+// have no customer for.
+var ErrUnknownSubscription = errors.New("account: unknown subscription")
+
+// CustomerBySubscription finds whose subscription a link is, from the
+// identifier at its end (support.SubscriptionID): the panel says which
+// account the link belongs to, and the account says which customer.
+func (s *Service) CustomerBySubscription(ctx context.Context, subscriptionID string) (*store.User, error) {
+	profile, err := s.panel.UserByShortUUID(ctx, subscriptionID)
+	if errors.Is(err, panel.ErrUserNotFound) {
+		return nil, ErrUnknownSubscription
+	}
+	if err != nil {
+		return nil, err
+	}
+	user, err := s.store.UserByPanelAccount(ctx, profile.Ref(), profile.Username)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil, ErrUnknownSubscription
+	}
+	return user, err
+}
+
 // ResetLink rotates the connection link, invalidating the old one.
 func (s *Service) ResetLink(ctx context.Context, user *store.User) (string, error) {
 	profile, err := s.EnsureProfile(ctx, user)

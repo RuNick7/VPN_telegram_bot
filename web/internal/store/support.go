@@ -118,12 +118,12 @@ func checkUploadQuota(ctx context.Context, tx pgx.Tx, userID string, files []New
 	return nil
 }
 
-func insertMessage(ctx context.Context, tx pgx.Tx, ticketID int64, body string, files []NewSupportFile) error {
+func insertMessage(ctx context.Context, tx pgx.Tx, ticketID int64, body string, files []NewSupportFile) (int64, error) {
 	var messageID int64
 	if err := tx.QueryRow(ctx,
 		`INSERT INTO support_messages (ticket_id, author, body) VALUES ($1, 'user', $2) RETURNING id`,
 		ticketID, body).Scan(&messageID); err != nil {
-		return err
+		return 0, err
 	}
 	for _, file := range files {
 		var attachmentID string
@@ -131,15 +131,15 @@ func insertMessage(ctx context.Context, tx pgx.Tx, ticketID int64, body string, 
 			`INSERT INTO support_attachments (message_id, file_name, content_type, size_bytes)
 			 VALUES ($1, $2, $3, $4) RETURNING id`,
 			messageID, file.FileName, file.ContentType, len(file.Data)).Scan(&attachmentID); err != nil {
-			return err
+			return 0, err
 		}
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO support_attachment_data (attachment_id, data) VALUES ($1, $2)`,
 			attachmentID, file.Data); err != nil {
-			return err
+			return 0, err
 		}
 	}
-	return nil
+	return messageID, nil
 }
 
 // CreateSupportTicket opens a ticket with its first message, in one
@@ -176,7 +176,7 @@ func (s *Store) CreateSupportTicket(
 		userID, subject).Scan(&ticketID); err != nil {
 		return 0, err
 	}
-	if err := insertMessage(ctx, tx, ticketID, body, files); err != nil {
+	if _, err := insertMessage(ctx, tx, ticketID, body, files); err != nil {
 		return 0, err
 	}
 	return ticketID, tx.Commit(ctx)
@@ -217,7 +217,7 @@ func (s *Store) AddSupportMessage(
 	if err := checkUploadQuota(ctx, tx, userID, files, dailyBytes); err != nil {
 		return err
 	}
-	if err := insertMessage(ctx, tx, ticketID, body, files); err != nil {
+	if _, err := insertMessage(ctx, tx, ticketID, body, files); err != nil {
 		return err
 	}
 	// Writing is reading: whatever the operators said, the customer was on

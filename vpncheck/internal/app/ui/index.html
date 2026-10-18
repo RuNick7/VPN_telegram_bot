@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<title>KairaVPN Проверка</title>
+<link rel="stylesheet" href="app.css">
+<script type="module" src="app.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5 4 5.6v5.9c0 5 3.4 8.9 8 10 4.6-1.1 8-5 8-10V5.6L12 2.5Z"/><path class="tick" d="m8.4 12.2 2.5 2.5 4.8-5"/></svg>
+    <span>KairaVPN Проверка</span>
+  </div>
+  <span id="version" class="muted small"></span>
+</header>
+
+<main>
+  <div id="vpn-warning" class="banner" role="status" hidden>
+    <strong>Выключите VPN перед проверкой</strong>
+    <span>Сейчас работает Happ или другой VPN. Через него проверка покажет не ваши серверы, а сам VPN.</span>
+  </div>
+
+  <div id="expired" class="banner bad" role="alert" hidden>
+    <strong>Страница устарела</strong>
+    <span>Закройте её и запустите проверку заново.</span>
+  </div>
+
+  <section id="screen-link" class="screen" hidden>
+    <h1>Проверка серверов</h1>
+    <p class="lead">Вставьте ссылку подписки из бота или личного кабинета и нажмите «Проверить».</p>
+    <form id="link-form" novalidate>
+      <label for="link" class="sr-only">Ссылка подписки</label>
+      <div class="field">
+        <input id="link" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://…">
+        <button type="button" id="paste" class="field-btn">Вставить</button>
+      </div>
+      <div id="link-problem" class="problem" role="alert" hidden><strong></strong><span></span></div>
+      <button type="submit" id="start" class="primary big">Проверить</button>
+    </form>
+    <p id="remembered" class="note" hidden>
+      Ссылка запомнена на этом компьютере. <button type="button" id="forget" class="link-btn">Забыть</button>
+    </p>
+    <ul class="facts">
+      <li>Проверяются все серверы подписки по очереди, обычно это несколько минут.</li>
+      <li>Ключи и ссылка подписки в отчёт не попадают.</li>
+    </ul>
+  </section>
+
+  <section id="screen-run" class="screen" hidden>
+    <div id="card" class="card sub" hidden>
+      <div class="sub-head">
+        <span id="card-title" class="sub-title"></span>
+        <span id="card-status" class="pill"></span>
+      </div>
+      <div id="card-meta" class="muted small"></div>
+      <div id="card-note" class="card-note small" hidden></div>
+    </div>
+
+    <div id="progress" class="card progress" hidden>
+      <div class="progress-text">
+        <span id="progress-label"></span>
+        <span id="progress-count" class="muted"></span>
+      </div>
+      <div class="bar"><div id="bar-fill" class="bar-fill"></div></div>
+      <div id="progress-current" class="muted small"></div>
+      <button type="button" id="stop" class="secondary">Остановить</button>
+    </div>
+
+    <div id="result" class="card result" hidden>
+      <div id="result-count" class="result-count"></div>
+      <p id="result-line" class="result-line"></p>
+      <div id="failure" class="problem" hidden><strong></strong><span></span></div>
+      <a id="fix" class="button primary" target="_blank" rel="noopener noreferrer" hidden></a>
+      <div id="send-block" class="send" hidden>
+        <label for="note" class="sr-only">Что не работает?</label>
+        <input id="note" class="input" type="text" maxlength="500" autocomplete="off" placeholder="Что не работает? Можно не заполнять">
+        <button type="button" id="send" class="primary">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12 20 4l-4 16-4-7-8-1Z"/><path d="m12 13 8-9"/></svg>
+          Отправить в поддержку
+        </button>
+        <p class="note consent">Уйдёт отчёт о проверке серверов. Ключи, ссылка и ваш адрес из него вырезаны.</p>
+      </div>
+      <div id="sent" class="sent" role="status" hidden>
+        <strong id="sent-title"></strong>
+        <span>Ответ придёт в бота и в личный кабинет.</span>
+      </div>
+      <div id="report-actions" class="actions" hidden>
+        <button type="button" id="save" class="primary">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 19h14"/></svg>
+          Сохранить отчёт
+        </button>
+        <button type="button" id="copy" class="secondary">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="12" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/></svg>
+          Скопировать файл
+        </button>
+      </div>
+      <p id="report-hint" class="note" hidden>Скопированный файл можно сразу вставить в чат поддержки в Telegram.</p>
+      <div class="actions-small">
+        <button type="button" id="again" class="link-btn">Проверить снова</button>
+        <button type="button" id="other" class="link-btn">Другая ссылка</button>
+      </div>
+    </div>
+
+    <h2 id="groups-title" class="list-title" hidden>Профили</h2>
+    <ul id="groups" class="groups"></ul>
+  </section>
+</main>
+
+<div id="toast" class="toast" role="status" hidden></div>
+
+<template id="group-template">
+  <li class="group">
+    <button type="button" class="row group-row" aria-expanded="false">
+      <span class="dot"></span>
+      <span class="row-main"><span class="group-name"></span><span class="row-sub muted small"></span></span>
+      <span class="row-end"></span>
+      <svg class="chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg>
+    </button>
+    <ul class="servers" hidden></ul>
+  </li>
+</template>
+
+<template id="server-template">
+  <li class="server">
+    <button type="button" class="row server-row" aria-expanded="false">
+      <span class="dot"></span>
+      <span class="row-main"><span class="server-host"></span><span class="row-sub muted small"></span></span>
+      <span class="row-end"></span>
+    </button>
+    <div class="detail" hidden></div>
+  </li>
+</template>
+</body>
+</html>
