@@ -2,6 +2,7 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/RuNick7/vpn-check/internal/site"
 )
 
 // The website's part: the subscription's status from our records, and the
@@ -159,5 +162,23 @@ func TestTheFreeTierAndAnUnknownStatusAreSaidOnTheCard(t *testing.T) {
 	done = h.wait()
 	if done.Phase != phaseDone || done.Card.Note != "Статус оплаты уточнить не удалось." || !done.CanSend {
 		t.Fatalf("phase %q, card %+v, can send %v", done.Phase, done.Card, done.CanSend)
+	}
+}
+
+func TestWhyAReportDidNotGo(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"no answer", errors.New("dial tcp: connection refused"), "Сайт поддержки не ответил."},
+		{"the site's own words", &site.Error{Status: 429, Message: "За сутки отправлено уже 5 отчётов."}, "За сутки отправлено уже 5 отчётов."},
+		// nginx's own page, before the site sees the request.
+		{"too large for nginx", &site.Error{Status: 413}, "не принял отчёт: он больше, чем там разрешено (HTTP 413)"},
+		{"another bare code", &site.Error{Status: 502}, "Сайт ответил ошибкой HTTP 502."},
+	} {
+		if got := sendProblem(c.err); !strings.Contains(got.Text, c.want) {
+			t.Errorf("%s: %q", c.name, got.Text)
+		}
 	}
 }

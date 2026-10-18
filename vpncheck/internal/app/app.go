@@ -323,16 +323,30 @@ func (a *App) handleSend(w http.ResponseWriter, r *http.Request) {
 	sent, err := site.New(a.cfg.Site).Send(ctx, run.link, summary, body.Note, run.files.Full)
 	a.update(func() { run.sending, run.sent = false, sent })
 	if err != nil {
-		problem := &Problem{Title: "Не удалось отправить",
-			Text: "Сайт поддержки не ответил. Сохраните отчёт или скопируйте файл и пришлите его в чат поддержки в Telegram."}
-		var siteErr *site.Error
-		if errors.As(err, &siteErr) && siteErr.Message != "" {
-			problem.Text = siteErr.Message
-		}
-		writeJSON(w, http.StatusBadGateway, map[string]any{"problem": problem})
+		writeJSON(w, http.StatusBadGateway, map[string]any{"problem": sendProblem(err)})
 		return
 	}
 	writeJSON(w, http.StatusOK, a.state())
+}
+
+// sendProblem says why a report did not go. The site answers every refusal
+// in words of its own; a bare status code came from something in front of
+// it, such as nginx turning a report away as too large, and is named rather
+// than passed off as no answer at all.
+func sendProblem(err error) *Problem {
+	const fallback = " Сохраните отчёт или скопируйте файл и пришлите его в чат поддержки в Telegram."
+	problem := &Problem{Title: "Не удалось отправить", Text: "Сайт поддержки не ответил." + fallback}
+	var siteErr *site.Error
+	switch {
+	case !errors.As(err, &siteErr):
+	case siteErr.Message != "":
+		problem.Text = siteErr.Message
+	case siteErr.Status == http.StatusRequestEntityTooLarge:
+		problem.Text = "Сервер сайта не принял отчёт: он больше, чем там разрешено (HTTP 413)." + fallback
+	default:
+		problem.Text = fmt.Sprintf("Сайт ответил ошибкой HTTP %d.", siteErr.Status) + fallback
+	}
+	return problem
 }
 
 // handleOpen opens the way out of the run's problem («Продлить») in the
