@@ -163,6 +163,15 @@ $("copy").addEventListener("click", async () => {
   }
 });
 
+// The app's window opens no links itself; the app opens this one («Продлить»)
+// in the browser. In a browser tab the link just opens.
+$("fix").addEventListener("click", async (event) => {
+  if (!current || !current.window) return;
+  event.preventDefault();
+  const { status, data } = await api("/api/open", {});
+  if (status !== 204 && data && data.problem) toast(data.problem.title + ". " + data.problem.text);
+});
+
 // The list is built once per run and then only updated, so a server opened
 // to read stays open while the check goes on.
 let builtRun = -1;

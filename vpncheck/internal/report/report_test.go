@@ -9,10 +9,10 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/check"
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/nodelog"
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/redact"
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/subscription"
+	"github.com/RuNick7/vpn-check/internal/check"
+	"github.com/RuNick7/vpn-check/internal/nodelog"
+	"github.com/RuNick7/vpn-check/internal/redact"
+	"github.com/RuNick7/vpn-check/internal/subscription"
 )
 
 const (

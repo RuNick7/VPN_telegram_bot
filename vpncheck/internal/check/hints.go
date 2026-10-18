@@ -12,9 +12,8 @@ var certValidFor = regexp.MustCompile(`certificate is valid for ([^,]+(?:, [^,]+
 // hints turns what the stages saw into what to do about it.
 //
 // Every rule here is a failure this project has already had to work out by
-// hand from a client log (vpn-diagnostics/report3-findings.md and the
-// threads after it). The raw error always goes into the report as well: a
-// hint is a reading of it, not a replacement.
+// hand from a customer's client log. The raw error always goes into the
+// report as well: a hint is a reading of it, not a replacement.
 func hints(r *Result) []string {
 	var out []string
 	add := func(format string, args ...any) {

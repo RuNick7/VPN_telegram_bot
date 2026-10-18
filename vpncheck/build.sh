@@ -1,5 +1,7 @@
 #!/usr/bin/env sh
-# Builds vpncheck for every platform it is handed out for, into dist/.
+# Builds vpncheck for every platform it is handed out for, into dist/: the
+# command line, the customers' app and the node agent. The macOS app needs a
+# Mac (packaging/macos.sh, run from here when this is one).
 #
 #   ./build.sh                                   version from git, site from ../.env
 #   VERSION=1.2.0 SITE=https://example.com ./build.sh
@@ -36,30 +38,35 @@ for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 wi
         -ldflags "-s -w -X main.version=$VERSION -X main.defaultSite=$SITE" \
         -o "dist/$name" .
 done
-# The customers' app: the same check behind a page in the browser.
-for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
-    os="${target%/*}"
-    arch="${target#*/}"
-    name="vpncheck-app-${os}-${arch}"
-    [ "$os" = windows ] && name="$name.exe"
-    [ "$os" = darwin ] && name="vpncheck-app-macos-${arch}"
+# The customers' app. Windows: a window of its own (WebView2), with the icon
+# and version in the file. Linux: the same page in the browser.
+NUMBER="$(printf '%s' "$VERSION" | sed -n 's/^v\{0,1\}\([0-9][0-9]*\(\.[0-9][0-9]*\)\{0,2\}\).*/\1/p')"
+WINVER="$(printf '%s.0.0.0' "${NUMBER:-0}" | cut -d. -f1-4)"
+go run github.com/tc-hib/go-winres@v0.3.3 make --in packaging/winres.json --arch amd64,arm64 \
+    --out cmd/vpncheck-app/rsrc --product-version "$WINVER" --file-version "$WINVER"
+trap 'rm -f cmd/vpncheck-app/rsrc_windows_*.syso' EXIT
+for arch in amd64 arm64; do
+    name="KairaVPN-Check-$arch.exe"
+    [ "$arch" = amd64 ] && name="KairaVPN-Check-x64.exe"
     echo "building $name"
-    CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath \
+    CGO_ENABLED=0 GOOS=windows GOARCH="$arch" go build -trimpath -tags desktop,production \
+        -ldflags "-s -w -H windowsgui -X main.version=$VERSION -X main.domains=$DOMAINS -X main.site=$SITE" \
+        -o "dist/$name" ./cmd/vpncheck-app
+done
+for arch in amd64 arm64; do
+    name="KairaVPN-Check-linux-$arch"
+    [ "$arch" = amd64 ] && name="KairaVPN-Check-linux-x64"
+    echo "building $name"
+    CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -trimpath \
         -ldflags "-s -w -X main.version=$VERSION -X main.domains=$DOMAINS -X main.site=$SITE" \
         -o "dist/$name" ./cmd/vpncheck-app
 done
-# A Mac loses a file's executable bit when it is downloaded on its own, and
-# then opens it in TextEdit; a zip keeps it.
-if command -v zip >/dev/null; then
-    for arch in amd64 arm64; do
-        tmp="$(mktemp -d)"
-        cp "dist/vpncheck-app-macos-$arch" "$tmp/KairaVPN-Check"
-        (cd "$tmp" && zip -q -X "vpncheck-app-macos-$arch.zip" KairaVPN-Check)
-        mv "$tmp/vpncheck-app-macos-$arch.zip" dist/
-        rm -r "$tmp"
-    done
+# macOS: the window is WebKit through cgo, so the app is built on a Mac.
+if [ "$(uname -s)" = Darwin ]; then
+    VERSION="$VERSION" SITE="$SITE" DOMAINS="$DOMAINS" packaging/macos.sh
+    rm -rf "dist/KairaVPN Проверка.app"
 else
-    echo "note: zip not found; the macOS app is left unzipped" >&2
+    echo "note: the macOS app (KairaVPN-Check.dmg) is built on a Mac: packaging/macos.sh" >&2
 fi
 # The node agent: Linux only, where the nodes are, and no Xray inside.
 for arch in amd64 arm64; do

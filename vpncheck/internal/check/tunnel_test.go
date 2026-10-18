@@ -31,7 +31,7 @@ import (
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/infra/conf/serial"
 
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/subscription"
+	"github.com/RuNick7/vpn-check/internal/subscription"
 )
 
 // These tests run real Xray on both ends, over loopback: a server the way a

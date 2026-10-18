@@ -22,7 +22,7 @@ import (
 	// subscription can contain loads here the way it loads in the app.
 	_ "github.com/xtls/xray-core/main/distro/all"
 
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/subscription"
+	"github.com/RuNick7/vpn-check/internal/subscription"
 )
 
 // Step names for what goes through the tunnel.

@@ -97,27 +97,18 @@ is paid, and offers «Продлить» instead of checking an expired one. use
    `docker compose up -d --build`; it adds one table and touches nothing else.
    The site's two new endpoints (`/api/vpncheck/status`, `/api/vpncheck/report`)
    are under `/api/`, which nginx already passes on.
-2. **Build the binaries** with the site compiled in, so neither the app nor
-   `vpncheck -send` needs flags (`SITE` defaults to `WEB_BASE_URL` from
-   `.env`):
-   ```bash
-   cd vpncheck && VERSION=1.0.0 ./build.sh
-   # or, without Go on the host:
-   docker run --rm -v "$PWD/..:/src" -w /src/vpncheck golang:1.26 ./build.sh
-   ```
-3. **Host `vpncheck/dist/`** where customers can download it, for example
-   from the site's nginx:
-   ```nginx
-   location /vpncheck/ {
-       alias /opt/tg_vpn/vpncheck/dist/;
-       autoindex on;
-   }
-   ```
-   The files in it and `SHA256SUMS` are the whole release.
+2. **The files** are built by GitHub Actions in the public repository
+   github.com/RuNick7/vpn-check, with the site compiled in (`SITE`, default
+   `https://kairavpn.pro`, and `DOMAINS` are repository variables there). A
+   release is a tag: `vpncheck/publish.sh v1.0.0` from this repository.
+3. **Nothing to host**: customers download from the release page,
+   `https://github.com/RuNick7/vpn-check/releases/latest`. To host the files
+   on the site instead, build them with `vpncheck/build.sh` (and
+   `packaging/macos.sh` on a Mac) and serve `vpncheck/dist/` from nginx.
 4. **Set the link** in `.env` and recreate the bots, which read it at
    start-up (the site does not need it):
    ```
-   VPNCHECK_DOWNLOAD_URL=https://example.com/vpncheck/
+   VPNCHECK_DOWNLOAD_URL=https://github.com/RuNick7/vpn-check/releases/latest
    ```
    ```bash
    docker compose up -d --force-recreate bots

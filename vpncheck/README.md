@@ -1,4 +1,27 @@
-# vpncheck
+# KairaVPN Проверка (vpncheck)
+
+Программа проверяет каждый сервер подписки KairaVPN так же, как приложение,
+и собирает отчёт для поддержки: какие серверы работают, какие нет и почему.
+
+**Скачать:** последняя версия на странице
+[Releases](https://github.com/RuNick7/vpn-check/releases/latest). Для Mac —
+`KairaVPN-Check.dmg`, для Windows — `KairaVPN-Check-x64.exe`. Перед проверкой
+выключите Happ или другой VPN, вставьте ссылку на подписку и нажмите
+«Проверить». «Отправить в поддержку» кладёт отчёт в ваше обращение; ключи,
+ссылка и ваш IP-адрес из него вырезаются.
+
+- **macOS:** откройте `.dmg` и перетащите программу в «Программы». При первом
+  запуске macOS скажет, что не может проверить разработчика: «Системные
+  настройки» → «Конфиденциальность и безопасность» → «Всё равно открыть».
+- **Windows:** если появится «Система Windows защитила ваш компьютер»,
+  нажмите «Подробнее» → «Выполнить в любом случае».
+
+---
+
+The rest is for developers and the service's operators. vpncheck is one
+part of the KairaVPN service; the bots and the website it talks to live in
+the service's own (private) repository, which this one is published from
+(`publish.sh`). Where their side matters, it is described here.
 
 Connects to every server in a subscription the way the customer's app does,
 and writes a log per server. One self-contained binary per platform: Xray is
@@ -88,10 +111,20 @@ Enter before the window closes.
 
 The same check behind a page, for customers who should not meet a terminal:
 one field for the subscription link, a button to check, and buttons to send,
-save or copy the report. `cmd/vpncheck-app` starts it, `internal/app` is the page
-and everything behind it. For now the page opens in the browser; the window
-stays open beside it while a check runs, and the app exits a few minutes
-after the page is closed.
+save or copy the report. `cmd/vpncheck-app` starts it, `internal/app` is the
+page and everything behind it.
+
+- **A window of its own on macOS and Windows**, through
+  [Wails](https://wails.io) with the system's web view: WebKit on macOS,
+  WebView2 on Windows (part of Windows 11, and of Windows 10 through Edge).
+  The window asks for the page inside the process (`app.WindowHandler`):
+  no port, no token. It has an Edit menu on macOS, without which Cmd+V does
+  nothing in a web view, and opens «Продлить» in the browser through the
+  app (`/api/open`, only the run's own link), since a web view opens no
+  links itself. A second start brings the first window up. Built with
+  `-tags desktop,production`; without the tag, or on Linux, or when Windows
+  has no WebView2, or with `-browser`, the page opens in the browser
+  instead and the app exits a few minutes after it is closed.
 
 - **The subscription link is the only input.** No codes. A link on another
   host than the ones built in (`DOMAINS`, default `sub.kairavpn.pro`) is
@@ -117,16 +150,18 @@ after the page is closed.
   For a customer without a ticket in mind, «Сохранить отчёт» puts a zip of the run into Downloads and shows it in the
   file manager; «Скопировать файл» puts the same zip on the clipboard as a
   file, to paste into a Telegram chat with support.
-- **Only this computer can reach it.** It listens on 127.0.0.1 on a free
-  port, every API call carries a token generated at start (handed to the page
-  in the URL fragment, never sent to a server), the Host header must be
-  127.0.0.1 so a DNS-rebinding page cannot talk to it, and the page has no
-  inline script or style under a strict CSP.
+- **In the browser, only this computer can reach it.** It listens on
+  127.0.0.1 on a free port, every API call carries a token generated at
+  start (handed to the page in the URL fragment, never sent to a server),
+  the Host header must be 127.0.0.1 so a DNS-rebinding page cannot talk to
+  it, and the page has no inline script or style under a strict CSP, in the
+  window too.
 
-On a Mac it ships as a zip (`vpncheck-app-macos-*.zip` holding
-`KairaVPN-Check`), because a bare binary loses its executable bit on download
-and opens in TextEdit. Unsigned, so the first start is blocked once: System
-Settings → Privacy & Security → «Open Anyway».
+On a Mac it ships as `KairaVPN-Check.dmg`: one `KairaVPN Проверка.app` for
+Apple silicon and Intel, signed ad hoc but not with a Developer ID, so the
+first start is blocked once: System Settings → Privacy & Security → «Open
+Anyway». On Windows it is one `.exe` with nothing to install; SmartScreen
+asks once until the files are signed.
 
 `go test ./internal/app` runs it end to end against a fake panel and real Xray
 nodes. `TestDemo` serves it on a fixed address with made-up servers, for
@@ -220,7 +255,7 @@ Flags: `-log` (repeatable; the agent also reads `<log>.1`, the copy
 logrotate leaves), `-tz` (the zone Xray writes its times in, UTC in the
 remnanode container), `-listen`, `-data` (token and certificate, default
 `/var/lib/vpncheck-agent`). Installing it on a node, with the Xray log
-settings it needs: `docs/support-tickets-rollout.md`, step 6.
+settings it needs: the service's rollout notes, step 6.
 
 ## Daily check for operators
 
@@ -293,21 +328,34 @@ balancer's own choice of server.
 ```bash
 ./build.sh                                    # version from git, site from WEB_BASE_URL in ../.env
 VERSION=1.0.0 SITE=https://example.com ./build.sh
+packaging/macos.sh                            # on a Mac: the .app and KairaVPN-Check.dmg
 ```
 
-Writes into `dist/`, with `SHA256SUMS`: `vpncheck-*` and `vpncheck-app-*` for
-Linux, macOS and Windows, each for amd64 and arm64; the macOS app zipped as
-`vpncheck-app-macos-*.zip`; and `vpncheck-agent-linux-*` for the nodes. The
-site is compiled into both, so sending needs no flags (`-site` overrides it
-for `vpncheck`), and the subscription hosts into the app (`DOMAINS=a,b`).
-Without Go, in Docker:
+`build.sh` writes into `dist/`, with `SHA256SUMS`: the command line
+`vpncheck-*` for Linux, macOS and Windows, each for amd64 and arm64; the app
+as `KairaVPN-Check-x64.exe` and `-arm64.exe` (the window, with the icon and
+version from `packaging/winres.json`) and `KairaVPN-Check-linux-*` (the
+browser page); and `vpncheck-agent-linux-*` for the nodes. The macOS app is
+WebKit through cgo, so it is built on a Mac: `packaging/macos.sh`, which
+`build.sh` runs when it is on one. The site is compiled in, so sending needs
+no flags (`-site` overrides it for `vpncheck`), and the subscription hosts
+into the app (`DOMAINS=a,b`). The icons in `packaging/` are drawn from
+`icon.svg` and `icon-macos.svg`, the site's logo.
 
-```bash
-docker run --rm -v "$PWD/..:/src" -w /src/vpncheck golang:1.26 ./build.sh
-```
+### Releases
 
-Host `dist/` anywhere customers can download from and set
-`VPNCHECK_DOWNLOAD_URL` to it: see `docs/support-tickets-rollout.md`.
+GitHub Actions (`.github/workflows/build.yml`) run the tests on Linux, macOS
+and Windows, build everything, and open the built app on a real Mac and on
+real Windows x64 and ARM64: the app drives its own page there
+(`VPNCHECK_SMOKE`, `cmd/vpncheck-app/smoke.go`) and fails the build unless
+the window loaded it and a button's request arrived. A screenshot of each is
+kept with the run. A tag `v*` publishes all files as a release, a pre-release
+when the tag has a suffix (`v1.2.0-beta.1`). `SITE` and `DOMAINS` come from
+the repository's variables, defaulting to the service's.
+
+From the service's repository, `./publish.sh` copies this directory as
+committed into github.com/RuNick7/vpn-check, and `./publish.sh v1.2.0` also
+tags it.
 
 ## Tests
 
@@ -320,3 +368,9 @@ over raw/gRPC/XHTTP, Hysteria2) and checks the tool both gets through and
 explains why it does not with a wrong key or password, and that the node logs
 the marker next to the user. `internal/nodelog` pins the search on sample
 logs.
+
+## License
+
+MIT, see `LICENSE`. The binaries include [Xray-core](https://github.com/XTLS/Xray-core)
+(MPL-2.0) and [Wails](https://github.com/wailsapp/wails) (MIT); their sources
+are at those links, in the versions `go.mod` names.

@@ -12,9 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/redact"
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/report"
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/subscription"
+	"github.com/RuNick7/vpn-check/internal/redact"
+	"github.com/RuNick7/vpn-check/internal/report"
+	"github.com/RuNick7/vpn-check/internal/subscription"
 )
 
 // Load reads one source and registers its secrets with red. A source that

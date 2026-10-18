@@ -15,11 +15,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/check"
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/nodelog"
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/nodes"
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/report"
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/subscription"
+	"github.com/RuNick7/vpn-check/internal/check"
+	"github.com/RuNick7/vpn-check/internal/nodelog"
+	"github.com/RuNick7/vpn-check/internal/nodes"
+	"github.com/RuNick7/vpn-check/internal/report"
+	"github.com/RuNick7/vpn-check/internal/subscription"
 )
 
 const (

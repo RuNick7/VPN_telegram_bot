@@ -22,6 +22,8 @@ type desktop interface {
 	ReadText() (string, error)
 	// Reveal shows the file in Finder or Explorer.
 	Reveal(path string) error
+	// Open opens a page in the browser.
+	Open(url string) error
 }
 
 type system struct{}
@@ -110,6 +112,8 @@ func (system) Reveal(path string) error {
 	}
 	return quiet(exec.Command("xdg-open", filepath.Dir(path)))
 }
+
+func (system) Open(url string) error { return OpenBrowser(url) }
 
 // OpenBrowser opens a page in the default browser.
 func OpenBrowser(url string) error {

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/subscription"
+	"github.com/RuNick7/vpn-check/internal/subscription"
 )
 
 // Every kind of link the parser reads has to produce an outbound that this

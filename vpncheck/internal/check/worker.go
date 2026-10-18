@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/subscription"
+	"github.com/RuNick7/vpn-check/internal/subscription"
 )
 
 // Each server's tunnel runs in a process of its own: this same binary,

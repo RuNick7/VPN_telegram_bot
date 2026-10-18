@@ -38,7 +38,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/nodelog"
+	"github.com/RuNick7/vpn-check/internal/nodelog"
 )
 
 var version = "dev"

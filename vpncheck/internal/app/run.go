@@ -7,12 +7,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/check"
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/redact"
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/report"
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/site"
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/source"
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/subscription"
+	"github.com/RuNick7/vpn-check/internal/check"
+	"github.com/RuNick7/vpn-check/internal/redact"
+	"github.com/RuNick7/vpn-check/internal/report"
+	"github.com/RuNick7/vpn-check/internal/site"
+	"github.com/RuNick7/vpn-check/internal/source"
+	"github.com/RuNick7/vpn-check/internal/subscription"
 )
 
 // What a run is doing, as the page shows it.

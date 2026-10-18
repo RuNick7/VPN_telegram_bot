@@ -11,7 +11,7 @@ package check
 import (
 	"time"
 
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/subscription"
+	"github.com/RuNick7/vpn-check/internal/subscription"
 )
 
 type Status int

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/subscription"
+	"github.com/RuNick7/vpn-check/internal/subscription"
 )
 
 // Probe is a request made through each server once it answers.
@@ -25,9 +25,9 @@ type Options struct {
 	// Each request through a server, and each of the network stages.
 	Timeout time.Duration
 	Pings   int
-	// The template's burstObservatory destination (vpn-diagnostics/fix-plan.md,
-	// step 2): plain HTTP, so it costs one round trip inside the tunnel and
-	// never touches WARP on the node.
+	// The subscription template's burstObservatory destination: plain
+	// HTTP, so it costs one round trip inside the tunnel and never touches
+	// WARP on the node.
 	PingURL  string
 	TraceURL string
 	Probes   []Probe

@@ -21,7 +21,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/nodelog"
+	"github.com/RuNick7/vpn-check/internal/nodelog"
 )
 
 // Agent is one entry of NODE_LOG_AGENTS: name=https://token@host:port#sha256.

@@ -21,7 +21,7 @@ import (
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/infra/conf/serial"
 
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/check"
+	"github.com/RuNick7/vpn-check/internal/check"
 )
 
 // These run the whole app the way the page drives it, against a real Xray
@@ -154,7 +154,15 @@ type fakeDesktop struct {
 	mu       sync.Mutex
 	copied   string
 	revealed string
+	opened   string
 	text     string
+}
+
+func (f *fakeDesktop) Open(url string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.opened = url
+	return nil
 }
 
 func (f *fakeDesktop) CopyFile(path string) error {
@@ -470,5 +478,30 @@ func TestOnlyThePageWithTheKeyGetsIn(t *testing.T) {
 	}
 	if csp := resp.Header.Get("Content-Security-Policy"); !strings.Contains(csp, "default-src 'self'") || strings.Contains(csp, "unsafe-inline") {
 		t.Errorf("CSP %q", csp)
+	}
+}
+
+func TestTheWindowAsksWithoutAKey(t *testing.T) {
+	h := newHarness(t, "http://127.0.0.1:1")
+	// The window's requests never cross the network: they arrive with the
+	// webview's own host and no key, and the page and API answer them.
+	for _, path := range []string{"/", "/api/state"} {
+		req := httptest.NewRequest("GET", path, nil)
+		req.Host = "wails.localhost"
+		rec := httptest.NewRecorder()
+		h.app.WindowHandler().ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Errorf("%s: %d", path, rec.Code)
+		}
+		if csp := rec.Header().Get("Content-Security-Policy"); strings.Contains(csp, "unsafe-inline") || csp == "" {
+			t.Errorf("%s: CSP %q", path, csp)
+		}
+	}
+	// Nothing to open before a run has a way out of its problem.
+	req := httptest.NewRequest("POST", "/api/open", nil)
+	rec := httptest.NewRecorder()
+	h.app.WindowHandler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound || h.desk.opened != "" {
+		t.Errorf("open: %d, opened %q", rec.Code, h.desk.opened)
 	}
 }

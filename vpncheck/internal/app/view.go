@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/check"
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/site"
+	"github.com/RuNick7/vpn-check/internal/check"
+	"github.com/RuNick7/vpn-check/internal/site"
 )
 
 // state is everything the page draws, read every half second while it is
@@ -31,6 +31,8 @@ type state struct {
 	CanSend bool       `json:"can_send"`
 	Sending bool       `json:"sending,omitempty"`
 	Sent    *site.Sent `json:"sent,omitempty"`
+	// The page is in the app's window: links go through /api/open.
+	Window bool `json:"window,omitempty"`
 }
 
 type progress struct {

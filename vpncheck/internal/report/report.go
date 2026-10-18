@@ -21,9 +21,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/check"
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/nodelog"
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/redact"
+	"github.com/RuNick7/vpn-check/internal/check"
+	"github.com/RuNick7/vpn-check/internal/nodelog"
+	"github.com/RuNick7/vpn-check/internal/redact"
 )
 
 // MaxFull keeps the combined report under the 10 MB a support ticket takes

@@ -1,7 +1,7 @@
 // Package app is vpncheck for customers: a page with one field and a few
-// buttons, served to this computer alone. The same handler sits behind the
-// browser tab today and behind an app window later; the check itself is the
-// command line's, unchanged.
+// buttons, served to this computer alone. The same page is the app's window
+// on macOS and Windows (WindowHandler) and a browser tab elsewhere
+// (Handler); the check itself is the command line's, unchanged.
 package app
 
 import (
@@ -20,9 +20,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/check"
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/report"
-	"github.com/RuNick7/VPN_telegram_bot/vpncheck/internal/site"
+	"github.com/RuNick7/vpn-check/internal/check"
+	"github.com/RuNick7/vpn-check/internal/report"
+	"github.com/RuNick7/vpn-check/internal/site"
 )
 
 //go:embed ui
@@ -43,6 +43,9 @@ type Config struct {
 	// The website: what the subscription's status is, and where a report
 	// goes. Empty leaves both out.
 	Site string
+	// The page is in the app's own window, which opens no links of its
+	// own: the page asks the app to open them in the browser.
+	Window bool
 }
 
 type App struct {
@@ -64,6 +67,15 @@ func New(cfg Config, token string) *App {
 	return &App{cfg: cfg, token: token, desk: system{}, link: readLink(cfg.LinkFile), seen: time.Now()}
 }
 
+// Stop stops a check that is running, as the «Остановить» button does.
+func (a *App) Stop() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.run != nil && a.run.active() {
+		a.run.cancel()
+	}
+}
+
 // Busy reports whether a check is running.
 func (a *App) Busy() bool {
 	a.mu.Lock()
@@ -79,7 +91,15 @@ func (a *App) Idle() time.Duration {
 	return time.Since(a.seen)
 }
 
-func (a *App) Handler() http.Handler {
+// Handler is the page and its API over HTTP on 127.0.0.1, for a browser.
+func (a *App) Handler() http.Handler { return a.handler(true) }
+
+// WindowHandler is the same for the app's window, which asks it from
+// inside this process: nothing else can reach it, so there is no address to
+// check and no token to carry.
+func (a *App) WindowHandler() http.Handler { return a.handler(false) }
+
+func (a *App) handler(overHTTP bool) http.Handler {
 	assets, _ := fs.Sub(ui, "ui")
 	static := http.FileServerFS(assets)
 	api := http.NewServeMux()
@@ -93,13 +113,14 @@ func (a *App) Handler() http.Handler {
 	api.HandleFunc("POST /api/send", a.handleSend)
 	api.HandleFunc("GET /api/paste", a.handlePaste)
 	api.HandleFunc("POST /api/forget", a.handleForget)
+	api.HandleFunc("POST /api/open", a.handleOpen)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// A page on another site can make the browser send requests here,
 		// and can point its own domain at 127.0.0.1 to get past the
 		// same-origin check. Neither carries the token, and the second also
 		// gives itself away in the Host it sends.
-		if !localHost(r.Host) {
+		if overHTTP && !localHost(r.Host) {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
@@ -113,7 +134,7 @@ func (a *App) Handler() http.Handler {
 			return
 		}
 		got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if subtle.ConstantTimeCompare([]byte(got), []byte(a.token)) != 1 {
+		if overHTTP && subtle.ConstantTimeCompare([]byte(got), []byte(a.token)) != 1 {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
@@ -135,7 +156,7 @@ func localHost(hostport string) bool {
 func (a *App) state() state {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	s := state{Phase: phaseIdle, Version: a.cfg.Version, Link: a.link, Run: a.runs}
+	s := state{Phase: phaseIdle, Version: a.cfg.Version, Link: a.link, Run: a.runs, Window: a.cfg.Window}
 	if a.run != nil {
 		a.run.view(&s)
 		s.CanSend = a.cfg.Site != "" && a.run.sendable()
@@ -312,6 +333,27 @@ func (a *App) handleSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, a.state())
+}
+
+// handleOpen opens the way out of the run's problem («Продлить») in the
+// browser, for the window, which opens no links itself. Only that link: the
+// page names nothing, so nothing else can be opened through here.
+func (a *App) handleOpen(w http.ResponseWriter, r *http.Request) {
+	a.mu.Lock()
+	var link string
+	if a.run != nil && a.run.problem != nil {
+		link = a.run.problem.Link
+	}
+	a.mu.Unlock()
+	if !strings.HasPrefix(link, "https://") && !strings.HasPrefix(link, "http://") {
+		http.NotFound(w, r)
+		return
+	}
+	if err := a.desk.Open(link); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"problem": &Problem{Title: "Браузер не открылся", Text: "Откройте адрес сами: " + link}})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *App) handleForget(w http.ResponseWriter, r *http.Request) {

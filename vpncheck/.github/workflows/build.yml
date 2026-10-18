@@ -1,0 +1,145 @@
+# Tests on Linux, macOS and Windows; builds every file; opens the built app
+# on a real Mac and real Windows (x64 and ARM64) to see its window work; and
+# on a version tag (v1.2.0) publishes all of it as a release.
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Compiled into the app: the website it asks about the subscription and
+  # sends reports to, and the hosts subscription links are on. Repository
+  # variables (Settings → Variables) override them.
+  SITE: ${{ vars.SITE || 'https://kairavpn.pro' }}
+  DOMAINS: ${{ vars.DOMAINS || 'sub.kairavpn.pro' }}
+  # A tag names the version; anything else is described from git.
+  VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        if: runner.os == 'Linux'
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - run: go vet ./...
+      # The window's own code: WebKit on macOS, WebView2 on Windows.
+      - run: go vet -tags desktop,production ./cmd/vpncheck-app
+      # Real Xray servers on 127.0.0.1 and a worker process per server, as
+      # on a customer's computer.
+      - run: go test ./...
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: ./build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-linux
+          path: |
+            dist/*
+            !dist/SHA256SUMS
+          if-no-files-found: error
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: packaging/macos.sh
+      - name: Open the app (Apple silicon)
+        run: packaging/smoke-macos.sh "$RUNNER_TEMP/macos-arm64.png"
+      - name: Open the app (Intel, through Rosetta)
+        continue-on-error: true
+        run: SMOKE_ARCH=x86_64 packaging/smoke-macos.sh "$RUNNER_TEMP/macos-intel.png"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-macos
+          path: dist/KairaVPN-Check.dmg
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots-macos
+          path: ${{ runner.temp }}/macos-*.png
+          if-no-files-found: ignore
+
+  windows:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            exe: KairaVPN-Check-x64.exe
+          - runner: windows-11-arm
+            exe: KairaVPN-Check-arm64.exe
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-linux
+          path: dist
+      - name: Open the app
+        shell: pwsh
+        run: packaging/smoke-windows.ps1 -Exe "dist/${{ matrix.exe }}" -Shot "$env:RUNNER_TEMP/${{ matrix.exe }}.png"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots-${{ matrix.exe }}
+          path: ${{ runner.temp }}/*.png
+          if-no-files-found: ignore
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: [test, build, macos, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: release
+          merge-multiple: true
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd release
+          sha256sum * > SHA256SUMS
+          ls -la
+          # A tag with a suffix (v1.2.0-beta.1) is a pre-release.
+          pre=""
+          case "$GITHUB_REF_NAME" in *-*) pre="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" * $pre \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "KairaVPN Проверка $GITHUB_REF_NAME" \
+            --notes-file ../.github/release-notes.md

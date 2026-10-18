@@ -127,6 +127,10 @@ func TestAnExpiredSubscriptionIsNotChecked(t *testing.T) {
 	if done.Card.Tone != "bad" || done.CanSend {
 		t.Errorf("card %+v, can send %v", done.Card, done.CanSend)
 	}
+	// The window opens «Продлить» through the app, and only that.
+	if status := h.call("POST", "/api/open", nil, nil); status != http.StatusNoContent || h.desk.opened != "https://kairavpn.example/app/plans" {
+		t.Errorf("open: %d, opened %q", status, h.desk.opened)
+	}
 	for _, server := range done.Servers {
 		if server.State != "queued" {
 			t.Errorf("a server was checked: %+v", server)
