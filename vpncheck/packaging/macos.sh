@@ -24,7 +24,9 @@ mkdir -p dist
 rm -rf "$APP" dist/KairaVPN-Check.dmg
 
 export CGO_ENABLED=1 GOOS=darwin MACOSX_DEPLOYMENT_TARGET=12.0
-export CGO_CFLAGS="-mmacosx-version-min=12.0" CGO_LDFLAGS="-mmacosx-version-min=12.0"
+# Wails' file dialogs use UTType, which its cgo directives do not link.
+export CGO_CFLAGS="-mmacosx-version-min=12.0"
+export CGO_LDFLAGS="-mmacosx-version-min=12.0 -framework UniformTypeIdentifiers"
 for arch in arm64 amd64; do
     echo "building the app for $arch"
     GOARCH="$arch" go build -trimpath -tags desktop,production \
