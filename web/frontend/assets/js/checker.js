@@ -17,8 +17,8 @@ const download = (name) => RELEASES + "/download/" + name;
 export const FILES = [
   {
     key: "macos",
-    system: "macOS 12 и новее",
-    detail: "Apple M1–M4 и Intel",
+    system: "Любой Mac",
+    detail: "macOS 12 и новее",
     name: "KairaVPN-Check.dmg",
     button: "Скачать для macOS",
   },
