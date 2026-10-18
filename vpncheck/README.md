@@ -355,7 +355,8 @@ the repository's variables, defaulting to the service's.
 
 From the service's repository, `./publish.sh` copies this directory as
 committed into github.com/RuNick7/vpn-check, and `./publish.sh v1.2.0` also
-tags it.
+tags it. A release can also be made on GitHub itself: Actions → build → Run
+workflow, with the version in «release»; the tag is put on the commit built.
 
 ## Tests
 

@@ -100,7 +100,8 @@ is paid, and offers «Продлить» instead of checking an expired one. use
 2. **The files** are built by GitHub Actions in the public repository
    github.com/RuNick7/vpn-check, with the site compiled in (`SITE`, default
    `https://kairavpn.pro`, and `DOMAINS` are repository variables there). A
-   release is a tag: `vpncheck/publish.sh v1.0.0` from this repository.
+   release is a tag: `vpncheck/publish.sh v1.0.0` from this repository, or
+   Actions → build → Run workflow there with the version in «release».
 3. **Nothing to host**: customers download from the release page,
    `https://github.com/RuNick7/vpn-check/releases/latest`. To host the files
    on the site instead, build them with `vpncheck/build.sh` (and

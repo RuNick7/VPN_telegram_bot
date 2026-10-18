@@ -1,6 +1,7 @@
 # Tests on Linux, macOS and Windows; builds every file; opens the built app
 # on a real Mac and real Windows (x64 and ARM64) to see its window work; and
-# on a version tag (v1.2.0) publishes all of it as a release.
+# on a version tag (v1.2.0), or a version given to «Run workflow», publishes
+# all of it as a release.
 name: build
 
 on:
@@ -9,6 +10,11 @@ on:
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      release:
+        description: "Опубликовать выпуск с этой версией (v1.2.0, v1.2.0-beta.1); пусто: только собрать"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -19,8 +25,9 @@ env:
   # variables (Settings → Variables) override them.
   SITE: ${{ vars.SITE || 'https://kairavpn.pro' }}
   DOMAINS: ${{ vars.DOMAINS || 'sub.kairavpn.pro' }}
-  # A tag names the version; anything else is described from git.
-  VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+  # A tag or «Run workflow» names the version; anything else is described
+  # from git.
+  VERSION: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release || '' }}
 
 jobs:
   test:
@@ -117,7 +124,7 @@ jobs:
           if-no-files-found: ignore
 
   release:
-    if: github.ref_type == 'tag'
+    if: github.ref_type == 'tag' || startsWith(inputs.release, 'v')
     needs: [test, build, macos, windows]
     runs-on: ubuntu-latest
     permissions:
@@ -133,13 +140,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          case "$VERSION" in
+            v[0-9]*.[0-9]*) ;;
+            *) echo "not a version: $VERSION" >&2; exit 1 ;;
+          esac
           cd release
           sha256sum * > SHA256SUMS
           ls -la
-          # A tag with a suffix (v1.2.0-beta.1) is a pre-release.
+          # A version with a suffix (v1.2.0-beta.1) is a pre-release.
           pre=""
-          case "$GITHUB_REF_NAME" in *-*) pre="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" * $pre \
+          case "$VERSION" in *-*) pre="--prerelease" ;; esac
+          # Started by hand, the tag does not exist yet: it goes on the
+          # commit that was built.
+          gh release create "$VERSION" * $pre \
             --repo "$GITHUB_REPOSITORY" \
-            --title "KairaVPN Проверка $GITHUB_REF_NAME" \
+            --target "$GITHUB_SHA" \
+            --title "KairaVPN Проверка $VERSION" \
             --notes-file ../.github/release-notes.md
