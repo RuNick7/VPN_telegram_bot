@@ -224,12 +224,33 @@ func Baseline(ctx context.Context, opts Options) ([]Step, Clock) {
 				Detail: fmt.Sprintf("страна %s, Cloudflare %s", orDash(trace["loc"]), orDash(trace["colo"]))})
 		}
 	}
-	if name := ActiveTunnel(); name != "" {
+	if SystemNetwork != nil {
+		if name := SystemNetwork(); name != "" {
+			steps = append(steps, Step{Name: "Сеть", Status: OK, Detail: name})
+		}
+	}
+	switch name := ActiveTunnel(); {
+	case name == "":
+	case SystemVPN != nil:
+		steps = append(steps, Step{Name: "Другой VPN", Status: Warn,
+			Detail: "система сообщает, что включён VPN: проверки пойдут через него, результаты будут неверными"})
+	default:
 		steps = append(steps, Step{Name: "Другой VPN", Status: Warn, Detail: fmt.Sprintf(
 			"похоже, включён VPN (интерфейс %s): проверки пойдут через него, результаты будут неверными", name)})
 	}
 	return steps, clock
 }
+
+// On a phone the system knows what a process cannot find out for itself:
+// Android lets an app list no network interfaces. The Android app sets
+// these from what the system tells it (see package phone); elsewhere they
+// stay nil.
+var (
+	// SystemVPN reports whether the system routes this app through a VPN.
+	SystemVPN func() bool
+	// SystemNetwork names the connection the check runs over.
+	SystemNetwork func() string
+)
 
 // Clock is how far this computer's clock is from Cloudflare's, so the times
 // a report gives can be looked up in a node's log, which keeps real time.
@@ -253,8 +274,15 @@ func clockFrom(ts string, sent time.Time, took time.Duration) Clock {
 
 // ActiveTunnel names a network interface that looks like a running VPN
 // client's TUN: Happ and Xray put theirs in 198.18.0.0/15, sing-box in
-// 172.19.0.0/30 (the "Happ Tunnel" with DNS 172.19.0.2 in report 3).
+// 172.19.0.0/30 (the "Happ Tunnel" with DNS 172.19.0.2 in report 3). On a
+// phone it is the system's word instead, and the name is just "VPN".
 func ActiveTunnel() string {
+	if SystemVPN != nil {
+		if SystemVPN() {
+			return "VPN"
+		}
+		return ""
+	}
 	interfaces, err := net.Interfaces()
 	if err != nil {
 		return ""

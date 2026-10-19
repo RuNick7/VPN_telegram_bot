@@ -5,7 +5,8 @@
 
 **Скачать:** последняя версия на странице
 [Releases](https://github.com/RuNick7/vpn-check/releases/latest). Для Mac —
-`KairaVPN-Check.dmg`, для Windows — `KairaVPN-Check-x64.exe`. Перед проверкой
+`KairaVPN-Check.dmg`, для Windows — `KairaVPN-Check-x64.exe`, для Android —
+`KairaVPN-Check.apk`. Перед проверкой
 выключите Happ или другой VPN, вставьте ссылку на подписку и нажмите
 «Проверить». «Отправить в поддержку» кладёт отчёт в ваше обращение; ключи,
 ссылка и ваш IP-адрес из него вырезаются.
@@ -15,6 +16,8 @@
   настройки» → «Конфиденциальность и безопасность» → «Всё равно открыть».
 - **Windows:** если появится «Система Windows защитила ваш компьютер»,
   нажмите «Подробнее» → «Выполнить в любом случае».
+- **Android:** откройте скачанный `.apk` и разрешите установку из браузера
+  или «Файлов»; Play Защите — «Подробнее» → «Всё равно установить».
 
 ---
 
@@ -176,10 +179,28 @@ With `VPNCHECK_DEMO_SITE=http://127.0.0.1:8080` it asks a running `web/` for
 the status and sends reports there; that site's panel must know the demo
 link's short UUID (`SayZcYcdx7zRHfxe`).
 
-### Not covered
+### On Android
 
-Phones. The tool runs on a computer or a server; for a phone-only problem,
-support can ask for the Happ app's own logs as an attachment.
+`android/` is the same app for phones (Android 8 and newer, 64- and 32-bit
+ARM), as `KairaVPN-Check.apk`. The check is vpncheck-app built for Android,
+packed into the APK as `lib/<abi>/libvpncheck.so` so that the system unpacks
+it where an app may start a program from; a small Java app
+(`android/src/main/java`) starts it, shows the page it serves on 127.0.0.1 in
+a WebView, and does for the page what only an app can there:
+
+- **The connection.** A process on Android finds neither the DNS servers (no
+  `/etc/resolv.conf`) nor a running VPN (no network interfaces to list) by
+  itself. The app asks the system and keeps the answer in a file
+  (`NetworkWatch`), rewritten when the connection changes; `internal/phone`
+  points Go's resolver at those servers and tells the check about the VPN and
+  the network, which the report names («Сеть: мобильная сеть, MegaFon»).
+- **Mobile data.** On a metered connection the first screen asks before the
+  speed test, about 1 MB per server; without a tick the check skips it.
+- **The report.** «Сохранить отчёт» opens the system's save dialog;
+  «Поделиться файлом» takes the place of copying, through the share sheet,
+  which is how a file gets into Telegram on a phone (`ReportProvider`).
+- **Its life.** The check runs while the app is open and the screen stays on;
+  Back leaves the app as Home does rather than stopping a check under way.
 
 ## Sending a report to support
 
@@ -329,6 +350,7 @@ balancer's own choice of server.
 ./build.sh                                    # version from git, site from WEB_BASE_URL in ../.env
 VERSION=1.0.0 SITE=https://example.com ./build.sh
 packaging/macos.sh                            # on a Mac: the .app and KairaVPN-Check.dmg
+android/build.sh                              # with the Android SDK and NDK: dist/KairaVPN-Check.apk
 ```
 
 `build.sh` writes into `dist/`, with `SHA256SUMS`: the command line
@@ -348,8 +370,14 @@ GitHub Actions (`.github/workflows/build.yml`) run the tests on Linux, macOS
 and Windows, build everything, and open the built app on a real Mac and on
 real Windows x64 and ARM64: the app drives its own page there
 (`VPNCHECK_SMOKE`, `cmd/vpncheck-app/smoke.go`) and fails the build unless
-the window loaded it and a button's request arrived. A screenshot of each is
-kept with the run. A tag `v*` publishes all files as a release, a pre-release
+the window loaded it and a button's request arrived. The Android app is
+built for an x86_64 emulator as well and run there (`android/smoke.sh`): its
+page has to load, and a check through the API has to get through the
+phone's DNS and TLS and write a report naming its network. A screenshot of
+each is kept with the run. The APK is signed with the release key when the
+repository has one in its secrets (`ANDROID_KEYSTORE_BASE64` and the rest,
+see the workflow), and with a throwaway debug key otherwise, which installs
+but does not update an earlier install. A tag `v*` publishes all files as a release, a pre-release
 when the tag has a suffix (`v1.2.0-beta.1`). `SITE` and `DOMAINS` come from
 the repository's variables, defaulting to the service's.
 

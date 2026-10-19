@@ -168,6 +168,9 @@ button.big { width: 100%; margin-top: 14px; padding: 15px 18px; font-size: 16px;
 
 .note { color: var(--muted); font-size: 13px; margin: 14px 0 0; }
 
+.choice { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; font-size: 14px; color: var(--muted); cursor: pointer; }
+.choice input { width: 18px; height: 18px; margin: 1px 0 0; flex: none; accent-color: var(--accent); }
+
 .facts { list-style: none; padding: 0; margin: 28px 0 0; color: var(--muted); font-size: 13px; }
 .facts li { padding-left: 18px; position: relative; margin: 6px 0; }
 .facts li::before { content: ""; position: absolute; left: 4px; top: 8px; width: 5px; height: 5px; border-radius: 50%; background: var(--queued); }

@@ -41,6 +41,25 @@ async function api(path, body) {
   return { status: response.status, data };
 }
 
+// In the Android app the page reaches the phone through the app's own code
+// (KairaAndroid): the clipboard, the system's dialog for saving a file, and
+// the share sheet, which is how a file gets into Telegram there.
+const phone = window.KairaAndroid || null;
+if (phone) {
+  $("copy-label").textContent = "Поделиться файлом";
+  $("report-hint").textContent = "Через «Поделиться» отчёт можно сразу отправить в чат поддержки в Telegram.";
+}
+
+// The clipboard's subscription link, or the problem with what is there.
+function clipboardLink() {
+  return phone ? api("/api/paste", { text: phone.clipboard() || "" }) : api("/api/paste");
+}
+
+// Asked only on mobile data, where the box shows.
+function checkBody(link) {
+  return { link, speed: $("speed").checked };
+}
+
 function showProblem(box, problem) {
   box.hidden = !problem;
   if (!problem) return;
@@ -79,7 +98,7 @@ $("link-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   $("start").disabled = true;
   try {
-    const { status, data } = await api("/api/check", { link: $("link").value });
+    const { status, data } = await api("/api/check", checkBody($("link").value));
     if (status !== 200) {
       showProblem($("link-problem"), data && data.problem);
       return;
@@ -91,7 +110,7 @@ $("link-form").addEventListener("submit", async (event) => {
 });
 
 $("paste").addEventListener("click", async () => {
-  const { data } = await api("/api/paste");
+  const { data } = await clipboardLink();
   if (data && data.link) {
     $("link").value = data.link;
     linkTouched = true;
@@ -116,7 +135,7 @@ $("stop").addEventListener("click", async () => {
 });
 
 $("again").addEventListener("click", async () => {
-  const { status, data } = await api("/api/check", { link: (current && current.link) || $("link").value });
+  const { status, data } = await api("/api/check", checkBody((current && current.link) || $("link").value));
   if (status === 200) render(data);
   else toast(data && data.problem ? data.problem.title : "Не удалось начать проверку");
 });
@@ -131,6 +150,13 @@ $("other").addEventListener("click", async () => {
 $("save").addEventListener("click", async () => {
   $("save").disabled = true;
   try {
+    if (phone) {
+      // The phone asks where to put it; the app says when it is saved.
+      const { status, data } = await api("/api/report", {});
+      if (status === 200) phone.save(data.name);
+      else toast(data && data.problem ? data.problem.title + ". " + data.problem.text : "Не удалось сохранить отчёт");
+      return;
+    }
     const { status, data } = await api("/api/save", {});
     if (status === 200) toast("Сохранено: " + data.path);
     else toast(data && data.problem ? data.problem.title + ". " + data.problem.text : "Не удалось сохранить отчёт");
@@ -153,6 +179,12 @@ $("send").addEventListener("click", async () => {
 $("copy").addEventListener("click", async () => {
   $("copy").disabled = true;
   try {
+    if (phone) {
+      const { status, data } = await api("/api/report", {});
+      if (status === 200) phone.share(data.name);
+      else toast(data && data.problem ? data.problem.title + ". " + data.problem.text : "Не удалось поделиться файлом");
+      return;
+    }
     const { status, data } = await api("/api/copy", {});
     if (status === 200) {
       const keys = navigator.platform.startsWith("Mac") ? "Cmd+V" : "Ctrl+V";
@@ -320,6 +352,7 @@ function render(state) {
   if (idle) {
     if (!linkTouched && state.link && !$("link").value) $("link").value = state.link;
     $("remembered").hidden = !state.link;
+    $("speed-choice").hidden = !state.metered;
     builtRun = -1;
     return;
   }
@@ -419,7 +452,7 @@ async function offerClipboard() {
   // A link the customer has just copied goes straight into the field.
   if ($("link").value) return;
   try {
-    const { data } = await api("/api/paste");
+    const { data } = await clipboardLink();
     if (data && data.link && !$("link").value) $("link").value = data.link;
   } catch {
     // Nothing to offer.

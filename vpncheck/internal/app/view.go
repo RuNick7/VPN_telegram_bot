@@ -33,6 +33,8 @@ type state struct {
 	Sent    *site.Sent `json:"sent,omitempty"`
 	// The page is in the app's window: links go through /api/open.
 	Window bool `json:"window,omitempty"`
+	// The connection is metered: the page asks before measuring speed.
+	Metered bool `json:"metered,omitempty"`
 }
 
 type progress struct {
@@ -224,7 +226,7 @@ func (r *run) summarize(groups []groupView, servers []serverView) *summary {
 		}
 	}
 	if !r.internet {
-		sum.Tone, sum.Line = "bad", "Этот компьютер не выходит в интернет даже без VPN, поэтому серверы проверить нельзя."
+		sum.Tone, sum.Line = "bad", "Интернет не работает даже без VPN, поэтому серверы проверить нельзя."
 		return sum
 	}
 	var broken, partial []string

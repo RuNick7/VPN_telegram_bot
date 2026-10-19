@@ -1,7 +1,8 @@
 # Tests on Linux, macOS and Windows; builds every file; opens the built app
-# on a real Mac and real Windows (x64 and ARM64) to see its window work; and
-# on a version tag (v1.2.0), or a version given to «Run workflow», publishes
-# all of it as a release.
+# on a real Mac and real Windows (x64 and ARM64) to see its window work, and
+# the Android app on an emulator to see a check run there; and on a version
+# tag (v1.2.0), or a version given to «Run workflow», publishes all of it as
+# a release.
 name: build
 
 on:
@@ -123,9 +124,93 @@ jobs:
           path: ${{ runner.temp }}/*.png
           if-no-files-found: ignore
 
+  # The APK for phones: 64- and 32-bit ARM. Signed with the release key
+  # when the repository has one (Settings → Secrets: ANDROID_KEYSTORE_BASE64,
+  # ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD), with
+  # a throwaway debug key otherwise: good for a test install, but every build
+  # is then a different app to the phone, and does not update the last one.
+  android:
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.14.3
+      - name: Release key
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        run: |
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "ANDROID_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+      - run: android/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-android
+          path: dist/KairaVPN-Check.apk
+          if-no-files-found: error
+
+  # The same app built for an x86_64 emulator, debuggable, and with no site
+  # or domains compiled in, so the check can be pointed at any address: it
+  # starts, its page loads, and a check goes through the phone's DNS and TLS.
+  android-emulator:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.14.3
+      - name: Build for the emulator
+        env:
+          ABIS: x86_64
+          SITE: ""
+          DOMAINS: ""
+        run: android/build.sh debug
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run a check on the emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: android/smoke.sh "$RUNNER_TEMP/android.png"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots-android
+          path: ${{ runner.temp }}/android.png
+          if-no-files-found: ignore
+
   release:
     if: github.ref_type == 'tag' || startsWith(inputs.release, 'v')
-    needs: [test, build, macos, windows]
+    needs: [test, build, macos, windows, android, android-emulator]
     runs-on: ubuntu-latest
     permissions:
       contents: write

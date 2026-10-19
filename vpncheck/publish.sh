@@ -4,6 +4,8 @@
 #
 #   ./publish.sh            push the current commit's vpncheck/ to main
 #   ./publish.sh v1.2.0     the same, then tag it: Actions publish a release
+#   BRANCH=try ./publish.sh to a branch instead, for a build started by hand
+#                           (Actions → build → Run workflow) before main has it
 #
 # This directory is the source; the public repository is a copy of it. Only
 # what is committed goes, so nothing local leaks out with it.
@@ -11,6 +13,7 @@ set -eu
 cd "$(dirname "$0")"
 
 REPO="${REPO:-https://github.com/RuNick7/vpn-check.git}"
+BRANCH="${BRANCH:-main}"
 TAG="${1:-}"
 source_commit="$(git rev-parse --short HEAD)"
 if [ -n "$(git status --porcelain -- .)" ]; then
@@ -31,8 +34,11 @@ if git diff --cached --quiet; then
     echo "nothing changed since the last publish"
 else
     git commit --quiet -m "Sync from the service repository at $source_commit"
-    git push --quiet origin HEAD:main
-    echo "pushed $(git rev-parse --short HEAD) to $REPO"
+    # main only ever moves forward; a trial branch is redone on top of it.
+    force=""
+    [ "$BRANCH" = main ] || force="--force"
+    git push --quiet $force origin "HEAD:$BRANCH"
+    echo "pushed $(git rev-parse --short HEAD) to $REPO ($BRANCH)"
 fi
 if [ -n "$TAG" ]; then
     git tag -a "$TAG" -m "KairaVPN Проверка $TAG"
