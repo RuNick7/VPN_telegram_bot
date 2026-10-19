@@ -1,7 +1,8 @@
 // vpncheck-app is vpncheck for customers: one field for the subscription
-// link and a few buttons, in a window of its own on macOS and Windows and in
-// the browser elsewhere. The page and everything behind it are
-// internal/app; this only starts it on this computer alone.
+// link and a few buttons, in a window of its own on macOS and Windows, in
+// the Android app's on a phone, and in the browser elsewhere. The page and
+// everything behind it are internal/app; this only starts it on this device
+// alone.
 package main
 
 import (
@@ -11,6 +12,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -23,6 +25,7 @@ import (
 
 	"github.com/RuNick7/vpn-check/internal/app"
 	"github.com/RuNick7/vpn-check/internal/check"
+	"github.com/RuNick7/vpn-check/internal/phone"
 	"github.com/RuNick7/vpn-check/internal/subscription"
 )
 
@@ -42,6 +45,10 @@ const idleExit = 3 * time.Minute
 const appTitle = "KairaVPN Проверка"
 
 func main() {
+	// Before anything resolves a name, in a tunnel worker too: see phone.
+	if path := os.Getenv(phone.FileEnv); path != "" {
+		phone.Use(path)
+	}
 	check.ServeWorker()
 	os.Exit(run())
 }
@@ -71,6 +78,16 @@ func run() int {
 		Site:      site,
 	}
 
+	// Started by the Android app, which shows the page itself.
+	if path := os.Getenv(phone.FileEnv); path != "" {
+		// "Android 14, Xiaomi 23053RN02Y": the report's device line.
+		if system := os.Getenv("VPNCHECK_SYSTEM"); system != "" {
+			cfg.Platform = system + ", " + runtime.GOARCH
+		}
+		cfg.Metered = func() bool { return phone.Read(path).Metered }
+		return runPhone(cfg)
+	}
+
 	if hasWindow && !*inBrowser && !*noBrowser && webviewInstalled() {
 		cfg.Window = true
 		a := app.New(cfg, "")
@@ -94,15 +111,14 @@ func run() int {
 	return runBrowser(cfg, *noBrowser)
 }
 
-// runBrowser serves the page on 127.0.0.1 and opens it in the browser, and
-// exits once the page has been closed for a while.
-func runBrowser(cfg app.Config, noBrowser bool) int {
-	// Port 0: a free one, so two copies never fight over it. Loopback only:
-	// nothing outside this computer can reach the page.
+// serve serves the page on 127.0.0.1 and returns its address, key
+// included. Port 0: a free one, so two copies never fight over it. Loopback
+// only: nothing outside this device can reach the page, and what on it can
+// gets nowhere without the key.
+func serve(cfg app.Config) (*app.App, *http.Server, string, error) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "Не удалось запустить проверку:", err)
-		return 2
+		return nil, nil, "", err
 	}
 	var raw [16]byte
 	_, _ = rand.Read(raw[:])
@@ -115,8 +131,17 @@ func runBrowser(cfg app.Config, noBrowser bool) int {
 			fmt.Fprintln(os.Stderr, err)
 		}
 	}()
+	return a, server, fmt.Sprintf("http://%s/#k=%s", listener.Addr(), token), nil
+}
 
-	url := fmt.Sprintf("http://%s/#k=%s", listener.Addr(), token)
+// runBrowser serves the page and opens it in the browser, and exits once
+// the page has been closed for a while.
+func runBrowser(cfg app.Config, noBrowser bool) int {
+	a, server, url, err := serve(cfg)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Не удалось запустить проверку:", err)
+		return 2
+	}
 	fmt.Printf("vpncheck %s — проверка серверов VPN\n\n", version)
 	fmt.Println("Проверка открыта в браузере. Не закрывайте это окно, пока она идёт.")
 	if noBrowser {
@@ -145,6 +170,37 @@ func runBrowser(cfg app.Config, noBrowser bool) int {
 		cancel()
 		return 0
 	}
+}
+
+// runPhone serves the page for the Android app, which reads the address
+// from the first line it prints and shows the page in its own window. It
+// runs until the app stops it, or until the app is gone: the end of stdin,
+// which is a pipe from the app, says so even when the app was killed and
+// could not stop it.
+func runPhone(cfg app.Config) int {
+	a, server, url, err := serve(cfg)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Не удалось запустить проверку:", err)
+		return 2
+	}
+	fmt.Println("URL " + url)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	gone := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		close(gone)
+	}()
+	select {
+	case <-ctx.Done():
+	case <-gone:
+	}
+	a.Stop()
+	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	_ = server.Shutdown(shutdown)
+	cancel()
+	return 0
 }
 
 func splitList(value string) []string {

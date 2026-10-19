@@ -38,10 +38,14 @@
         <button type="button" id="paste" class="field-btn">Вставить</button>
       </div>
       <div id="link-problem" class="problem" role="alert" hidden><strong></strong><span></span></div>
+      <label id="speed-choice" class="choice" hidden>
+        <input type="checkbox" id="speed">
+        <span>Замерить скорость: около 1 МБ мобильного трафика на каждый сервер</span>
+      </label>
       <button type="submit" id="start" class="primary big">Проверить</button>
     </form>
     <p id="remembered" class="note" hidden>
-      Ссылка запомнена на этом компьютере. <button type="button" id="forget" class="link-btn">Забыть</button>
+      Ссылка запомнена на этом устройстве. <button type="button" id="forget" class="link-btn">Забыть</button>
     </p>
     <ul class="facts">
       <li>Проверяются все серверы подписки по очереди, обычно это несколько минут.</li>
@@ -94,7 +98,7 @@
         </button>
         <button type="button" id="copy" class="secondary">
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="12" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/></svg>
-          Скопировать файл
+          <span id="copy-label">Скопировать файл</span>
         </button>
       </div>
       <p id="report-hint" class="note" hidden>Скопированный файл можно сразу вставить в чат поддержки в Telegram.</p>

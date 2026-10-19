@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The page's own ground and the site's ember (app.css). -->
+    <color name="ground">#FF0E1014</color>
+    <color name="accent">#FFFF4F2B</color>
+</resources>

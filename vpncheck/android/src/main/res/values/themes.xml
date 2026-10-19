@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark, as the page is: the window does not flash white before it is
+         drawn, and the bars match it. -->
+    <style name="Theme.Check" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/ground</item>
+        <item name="android:statusBarColor">@color/ground</item>
+        <item name="android:navigationBarColor">@color/ground</item>
+        <item name="android:colorAccent">@color/accent</item>
+    </style>
+</resources>

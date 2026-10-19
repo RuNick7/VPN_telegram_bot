@@ -1,0 +1,78 @@
+// The Android app: a window with the check's page in it. The check itself is
+// vpncheck-app built for Android, packed in as lib/<abi>/libvpncheck.so so
+// that the system unpacks it where an app may run a program from; the app
+// starts it and shows what it serves. build.sh in this folder builds it all.
+plugins {
+    id 'com.android.application' version '8.7.3'
+}
+
+// Set by build.sh from the release version; a local build is version 1.
+def versionNameValue = providers.gradleProperty('versionName').getOrElse('dev')
+def versionCodeValue = providers.gradleProperty('versionCode').getOrElse('1').toInteger()
+// The ABIs whose libvpncheck.so build.sh put in jniLibs/.
+def abis = providers.gradleProperty('abis').getOrElse('arm64-v8a,armeabi-v7a').split(',') as List
+
+android {
+    namespace 'pro.kairavpn.check'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'pro.kairavpn.check'
+        minSdk 26
+        targetSdk 35
+        versionCode versionCodeValue
+        versionName versionNameValue
+        ndk {
+            abiFilters.addAll(abis)
+        }
+    }
+
+    // The release key comes from the environment (GitHub secrets); without
+    // it the release is signed with the debug key, good for a test install
+    // and nothing else.
+    def keystore = System.getenv('ANDROID_KEYSTORE')
+    signingConfigs {
+        if (keystore) {
+            release {
+                storeFile file(keystore)
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('ANDROID_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig keystore ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['jniLibs']
+        }
+    }
+
+    packaging {
+        jniLibs {
+            // Compressed in the APK and unpacked on install: the program
+            // has to be a file of its own to be started.
+            useLegacyPackaging = true
+            // Go strips it already; the NDK's strip has no business with it.
+            keepDebugSymbols.add('**/libvpncheck.so')
+        }
+    }
+
+    lint {
+        // Lint knows the Play Store's rules; this app is handed out as a
+        // file, and a lint update should not be what fails a release.
+        checkReleaseBuilds = false
+    }
+}

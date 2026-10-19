@@ -437,6 +437,62 @@ func TestPasteGivesOnlyALink(t *testing.T) {
 	if out.Link != "" || out.Problem == nil {
 		t.Errorf("clipboard text leaked: %+v", out)
 	}
+
+	// The Android page reads the clipboard itself and posts its text.
+	out.Link, out.Problem = "", nil
+	h.call("POST", "/api/paste", map[string]string{"text": "Ваша ссылка: https://sub.example.com/SayZcYcdx7zRHfxe"}, &out)
+	if out.Link != "https://sub.example.com/SayZcYcdx7zRHfxe" {
+		t.Errorf("posted text: link %q", out.Link)
+	}
+	out.Link = ""
+	h.call("POST", "/api/paste", map[string]string{"text": "пароль от почты hunter2"}, &out)
+	if out.Link != "" || out.Problem == nil {
+		t.Errorf("posted text leaked: %+v", out)
+	}
+}
+
+// On mobile data the page asks before downloading through every server,
+// and the zip it then shares is named for the Android app to find.
+func TestMeteredConnectionAsksBeforeSpeed(t *testing.T) {
+	web := internet(t)
+	h := newHarness(t, web.URL)
+	metered := true
+	h.app.cfg.Metered = func() bool { return metered }
+	p := newPanel(t, nil, nil)
+	p.status = http.StatusNotFound
+
+	speedOf := func(body map[string]any) int64 {
+		t.Helper()
+		var s state
+		if status := h.call("POST", "/api/check", body, &s); status != http.StatusOK || s.Metered != metered {
+			t.Fatalf("check: %d, metered %v", status, s.Metered)
+		}
+		h.wait()
+		h.app.mu.Lock()
+		defer h.app.mu.Unlock()
+		return h.app.run.opts.SpeedBytes
+	}
+	if got := speedOf(map[string]any{"link": p.link()}); got != 0 {
+		t.Errorf("speed measured without asking: %d bytes", got)
+	}
+	if got := speedOf(map[string]any{"link": p.link(), "speed": true}); got != 1 {
+		t.Errorf("speed asked for: %d bytes", got)
+	}
+	metered = false
+	if got := speedOf(map[string]any{"link": p.link()}); got != 1 {
+		t.Errorf("speed on Wi-Fi: %d bytes", got)
+	}
+
+	var out struct{ Name string }
+	if status := h.call("POST", "/api/report", struct{}{}, &out); status != http.StatusOK {
+		t.Fatalf("report: %d", status)
+	}
+	if !strings.HasPrefix(out.Name, "vpncheck-") || !strings.HasSuffix(out.Name, ".zip") || strings.ContainsAny(out.Name, `/\`) {
+		t.Fatalf("name %q", out.Name)
+	}
+	if _, err := os.Stat(filepath.Join(h.cfg.Dir, out.Name)); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestOnlyThePageWithTheKeyGetsIn(t *testing.T) {

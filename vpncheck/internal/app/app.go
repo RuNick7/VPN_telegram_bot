@@ -15,6 +15,7 @@ import (
 	"io/fs"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -46,6 +47,13 @@ type Config struct {
 	// The page is in the app's own window, which opens no links of its
 	// own: the page asks the app to open them in the browser.
 	Window bool
+	// The system and device a report names, in place of the one Go knows
+	// (the Android app names the Android version and the phone's model).
+	Platform string
+	// Whether the connection is charged by the megabyte, when the system
+	// says so: the page then asks before measuring speed through every
+	// server. Nil on a computer, where it never asks.
+	Metered func() bool
 }
 
 type App struct {
@@ -112,6 +120,8 @@ func (a *App) handler(overHTTP bool) http.Handler {
 	api.HandleFunc("POST /api/copy", a.handleCopy)
 	api.HandleFunc("POST /api/send", a.handleSend)
 	api.HandleFunc("GET /api/paste", a.handlePaste)
+	api.HandleFunc("POST /api/paste", a.handlePaste)
+	api.HandleFunc("POST /api/report", a.handleReport)
 	api.HandleFunc("POST /api/forget", a.handleForget)
 	api.HandleFunc("POST /api/open", a.handleOpen)
 
@@ -157,6 +167,7 @@ func (a *App) state() state {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	s := state{Phase: phaseIdle, Version: a.cfg.Version, Link: a.link, Run: a.runs, Window: a.cfg.Window}
+	s.Metered = a.cfg.Metered != nil && a.cfg.Metered()
 	if a.run != nil {
 		a.run.view(&s)
 		s.CanSend = a.cfg.Site != "" && a.run.sendable()
@@ -176,6 +187,8 @@ func (a *App) handleState(w http.ResponseWriter, r *http.Request) {
 func (a *App) handleCheck(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Link string `json:"link"`
+		// Measure speed on a metered connection; asked only there.
+		Speed bool `json:"speed"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 16<<10)).Decode(&body); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -190,7 +203,11 @@ func (a *App) handleCheck(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, map[string]any{"problem": &Problem{Title: "Проверка уже идёт", Text: "Дождитесь её конца или остановите её."}})
 		return
 	}
-	a.start(link)
+	opts := a.cfg.Options
+	if a.cfg.Metered != nil && a.cfg.Metered() && !body.Speed {
+		opts.SpeedBytes = 0
+	}
+	a.start(link, opts)
 	writeJSON(w, http.StatusOK, a.state())
 }
 
@@ -256,6 +273,18 @@ func (a *App) handleSave(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"path": saved})
 }
 
+// handleReport names the finished run's zip, for the Android app, which
+// saves and shares it itself: the page hands the name to the app's own
+// code, which finds the file in the folder it gave this process.
+func (a *App) handleReport(w http.ResponseWriter, r *http.Request) {
+	_, path, problem := a.report()
+	if problem != nil {
+		writeJSON(w, http.StatusConflict, map[string]any{"problem": problem})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"name": filepath.Base(path)})
+}
+
 func (a *App) handleCopy(w http.ResponseWriter, r *http.Request) {
 	_, path, problem := a.report()
 	if problem != nil {
@@ -275,8 +304,17 @@ func (a *App) handleCopy(w http.ResponseWriter, r *http.Request) {
 // handlePaste reads the clipboard for the «Вставить» button, and for the
 // first screen to offer a link the customer has just copied. Only a
 // subscription link ever leaves this handler, never the clipboard's text.
+// On Android the page reads the clipboard through the app and posts its
+// text here instead.
 func (a *App) handlePaste(w http.ResponseWriter, r *http.Request) {
 	text, err := a.desk.ReadText()
+	if r.Method == http.MethodPost {
+		var body struct {
+			Text string `json:"text"`
+		}
+		err = json.NewDecoder(io.LimitReader(r.Body, 16<<10)).Decode(&body)
+		text = body.Text
+	}
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]any{"problem": &Problem{Title: "Буфер обмена недоступен", Text: "Вставьте ссылку в поле сами: Cmd+V на Mac, Ctrl+V на Windows."}})
 		return

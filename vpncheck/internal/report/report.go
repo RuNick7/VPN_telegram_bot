@@ -76,7 +76,7 @@ func New(version string) *Report {
 }
 
 func platform() string {
-	name := map[string]string{"darwin": "macOS", "windows": "Windows", "linux": "Linux"}[runtime.GOOS]
+	name := map[string]string{"darwin": "macOS", "windows": "Windows", "linux": "Linux", "android": "Android"}[runtime.GOOS]
 	if name == "" {
 		name = runtime.GOOS
 	}
@@ -215,7 +215,7 @@ func Summary(rep *Report, logNames []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Проверка серверов vpncheck %s (Xray %s)\n", rep.Version, rep.Xray)
 	fmt.Fprintf(&b, "Начало: %s, длилась %s\n", rep.Started.Format("2006-01-02 15:04:05 -07:00"), duration(rep.Finished.Sub(rep.Started)))
-	fmt.Fprintf(&b, "Компьютер: %s\n", rep.Platform)
+	fmt.Fprintf(&b, "Устройство: %s\n", rep.Platform)
 	switch {
 	case rep.Clock.Known:
 		fmt.Fprintf(&b, "Часы компьютера: сверены, поправка %+.1f с\n", rep.Clock.Offset.Seconds())

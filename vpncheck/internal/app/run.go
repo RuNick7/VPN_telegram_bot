@@ -30,6 +30,7 @@ const (
 // under App.mu; the page reads them through state.
 type run struct {
 	link   string
+	opts   check.Options
 	cancel context.CancelFunc
 	red    *redact.Redactor
 	rep    *report.Report
@@ -101,9 +102,12 @@ func groupsOf(profiles []subscription.Profile, targets []*subscription.Target) [
 }
 
 // start begins a check of link, replacing whatever run came before.
-func (a *App) start(link string) {
+func (a *App) start(link string, opts check.Options) {
 	ctx, cancel := context.WithCancel(context.Background())
-	r := &run{link: link, cancel: cancel, red: redact.New(), rep: report.New(a.cfg.Version), phase: phaseFetching, current: -1}
+	r := &run{link: link, opts: opts, cancel: cancel, red: redact.New(), rep: report.New(a.cfg.Version), phase: phaseFetching, current: -1}
+	if a.cfg.Platform != "" {
+		r.rep.Platform = a.cfg.Platform
+	}
 	a.mu.Lock()
 	a.run = r
 	a.runs++
@@ -118,7 +122,7 @@ func (a *App) update(change func()) {
 }
 
 func (a *App) execute(ctx context.Context, r *run) {
-	opts := a.cfg.Options
+	opts := r.opts
 	opts.RunID = r.rep.RunID
 	// The site's word on payment, asked alongside everything else.
 	status := make(chan *site.Status, 1)
@@ -240,7 +244,7 @@ func subscriptionProblem(src report.Source, internet bool, now time.Time) *Probl
 	switch {
 	case src.Status == 0 && src.Error != "":
 		if !internet {
-			return &Problem{Title: "Нет интернета", Text: "Этот компьютер не выходит в интернет даже без VPN. Проверьте подключение и запустите проверку снова."}
+			return &Problem{Title: "Нет интернета", Text: "Интернет не работает даже без VPN. Проверьте подключение и запустите проверку снова."}
 		}
 		return &Problem{Title: "Подписка не скачалась",
 			Text: "Сервер подписок не ответил с этого интернета. Сохраните отчёт и пришлите его в поддержку: по нему видно, что именно не так."}
