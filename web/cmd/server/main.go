@@ -21,9 +21,11 @@ import (
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/deeplink"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/mailer"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/panel"
+	"github.com/RuNick7/VPN_telegram_bot/web/internal/push"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/static"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/store"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/support"
+	"github.com/RuNick7/VPN_telegram_bot/web/internal/webpush"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/yookassa"
 )
 
@@ -60,7 +62,19 @@ func main() {
 	// sending allowance or mailing anybody.
 	checkOnly := flag.Bool("check-smtp-auth", false,
 		"connect and authenticate without sending anything, then exit")
+	genVAPID := flag.Bool("gen-vapid", false,
+		"print a new VAPID key pair for Web Push, in .env form, and exit")
 	flag.Parse()
+
+	if *genVAPID {
+		public, private, err := webpush.GenerateKeys()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		fmt.Printf("WEB_PUSH_VAPID_PUBLIC_KEY=%s\nWEB_PUSH_VAPID_PRIVATE_KEY=%s\n", public, private)
+		return
+	}
 
 	if *testMailTo != "" || *checkOnly {
 		if err := checkSMTP(*testMailTo, *testMailTo != ""); err != nil {
@@ -124,6 +138,18 @@ func run(log *slog.Logger) error {
 		cfg.PaidSquadName, cfg.LTEEnabled, cfg.LTESquadName)
 	server := api.NewServer(cfg, st, authSvc, accountSvc, yookassa.New(cfg.YooKassaShopID, cfg.YooKassaSecretKey), log)
 
+	if cfg.Push.Enabled() {
+		// A key that does not parse stops the start rather than the sends:
+		// the second would look like customers ignoring their notifications.
+		keys, err := webpush.ParseKeys(cfg.Push.VAPIDPublicKey, cfg.Push.VAPIDPrivateKey)
+		if err != nil {
+			return err
+		}
+		pushSvc := push.New(st, keys, cfg.Push.Subject, log)
+		server.EnablePush(pushSvc)
+		go pushSvc.Run(ctx)
+	}
+
 	site, err := static.New(frontend.Files, static.Options{
 		TelegramLogin: cfg.TelegramLoginEnabled(),
 		// A year, which is what a preload list wants. Only ever sent on a
@@ -151,7 +177,7 @@ func run(log *slog.Logger) error {
 	go func() {
 		log.Info("listening", "addr", cfg.ListenAddr, "base_url", cfg.BaseURL,
 			"telegram_login", cfg.TelegramLoginEnabled(), "payments", cfg.PaymentsEnabled(),
-			"support", cfg.SupportEnabled)
+			"support", cfg.SupportEnabled, "push", cfg.Push.Enabled())
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errs <- err
 		}

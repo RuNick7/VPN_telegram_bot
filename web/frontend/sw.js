@@ -19,6 +19,9 @@
  *  - Fonts and images are cache-first: the server already calls them
  *    immutable, and a new file ships under a new name.
  *
+ * It also shows push notifications (internal/push decides what is sent).
+ * A notification only ever opens a page of this site.
+ *
  * Bump VERSION when the precache list changes; old caches are dropped on
  * activation.
  */
@@ -77,6 +80,54 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(networkFirst(request));
   }
 });
+
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    // Not ours, or garbled: still show something, because a push that shows
+    // nothing gets the subscription throttled by Chrome.
+  }
+  event.waitUntil(
+    self.registration.showNotification(data.title || "KairaVPN", {
+      body: data.body || "",
+      tag: data.tag || undefined,
+      lang: "ru",
+      icon: "/assets/img/icon-192.png",
+      data: { url: sitePath(data.url) },
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = new URL(sitePath(event.notification.data?.url), self.location.origin).href;
+  event.waitUntil(
+    (async () => {
+      const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      for (const client of windows) {
+        if (new URL(client.url).origin !== self.location.origin) continue;
+        try {
+          await client.focus();
+          await client.navigate(target);
+          return;
+        } catch {
+          // An uncontrolled window cannot be navigated; open a new one.
+        }
+      }
+      await self.clients.openWindow(target);
+    })(),
+  );
+});
+
+/** A path on this site, or the cabinet. Never another origin. */
+function sitePath(value) {
+  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//") || value.includes("\\")) {
+    return "/app";
+  }
+  return value;
+}
 
 async function offlinePage() {
   const cached = await caches.match(OFFLINE);

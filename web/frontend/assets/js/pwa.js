@@ -22,6 +22,22 @@ if ("serviceWorker" in navigator) {
   // A failed registration costs the offline page and the install prompt, not
   // the site, so it is not worth a message to the customer.
   navigator.serviceWorker.register("/sw.js").catch(() => {});
+
+  // Signed-in pages only, and once per visit: see push.js. Loaded on demand
+  // so the landing page never fetches it.
+  if (location.pathname.startsWith("/app") && !visited()) {
+    import("./push.js").then((push) => push.syncSubscription()).catch(() => {});
+  }
+}
+
+function visited() {
+  try {
+    if (sessionStorage.getItem("push-synced")) return true;
+    sessionStorage.setItem("push-synced", "1");
+  } catch {
+    // Storage blocked: sync on every page then, which is merely wasteful.
+  }
+  return false;
 }
 
 function isStandalone(win = window) {

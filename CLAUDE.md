@@ -145,7 +145,7 @@ Users used to be distributed across `internal-1..N` with a per-squad cap, which 
 
 ### web/ structure (Go)
 
-Standard layout: `cmd/server` wires everything, `internal/` holds the pieces — `config` (reads the same root `.env`), `store` (pgxpool, the only route to Postgres), `auth` (magic links, sessions, Telegram HMAC), `account` (coordinates DB + panel), `panel` (narrow Remnawave client), `yookassa`, `pricing`, `quota`, `mailer`, `api`, `static`. `frontend/` is the site, compiled in with `go:embed`.
+Standard layout: `cmd/server` wires everything, `internal/` holds the pieces — `config` (reads the same root `.env`), `store` (pgxpool, the only route to Postgres), `auth` (magic links, sessions, Telegram HMAC), `account` (coordinates DB + panel), `panel` (narrow Remnawave client), `yookassa`, `pricing`, `quota`, `mailer`, `api`, `static`, `webpush` (Web Push protocol, stdlib only), `push` (what is notified, polled from Postgres). The site is an installable PWA: `frontend/sw.js` and `frontend/manifest.webmanifest` are served from the root (`rootFiles` in `static`), and the worker never touches `/api/` or caches pages. `frontend/` is the site, compiled in with `go:embed`.
 
 Two invariants are enforced structurally rather than by discipline:
 

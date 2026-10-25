@@ -148,9 +148,32 @@
     </div>
   </section>
 
+  <!-- Shown by profile.js once the site says notifications are configured.
+       The choices are the account's and apply on every device; the button is
+       this browser's alone. -->
+  <section class="section" id="notifications" data-push-section hidden>
+    <div class="wrap stack">
+      <span class="section-tag">03 // Уведомления</span>
+      <p class="mono-sm muted" data-push-note>Проверяем…</p>
+      <div class="actions">
+        <button class="btn btn-sm" type="button" data-push-enable hidden>
+          <span data-icon="check"></span> Включить на этом устройстве
+        </button>
+        <button class="btn btn-outline btn-sm" type="button" data-push-test hidden>Проверить</button>
+        <button class="btn btn-ghost btn-sm" type="button" data-push-disable hidden>Выключить</button>
+      </div>
+      <div class="stack" role="group" aria-label="О чём сообщать" data-push-prefs>
+        <label class="check"><input type="checkbox" name="expiry"> Подписка заканчивается</label>
+        <label class="check"><input type="checkbox" name="support"> Ответ поддержки</label>
+        <label class="check"><input type="checkbox" name="payment"> Оплата прошла</label>
+      </div>
+      <p class="mono-sm muted">По умолчанию приходят только важные. Если привязан Telegram, бот пишет о том же — лишнее можно выключить здесь.</p>
+    </div>
+  </section>
+
   <section class="section">
     <div class="wrap stack">
-      <span class="section-tag">03 // Документы</span>
+      <span class="section-tag">04 // Документы</span>
       <!-- Real links, not placeholders waiting on /api/config. They are pages
            of this site, so hiding them until a config call succeeds meant this
            section could say "готовятся к публикации" directly above a footer
@@ -165,7 +188,7 @@
 
   <section class="section">
     <div class="wrap stack">
-      <span class="section-tag">04 // Сессия</span>
+      <span class="section-tag">05 // Сессия</span>
       <p class="mono-sm muted">Выход завершает только эту сессию. Подключённые устройства продолжат работать — они не зависят от входа на сайт.</p>
       <button class="btn btn-danger" type="button" data-logout>
         <span data-icon="logout"></span> Выйти из аккаунта

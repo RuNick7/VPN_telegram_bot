@@ -504,6 +504,21 @@ class UserRepository:
                     "UPDATE support_tickets SET user_id = $1::uuid WHERE user_id = $2::uuid",
                     plan.survivor_id, plan.absorbed_id,
                 )
+                # Browsers that allowed notifications follow the person too,
+                # and so do their choices, unless the survivor made its own.
+                await connection.execute(
+                    "UPDATE push_subscriptions SET user_id = $1::uuid WHERE user_id = $2::uuid",
+                    plan.survivor_id, plan.absorbed_id,
+                )
+                await connection.execute(
+                    """
+                    INSERT INTO push_preferences (user_id, expiry, support, payment)
+                    SELECT $1::uuid, expiry, support, payment
+                    FROM push_preferences WHERE user_id = $2::uuid
+                    ON CONFLICT (user_id) DO NOTHING
+                    """,
+                    plan.survivor_id, plan.absorbed_id,
+                )
 
     async def get_subscription_info(self, telegram_id: int) -> Optional[dict]:
         pool = await get_pool()
