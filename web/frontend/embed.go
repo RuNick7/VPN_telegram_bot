@@ -15,5 +15,5 @@ package frontend
 
 import "embed"
 
-//go:embed *.html app assets docs
+//go:embed *.html sw.js manifest.webmanifest app assets docs
 var Files embed.FS

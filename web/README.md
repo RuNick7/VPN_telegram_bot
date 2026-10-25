@@ -225,6 +225,22 @@ The background video is decoration on top of a poster that is already in place,
 so it is only fetched on a wide screen, and never when the visitor has asked for
 reduced motion or turned on a data saver. Phones get the still.
 
+### Installable app (PWA)
+
+The site installs to a home screen: `manifest.webmanifest` and `sw.js` sit at
+the top of the frontend tree and are served from the root (`rootFiles` in
+`internal/static`), because a service worker only controls URLs at or below its
+own path. Every page links the manifest and loads `assets/js/pwa.js`, which
+registers the worker and drives the «Приложение» card on `/app` (an install
+button where Chromium offers a prompt, the Share-menu steps on iOS).
+
+The worker never touches `/api/` and never caches pages: a navigation goes to
+the network and falls back to `/offline` only when there is none. Scripts and
+the stylesheet are network-first, so a deploy reaches an installed app exactly
+as it reaches a browser tab. Bump `VERSION` in `sw.js` when its precache list
+changes. The CSP carries `manifest-src 'self'` and `worker-src 'self'`; without
+them the manifest is silently ignored.
+
 ### Tests
 
 ```bash

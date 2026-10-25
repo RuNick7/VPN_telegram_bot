@@ -51,6 +51,7 @@ type asset struct {
 type Handler struct {
 	assets   map[string]*asset
 	pages    map[string]*asset
+	roots    map[string]*asset
 	notFound *asset
 	gift     *asset
 	csp      string
@@ -86,6 +87,19 @@ var pageRoutes = map[string]string{
 	// серверы» leads (VPNCHECK_DOWNLOAD_URL). The files themselves are on
 	// the program's GitHub releases.
 	"/check": "check.html",
+
+	// What the service worker answers a navigation with when there is no
+	// network. A real route, so the worker can precache it by URL.
+	"/offline": "offline.html",
+}
+
+// rootFiles are the files that have to sit at the top of the origin rather
+// than under /assets/. A service worker can only control URLs at or below its
+// own path, so /assets/sw.js could never handle a navigation to /app; the
+// manifest is here for symmetry and because that is where tools look first.
+var rootFiles = map[string]string{
+	"/sw.js":                "sw.js",
+	"/manifest.webmanifest": "manifest.webmanifest",
 }
 
 // PageRoutes lists every clean URL the site answers, sorted.
@@ -110,6 +124,7 @@ func New(files fs.FS, opts Options) (*Handler, error) {
 	h := &Handler{
 		assets: make(map[string]*asset),
 		pages:  make(map[string]*asset),
+		roots:  make(map[string]*asset),
 		csp:    buildCSP(opts.TelegramLogin),
 	}
 	if opts.HSTSSeconds > 0 {
@@ -143,6 +158,11 @@ func New(files fs.FS, opts Options) (*Handler, error) {
 	for route, file := range pageRoutes {
 		if a, ok := h.assets["/"+file]; ok {
 			h.pages[route] = a
+		}
+	}
+	for route, file := range rootFiles {
+		if a, ok := h.assets["/"+file]; ok {
+			h.roots[route] = a
 		}
 	}
 	h.notFound = h.assets["/404.html"]
@@ -237,6 +257,10 @@ func buildCSP(telegramLogin bool) string {
 		"font-src 'self'",
 		"media-src 'self'",
 		"connect-src 'self'",
+		// Both would fall back to default-src 'none' and fail silently: the
+		// manifest is simply ignored, and the site stops being installable.
+		"manifest-src 'self'",
+		"worker-src 'self'",
 		"frame-src " + frame,
 		"form-action 'self'",
 		"base-uri 'none'",
@@ -272,21 +296,22 @@ func newAsset(body []byte, name string, modTime time.Time) *asset {
 // video went out as application/octet-stream from a container while testing
 // clean on a developer's machine.
 var ourTypes = map[string]string{
-	".html":  "text/html; charset=utf-8",
-	".css":   "text/css; charset=utf-8",
-	".js":    "text/javascript; charset=utf-8",
-	".mjs":   "text/javascript; charset=utf-8",
-	".json":  "application/json; charset=utf-8",
-	".svg":   "image/svg+xml",
-	".png":   "image/png",
-	".webp":  "image/webp",
-	".avif":  "image/avif",
-	".ico":   "image/x-icon",
-	".woff2": "font/woff2",
-	".mp4":   "video/mp4",
-	".webm":  "video/webm",
-	".txt":   "text/plain; charset=utf-8",
-	".xml":   "application/xml",
+	".html":        "text/html; charset=utf-8",
+	".css":         "text/css; charset=utf-8",
+	".js":          "text/javascript; charset=utf-8",
+	".mjs":         "text/javascript; charset=utf-8",
+	".json":        "application/json; charset=utf-8",
+	".webmanifest": "application/manifest+json; charset=utf-8",
+	".svg":         "image/svg+xml",
+	".png":         "image/png",
+	".webp":        "image/webp",
+	".avif":        "image/avif",
+	".ico":         "image/x-icon",
+	".woff2":       "font/woff2",
+	".mp4":         "video/mp4",
+	".webm":        "video/webm",
+	".txt":         "text/plain; charset=utf-8",
+	".xml":         "application/xml",
 }
 
 func contentTypeFor(name string) string {
@@ -388,6 +413,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if page, ok := h.pages[cleaned]; ok {
 		h.serve(w, r, page, http.StatusOK)
+		return
+	}
+	if file, ok := h.roots[cleaned]; ok {
+		h.serve(w, r, file, http.StatusOK)
 		return
 	}
 
