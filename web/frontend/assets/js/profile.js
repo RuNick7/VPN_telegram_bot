@@ -8,6 +8,7 @@
  */
 
 import { boot, hydrateIcons } from "./app.js";
+import { currentSubscription, pushSupport, subscribe, unsubscribe } from "./push.js";
 import {
   $,
   api,
@@ -189,6 +190,86 @@ async function saveReferrer(event) {
   });
 }
 
+// -- notifications --------------------------------------------------------
+
+const PUSH_NOTES = {
+  on: "Включены на этом устройстве.",
+  off: "Выключены на этом устройстве.",
+  denied: "Уведомления запрещены в настройках браузера для этого сайта. Разрешите их там и обновите страницу.",
+  "ios-install": "На iPhone уведомления работают в установленном приложении: «Поделиться» → «На экран „Домой“», затем откройте его и включите здесь.",
+  unsupported: "Этот браузер не поддерживает уведомления.",
+};
+
+async function renderPush() {
+  const support = pushSupport();
+  let state = support;
+  if (support === "ok") {
+    if (Notification.permission === "denied") state = "denied";
+    else state = (await currentSubscription()) ? "on" : "off";
+  }
+  $("[data-push-note]").textContent = PUSH_NOTES[state];
+  show($("[data-push-enable]"), state === "off");
+  show($("[data-push-disable]"), state === "on");
+  show($("[data-push-test]"), state === "on");
+}
+
+async function setupPush() {
+  const status = await api("/api/push");
+  if (!status.push_enabled) return;
+  show($("[data-push-section]"));
+
+  const prefs = $("[data-push-prefs]");
+  for (const box of prefs.querySelectorAll("input[type=checkbox]")) {
+    box.checked = Boolean(status.preferences[box.name]);
+    box.addEventListener("change", async () => {
+      const body = {};
+      for (const each of prefs.querySelectorAll("input[type=checkbox]")) body[each.name] = each.checked;
+      try {
+        await api("/api/push/preferences", { method: "PUT", body });
+      } catch (err) {
+        box.checked = !box.checked;
+        flash(err instanceof ApiError ? err.message : "Не удалось сохранить.");
+      }
+    });
+  }
+
+  $("[data-push-enable]").addEventListener("click", (event) =>
+    withBusy(event.currentTarget, async () => {
+      clearFlash();
+      try {
+        const result = await subscribe(status.public_key);
+        if (result === "granted") flash("Уведомления включены.", "ok");
+      } catch (err) {
+        flash(err instanceof ApiError ? err.message : "Не удалось включить уведомления.");
+      }
+      await renderPush();
+    })
+  );
+  $("[data-push-disable]").addEventListener("click", (event) =>
+    withBusy(event.currentTarget, async () => {
+      clearFlash();
+      try {
+        await unsubscribe();
+      } catch (err) {
+        flash(err instanceof ApiError ? err.message : "Не удалось выключить.");
+      }
+      await renderPush();
+    })
+  );
+  $("[data-push-test]").addEventListener("click", (event) =>
+    withBusy(event.currentTarget, async () => {
+      clearFlash();
+      try {
+        await api("/api/push/test", { method: "POST" });
+        flash("Отправили. Уведомление должно прийти в течение минуты.", "ok");
+      } catch (err) {
+        flash(err instanceof ApiError ? err.message : "Не удалось отправить.");
+      }
+    })
+  );
+  await renderPush();
+}
+
 // -- boot -----------------------------------------------------------------
 
 boot(async (user) => {
@@ -208,4 +289,7 @@ boot(async (user) => {
   renderLinkState(linkStatus);
   renderReferrals(referrals);
   hydrateIcons();
+  // Last and on its own: a browser without push, or a failing call here,
+  // must not cost the rest of the page.
+  setupPush().catch(() => {});
 });

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"io/fs"
 	"net/http"
@@ -434,5 +435,123 @@ func dataIcons(body string) []string {
 			return names
 		}
 		names = append(names, rest[:end])
+	}
+}
+
+// -- PWA -------------------------------------------------------------------
+
+func TestEveryPageIsPartOfTheInstallableApp(t *testing.T) {
+	// The manifest link is what makes a page installable, and pwa.js is what
+	// registers the worker; a page missing either is one where the offline
+	// page never gets set up if that is where somebody arrives first.
+	site := newRealSite(t)
+	for _, target := range append(static.PageRoutes(), "/gift/X", "/no-such-page") {
+		_, body := fetch(t, site, target)
+		if !strings.Contains(body, `<link rel="manifest" href="/manifest.webmanifest">`) {
+			t.Errorf("%s does not link the manifest", target)
+		}
+		if !strings.Contains(body, `src="/assets/js/pwa.js"`) {
+			t.Errorf("%s does not load pwa.js", target)
+		}
+	}
+}
+
+func TestTheManifestDescribesAnInstallableApp(t *testing.T) {
+	site := newRealSite(t)
+	response, body := fetch(t, site, "/manifest.webmanifest")
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("manifest: status %d", response.StatusCode)
+	}
+	var manifest struct {
+		Name     string `json:"name"`
+		StartURL string `json:"start_url"`
+		Scope    string `json:"scope"`
+		Display  string `json:"display"`
+		Icons    []struct {
+			Src     string `json:"src"`
+			Sizes   string `json:"sizes"`
+			Purpose string `json:"purpose"`
+		} `json:"icons"`
+		Shortcuts []struct {
+			URL string `json:"url"`
+		} `json:"shortcuts"`
+	}
+	if err := json.Unmarshal([]byte(body), &manifest); err != nil {
+		t.Fatalf("manifest is not JSON: %v", err)
+	}
+	if manifest.Name == "" || manifest.Display != "standalone" {
+		t.Errorf("name %q, display %q", manifest.Name, manifest.Display)
+	}
+
+	// Chromium's install criteria: a 192 and a 512 icon. A maskable one keeps
+	// Android from shrinking the logo onto a white plate.
+	sizes := map[string]bool{}
+	for _, icon := range manifest.Icons {
+		if response, _ := fetch(t, site, icon.Src); response.StatusCode != http.StatusOK {
+			t.Errorf("icon %s: status %d", icon.Src, response.StatusCode)
+		}
+		sizes[icon.Sizes+" "+icon.Purpose] = true
+	}
+	for _, want := range []string{"192x192 any", "512x512 any", "512x512 maskable"} {
+		if !sizes[want] {
+			t.Errorf("manifest has no %s icon", want)
+		}
+	}
+
+	// Every URL the app opens at must be a page the site actually serves.
+	routes := map[string]bool{}
+	for _, route := range static.PageRoutes() {
+		routes[route] = true
+	}
+	urls := []string{manifest.StartURL}
+	for _, shortcut := range manifest.Shortcuts {
+		urls = append(urls, shortcut.URL)
+	}
+	for _, url := range urls {
+		if !routes[url] {
+			t.Errorf("manifest opens %q, which is not a page", url)
+		}
+	}
+}
+
+func TestTheServiceWorkerPrecachesOnlyWhatExists(t *testing.T) {
+	// cache.addAll is all-or-nothing: one 404 in the list and the worker never
+	// installs, with nothing on the page to say so.
+	site := newRealSite(t)
+	_, worker := fetch(t, site, "/sw.js")
+	start := strings.Index(worker, "const PRECACHE = [")
+	end := strings.Index(worker[start:], "];")
+	if start < 0 || end < 0 {
+		t.Fatal("PRECACHE list not found in sw.js")
+	}
+	entries := 0
+	for _, line := range strings.Split(worker[start:start+end], "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, `"/`) {
+			continue
+		}
+		target := strings.Trim(strings.TrimSuffix(line, ","), `"`)
+		if response, _ := fetch(t, site, target); response.StatusCode != http.StatusOK {
+			t.Errorf("sw.js precaches %s, which returns %d", target, response.StatusCode)
+		}
+		entries++
+	}
+	if entries < 5 {
+		t.Errorf("only found %d precache entries; the parser is probably broken", entries)
+	}
+	// OFFLINE is named by constant in the list.
+	if response, _ := fetch(t, site, "/offline"); response.StatusCode != http.StatusOK {
+		t.Errorf("/offline returns %d", response.StatusCode)
+	}
+}
+
+func TestTheServiceWorkerNeverHandlesTheAPI(t *testing.T) {
+	// Answers from /api/ carry subscription links and session state; a cached
+	// copy would outlive sign-out. The worker only ever looks at navigations
+	// and /assets/.
+	site := newRealSite(t)
+	_, worker := fetch(t, site, "/sw.js")
+	if strings.Contains(worker, `"/api`) {
+		t.Error("sw.js mentions /api; it must leave the API to the network")
 	}
 }

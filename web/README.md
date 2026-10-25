@@ -225,6 +225,44 @@ The background video is decoration on top of a poster that is already in place,
 so it is only fetched on a wide screen, and never when the visitor has asked for
 reduced motion or turned on a data saver. Phones get the still.
 
+### Installable app (PWA)
+
+The site installs to a home screen: `manifest.webmanifest` and `sw.js` sit at
+the top of the frontend tree and are served from the root (`rootFiles` in
+`internal/static`), because a service worker only controls URLs at or below its
+own path. Every page links the manifest and loads `assets/js/pwa.js`, which
+registers the worker and drives the «Приложение» card on `/app` (an install
+button where Chromium offers a prompt, the Share-menu steps on iOS).
+
+The worker never touches `/api/` and never caches pages: a navigation goes to
+the network and falls back to `/offline` only when there is none. Scripts and
+the stylesheet are network-first, so a deploy reaches an installed app exactly
+as it reaches a browser tab. Bump `VERSION` in `sw.js` when its precache list
+changes. The CSP carries `manifest-src 'self'` and `worker-src 'self'`; without
+them the manifest is silently ignored.
+
+### Push notifications
+
+Web Push, switched on by `WEB_PUSH_VAPID_PRIVATE_KEY` (with its public half in
+`WEB_PUSH_VAPID_PUBLIC_KEY`; `server -gen-vapid` prints a pair). The protocol
+is `internal/webpush`, standard library only: RFC 8291 encryption, RFC 8292
+VAPID, and an endpoint allowlist (FCM, Apple, Mozilla, WNS), because the
+endpoint is a URL a browser hands us and this server then POSTs to.
+
+`internal/push` polls Postgres every minute, like admin_bot's support outbox,
+for what is due: a subscription ending within three days and again within one,
+an operator's answer the customer has not opened, a payment the webhook
+credited. `push_sent` records each event before it is sent and is cleared again
+if no browser accepted it, so restarts never repeat a notification and failures
+are retried. The customer chooses in the profile; the defaults
+(`migrations/0017_web_push`, `store.DefaultPushPreferences`) are the important
+two only, since a Telegram-linked customer already hears the same from the bot.
+A notification names what happened, never the content of an answer: it shows on
+a lock screen.
+
+Outbound, the server needs HTTPS to `fcm.googleapis.com`, `*.push.apple.com`
+and `*.push.services.mozilla.com`. Nothing inbound changes.
+
 ### Tests
 
 ```bash

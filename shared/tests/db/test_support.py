@@ -349,6 +349,39 @@ async def test_linking_telegram_carries_the_tickets_over_to_the_survivor():
     assert ticket["telegram_id"] == 9001
 
 
+async def test_linking_telegram_carries_push_notifications_over_too():
+    """
+    Browsers that allowed notifications, and the choices made for them, belong
+    to the person. Left on the absorbed row, they would fall silent.
+    """
+    now = int(time.time())
+    web_id = await _customer("push-merge@example.com")
+    pool = await get_pool()
+    await pool.execute(
+        "INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth) "
+        "VALUES ($1::uuid, 'https://fcm.googleapis.com/fcm/send/x', 'k', 'a')",
+        web_id,
+    )
+    await pool.execute(
+        "INSERT INTO push_preferences (user_id, expiry, support, payment) "
+        "VALUES ($1::uuid, FALSE, TRUE, TRUE)",
+        web_id,
+    )
+    await users.create_user_record(9002, "tg_push")
+    telegram_row = await users.get_user_by_id(9002)
+    web_row = await users.get_user_by_uuid(web_id)
+
+    await users.apply_merge(plan_merge(survivor=dict(telegram_row), absorbed=dict(web_row), now=now))
+
+    survivor = str(telegram_row["id"])
+    owner = await pool.fetchval("SELECT user_id::text FROM push_subscriptions")
+    assert owner == survivor
+    prefs = await pool.fetchrow(
+        "SELECT expiry, support, payment FROM push_preferences WHERE user_id = $1::uuid", survivor
+    )
+    assert dict(prefs) == {"expiry": False, "support": True, "payment": True}
+
+
 async def test_deleting_a_customer_takes_their_tickets_with_them():
     user_id = await _customer()
     ticket_id, _ = await _ticket(user_id, files=[("a.png", "image/png", b"\x89PNG")])

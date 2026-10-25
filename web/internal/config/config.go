@@ -60,7 +60,21 @@ type Config struct {
 	// carries it to an operator is a customer waiting on nobody. The same key
 	// switches admin_bot's forwarding on, so the two are enabled together.
 	SupportEnabled bool
+
+	// Push is Web Push. On when the VAPID private key is set; see
+	// `server -gen-vapid`.
+	Push Push
 }
+
+type Push struct {
+	VAPIDPublicKey  string
+	VAPIDPrivateKey string
+	// Subject is how a push service reaches whoever runs this sender: a
+	// mailto: or https: URL. Defaults to WEB_BASE_URL.
+	Subject string
+}
+
+func (p Push) Enabled() bool { return p.VAPIDPrivateKey != "" }
 
 type SMTP struct {
 	Host     string
@@ -153,7 +167,12 @@ func Load(envFiles ...string) (*Config, error) {
 		LTECycleDays:      getInt("LTE_CYCLE_DAYS", 30),
 		TrialDays:         getInt("TRIAL_DAYS", 7),
 		SupportEnabled:    getBool("SUPPORT_ENABLED", false),
+		Push: Push{
+			VAPIDPublicKey:  getString("WEB_PUSH_VAPID_PUBLIC_KEY", ""),
+			VAPIDPrivateKey: getString("WEB_PUSH_VAPID_PRIVATE_KEY", ""),
+		},
 	}
+	cfg.Push.Subject = getString("WEB_PUSH_SUBJECT", cfg.BaseURL)
 	cfg.WebTrialDays = getInt("WEB_TRIAL_DAYS", cfg.TrialDays)
 	if cfg.WebTrialDays < 0 {
 		cfg.WebTrialDays = 0

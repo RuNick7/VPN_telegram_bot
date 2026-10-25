@@ -19,6 +19,7 @@ import (
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/auth"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/config"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/pricing"
+	"github.com/RuNick7/VPN_telegram_bot/web/internal/push"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/store"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/yookassa"
 )
@@ -41,6 +42,10 @@ type Server struct {
 
 	// Support uploads held in memory at once; see acquireUploadSlot.
 	uploads chan struct{}
+
+	// Web Push; nil when no VAPID key is configured.
+	push      *push.Service
+	pushTests *testLimiter
 }
 
 func NewServer(
@@ -121,6 +126,14 @@ func (s *Server) Routes() http.Handler {
 	// the whole authorisation (vpncheck_handlers.go).
 	mux.HandleFunc("POST /api/vpncheck/status", s.handleVpncheckStatus)
 	mux.HandleFunc("POST /api/vpncheck/report", s.handleVpncheckReport)
+
+	// Web Push. Answered with push_enabled=false when it is not configured,
+	// so the profile can hide the section instead of failing.
+	mux.Handle("GET /api/push", s.authenticated(s.handlePushStatus))
+	mux.Handle("PUT /api/push/subscription", s.authenticated(s.pushOnly(s.handleSavePushSubscription)))
+	mux.Handle("DELETE /api/push/subscription", s.authenticated(s.pushOnly(s.handleDeletePushSubscription)))
+	mux.Handle("PUT /api/push/preferences", s.authenticated(s.pushOnly(s.handleSetPushPreferences)))
+	mux.Handle("POST /api/push/test", s.authenticated(s.pushOnly(s.handleTestPush)))
 
 	return s.withRecovery(s.withSecurityHeaders(mux))
 }

@@ -10,9 +10,13 @@
 <link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png">
 <link rel="preload" href="/assets/fonts/inter-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/assets/fonts/jetbrains-mono-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="apple-mobile-web-app-title" content="KairaVPN">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <link rel="stylesheet" href="/assets/css/app.css">
 <script type="module" src="/assets/js/overview.js"></script>
 <script type="module" src="/assets/js/footer.js"></script>
+<script type="module" src="/assets/js/pwa.js"></script>
 </head>
 <body>
 <!--icon-sprite-->
@@ -167,6 +171,22 @@
         </button>
       </div>
       <a class="mono-sm accent" href="/app/devices">Инструкции по установке и QR-код →</a>
+    </div>
+  </section>
+
+  <!-- Shown by pwa.js only where installing is possible and not yet done:
+       with a button where the browser offers a prompt, with the Share-menu
+       steps on iOS, which never does. -->
+  <section class="section" data-install hidden>
+    <div class="wrap stack">
+      <span class="section-tag">Приложение</span>
+      <p class="mono-sm muted">Добавьте кабинет на главный экран: он откроется отдельным окном, как обычное приложение.</p>
+      <div class="actions">
+        <button class="btn btn-sm" type="button" data-install-button hidden>
+          <span data-icon="download"></span> Установить
+        </button>
+      </div>
+      <p class="mono-sm muted" data-install-ios hidden>В Safari нажмите «Поделиться», затем «На экран „Домой“».</p>
     </div>
   </section>
 

@@ -27,6 +27,8 @@ func testFS() fstest.MapFS {
 		"assets/img/logo.svg":   {Data: []byte(`<svg xmlns="http://www.w3.org/2000/svg"/>`)},
 		"assets/fonts/i.woff2":  {Data: []byte("\x77\x4f\x46\x32 not really a font")},
 		"assets/video/hero.mp4": {Data: []byte("\x00\x00\x00\x18ftypmp42 not really a video")},
+		"sw.js":                 {Data: []byte("self.addEventListener('fetch', () => {});")},
+		"manifest.webmanifest":  {Data: []byte(`{"name":"test"}`)},
 	}
 }
 
@@ -214,6 +216,8 @@ func TestContentSecurityPolicyForbidsInlineCodeByDefault(t *testing.T) {
 		"base-uri 'none'",
 		"frame-ancestors 'none'",
 		"form-action 'self'",
+		"manifest-src 'self'",
+		"worker-src 'self'",
 	} {
 		if !strings.Contains(csp, required) {
 			t.Errorf("CSP is missing %q: %s", required, csp)
@@ -252,9 +256,9 @@ func TestEveryResponseCarriesTheHardeningHeaders(t *testing.T) {
 	for _, target := range []string{"/", "/assets/css/app.css", "/nope"} {
 		header := get(t, h, target, nil).Header
 		for key, want := range map[string]string{
-			"X-Content-Type-Options":       "nosniff",
-			"X-Frame-Options":              "DENY",
-			"Referrer-Policy":              "same-origin",
+			"X-Content-Type-Options": "nosniff",
+			"X-Frame-Options":        "DENY",
+			"Referrer-Policy":        "same-origin",
 			// allow-popups, or Telegram's login widget cannot report back to
 			// the page that opened it -- see setSecurityHeaders.
 			"Cross-Origin-Opener-Policy":   "same-origin-allow-popups",
@@ -450,6 +454,10 @@ func TestContentTypesAreTheOnesBrowsersRequire(t *testing.T) {
 		// local test passed.
 		"/assets/video/hero.mp4": "video/mp4",
 		"/":                      "text/html",
+		// Chromium ignores a manifest served as anything else it does not
+		// recognise, and a worker must be a JavaScript type to register.
+		"/manifest.webmanifest": "application/manifest+json",
+		"/sw.js":                "javascript",
 	}
 	for target, want := range cases {
 		got := get(t, h, target, nil).Header.Get("Content-Type")
@@ -591,5 +599,34 @@ func TestAMissingPageFileIsNotFatal(t *testing.T) {
 	}
 	if response := get(t, h, "/login", nil); response.StatusCode != http.StatusNotFound {
 		t.Errorf("missing page: status %d, want 404", response.StatusCode)
+	}
+}
+
+// -- PWA -------------------------------------------------------------------
+
+func TestTheServiceWorkerAndManifestAreServedFromTheRoot(t *testing.T) {
+	// A worker controls only URLs at or below its own path, so one served from
+	// /assets/ could never answer a navigation to /app.
+	h := newTestHandler(t, Options{})
+	for _, target := range []string{"/sw.js", "/manifest.webmanifest"} {
+		response := get(t, h, target, nil)
+		if response.StatusCode != http.StatusOK {
+			t.Errorf("%s: status %d", target, response.StatusCode)
+		}
+		// The worker changes on deploy under the same name, like any script.
+		if got := response.Header.Get("Cache-Control"); got != "no-cache" {
+			t.Errorf("%s: Cache-Control %q", target, got)
+		}
+	}
+}
+
+func TestOnlyTheNamedRootFilesAreReachable(t *testing.T) {
+	// The root table is explicit for the same reason the page table is: a
+	// file at the top of the tree must not become a URL by being there.
+	h := newTestHandler(t, Options{})
+	for _, target := range []string{"/index.html", "/404.html", "/gift.html"} {
+		if got := get(t, h, target, nil).StatusCode; got != http.StatusNotFound {
+			t.Errorf("%s: status %d, want 404", target, got)
+		}
 	}
 }
