@@ -192,7 +192,7 @@ func checkAll(ctx context.Context, opts options, op *operator, interactive bool)
 	for _, step := range rep.Baseline {
 		fmt.Printf("  %-10s %s — %s\n", step.Status, step.Name, step.Detail)
 		if step.Name == "Другой VPN" {
-			fmt.Println("\n  Выключите VPN-приложение (Happ и другие) и запустите проверку снова — иначе проверяется не сервер, а ваш VPN.")
+			fmt.Println("\n  Выключите VPN-приложение (Incy и другие) и запустите проверку снова — иначе проверяется не сервер, а ваш VPN.")
 		}
 	}
 

@@ -7,7 +7,7 @@ from aiogram.fsm.state import StatesGroup, State
 from aiogram.types import CallbackQuery, Message
 
 from tgvpn_shared.db import PromoRepository, UserRepository
-from handlers.keyboards import back_to_menu_keyboard, referral_intro_keyboard
+from handlers.keyboards import REFERRAL_CALLBACK, back_to_menu_keyboard, referral_intro_keyboard
 from handlers.constants import SECONDS_IN_DAY, trial_days
 from handlers.utils import escape_markdown_v2
 
@@ -64,8 +64,20 @@ async def referral_program_entry(message: types.Message, state: FSMContext) -> N
     пользователь уже привёл. Если пригласившего нет – пояснение программы
     + статистика «приведённых».
     """
+    await _send_referral_info(message, message.from_user.id, state)
+
+
+@router.callback_query(F.data == REFERRAL_CALLBACK)
+async def referral_program_button(cb: CallbackQuery, state: FSMContext) -> None:
+    """«🎁 Реф. программа» in the main menu: the same screen as /ref."""
+    await cb.answer()
+    # `cb.message` was sent by the bot, so the person is `cb.from_user`.
+    await _send_referral_info(cb.message, cb.from_user.id, state)
+
+
+async def _send_referral_info(message: Message, telegram_id: int, state: FSMContext) -> None:
     await state.clear()
-    user = await _users.get_user_by_id(message.from_user.id)
+    user = await _users.get_user_by_id(telegram_id)
     if not user:
         await message.answer(
             escape_markdown_v2("Профиль ещё не создан. Используйте /start."),

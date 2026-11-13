@@ -128,8 +128,20 @@ function renderPlatform(platform) {
   }
 
   panel.append(renderSteps(platform.steps(subscriptionURL)));
+  // After the fallback rather than before it: "the link did not work" is the
+  // more common trouble, and this one only matters to people on an Apple ID
+  // whose store does not carry the app.
+  const extra = platform.extra
+    ? el("div", { class: "drop" }, [
+        el("h3", { class: "mono strong", text: platform.extra.title }),
+        renderSteps(platform.extra.steps()),
+      ])
+    : null;
 
-  if (platform.fallbackNeedsURL && !subscriptionURL) return;
+  if (platform.fallbackNeedsURL && !subscriptionURL) {
+    if (extra) panel.append(extra);
+    return;
+  }
   // Shown outright rather than behind a disclosure. Somebody reading this
   // section is already stuck, and asking them to find and open a second
   // control before the answer appears is a step too many -- the whole page is
@@ -140,6 +152,7 @@ function renderPlatform(platform) {
       renderSteps(platform.fallback(subscriptionURL)),
     ])
   );
+  if (extra) panel.append(extra);
 }
 
 function selectPlatform(key) {

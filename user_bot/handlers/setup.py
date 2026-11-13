@@ -27,6 +27,7 @@ from app.services.remnawave.vpn_service import get_client, get_subscription_url
 from handlers.keyboards import (
     manual_setup_keyboard,
     pay_keyboard,
+    region_help_keyboard,
     support_faq_back_to_devices_keyboard,
 )
 from precache_videos import VIDEOS
@@ -46,7 +47,7 @@ def _auto_import_wrapper() -> str:
     """
     Our own redirect for app deep links, or an empty string if we have none.
 
-    Telegram does not render `happ://…` as a link, so the one-tap import step
+    Telegram does not render `incy://…` as a link, so the one-tap import step
     has to be an https:// URL that becomes one. That used to be somebody else's
     server, which meant every customer's subscription URL -- the credential,
     whole and sufficient to configure their VPN as them -- went through a third
@@ -85,18 +86,36 @@ VIDEO_ID_CACHE: dict = _load_cache()
 
 # -- instruction text builders ---------------------------------------------
 
+# One app everywhere: Incy takes the full Xray JSON the panel serves, balancers
+# included, on phones, desktops and TVs alike. Happ is gone from the bot.
+INCY_SCHEME = "incy://import/"
+
+# The real Incy is published by LLC ITDEV. It is missing from the Russian App
+# Store, and that store carries look-alikes under the same name from other
+# sellers -- which is why the publisher is named wherever the link is.
+INCY_APPLE = "https://apps.apple.com/us/app/incy/id6756943388"
+INCY_ANDROID = "https://play.google.com/store/apps/details?id=llc.itdev.incy"
+# The project keeps a release under the fixed tag `latest` and re-uploads its
+# files there on every build. Not /releases/latest/download/: the newest
+# release in that repository is often an Android-only one, and a desktop file
+# name would 404 there.
+INCY_RELEASES = "https://github.com/INCY-DEV/incy-platforms/releases/tag/latest"
+INCY_DOWNLOAD = "https://github.com/INCY-DEV/incy-platforms/releases/download/latest/"
+INCY_APK = INCY_DOWNLOAD + "Incy.apk"
+APPLE_ACCOUNT = "https://account.apple.com/"
+
 
 def _manual_link_block(title: str, subscription_url: str) -> str:
     return (
         f"<b>Настройка VPN на {title}</b>\n\n"
-        "Ручная установка\n"
+        "Ссылка подписки для ручного добавления:\n"
         "---------------------------------------------\n"
         f"<code>{escape(subscription_url, quote=True)}</code>\n"
         "---------------------------------------------\n\n"
     )
 
 
-def _auto_import_link(subscription_url: str, scheme: str = "happ://add/") -> str:
+def _auto_import_link(subscription_url: str, scheme: str = INCY_SCHEME) -> str:
     """Telegram-safe deep link that imports the profile in one tap."""
     deep_link = f"{scheme}{subscription_url}"
     wrapper = _auto_import_wrapper()
@@ -109,79 +128,150 @@ def _auto_import_link(subscription_url: str, scheme: str = "happ://add/") -> str
     return escape(wrapper + quote(deep_link, safe=":/"), quote=True)
 
 
-def _happ_instruction(title: str, install_html: str) -> Callable[[str], str]:
+def import_button_url(subscription_url: str) -> str:
     """
-    The shared Happ flow: install, tap to auto-import, press connect.
+    The URL behind «📲 Добавить в Incy», or "" when there can be no button.
 
-    Four platforms (Android/iOS/Windows/macOS) differ only in where the app is
-    downloaded from, so that is the only thing each one supplies.
+    Telegram refuses a URL button with an app scheme outright, so the button
+    exists only when our own https:// redirect does. Unescaped: this goes into
+    a keyboard, not into HTML.
+    """
+    if not subscription_url or not _auto_import_wrapper():
+        return ""
+    return _auto_import_wrapper() + quote(f"{INCY_SCHEME}{subscription_url}", safe=":/")
+
+
+def _import_step(subscription_url: str) -> str:
+    """The one-tap import, as a button when there is one and a link otherwise."""
+    if import_button_url(subscription_url):
+        return "Нажмите «📲 Добавить в Incy» под этим сообщением — Incy откроется и добавит подписку."
+    return (
+        "Нажмите ссылку, чтобы подписка добавилась автоматически: "
+        f'<a href="{_auto_import_link(subscription_url)}">Добавить в Incy</a>'
+    )
+
+
+def _incy_instruction(title: str, install_html: str) -> Callable[[str], str]:
+    """
+    The shared Incy flow: install, tap to import, press connect.
+
+    Phones and desktops differ only in where the app is downloaded from, so
+    that is the only thing each one supplies.
     """
 
     def build(subscription_url: str) -> str:
         return (
             _manual_link_block(title, subscription_url)
             + f"<b>Шаг 1.</b> {install_html}\n\n"
-            "<b>Шаг 2.</b> Нажмите ссылку, чтобы профиль импортировался автоматически: "
-            f'<a href="{_auto_import_link(subscription_url)}">Нажмите для подключения</a>\n\n'
-            "<b>Шаг 3.</b> После импорта откройте приложение и нажмите на кнопку включения.\n\n"
+            f"<b>Шаг 2.</b> {_import_step(subscription_url)}\n\n"
+            "<b>Шаг 3.</b> Откройте Incy, выберите сервер и нажмите кнопку подключения.\n\n"
         )
 
     return build
 
 
 def _clipboard_manual(subscription_url: str) -> str:
-    """The 'couldn't connect' fallback for every Happ platform."""
+    """The 'couldn't connect' fallback for every phone and desktop."""
     return (
-        "<b>Ручной импорт конфигурации</b>\n\n"
+        "<b>Ручное добавление подписки</b>\n\n"
         "1️⃣ Скопируйте ссылку ниже:\n\n"
         f"<code>{escape(subscription_url, quote=True)}</code>\n\n"
-        "2️⃣ Откройте Happ\n"
-        "3️⃣ Нажмите на + в правом верхнем углу\n"
-        "4️⃣ Импортируйте из буфера обмена → выберите сервер → нажмите на кнопку включения.\n\n"
+        "2️⃣ Откройте Incy\n"
+        "3️⃣ Добавьте подписку из буфера обмена → выберите сервер → нажмите кнопку подключения.\n\n"
     )
 
 
-_APP_STORE_HTML = (
-    '<a href="https://apps.apple.com/us/app/happ-proxy-utility/id6504287215">Happ</a> из App Store.\n'
-    'Для региона RU: <a href="https://apps.apple.com/ru/app/happ-proxy-utility-plus/id6746188973">Happ (RU)</a>'
+_ANDROID_INSTALL = (
+    f'<a href="{INCY_ANDROID}">Установите Incy</a> из Google Play. '
+    f'Если Google Play недоступен — <a href="{INCY_APK}">скачайте APK</a>.'
 )
 
-# Koala Clash rather than NekoRay, whose last release was 4.0.1 in December 2024.
-# The links go through /releases/latest/download/, which GitHub resolves to the
-# newest release; Koala Clash names its files without a version, so a new
-# release never breaks them. The wording follows the app's own Russian
-# interface, so each step names what is actually on the screen.
-_KOALA_RELEASES = "https://github.com/coolcoala/koala-clash/releases/latest"
-_KOALA_DOWNLOAD = _KOALA_RELEASES + "/download/"
-
-_LINUX_INSTRUCTION = (
-    "<b>Настройка VPN на Linux (Koala Clash)</b>\n\n"
-    "<b>Шаг 1.</b> Скачайте Koala Clash под свою систему:\n"
-    f'<a href="{_KOALA_DOWNLOAD}Koala.Clash_amd64.deb">DEB — Debian, Ubuntu, Mint</a>\n'
-    f'<a href="{_KOALA_DOWNLOAD}Koala.Clash_x86_64.rpm">RPM — Fedora</a>\n'
-    f'<a href="{_KOALA_DOWNLOAD}Koala.Clash_x64.pkg.tar.xz">Arch Linux</a>\n'
-    f'Сборки для ARM — на <a href="{_KOALA_RELEASES}">странице релиза</a>.\n\n'
-    "<b>Шаг 2.</b> Установите пакет из папки, куда он скачался:\n"
-    "<code>sudo apt install ./Koala.Clash_amd64.deb</code>\n"
-    "<code>sudo dnf install ./Koala.Clash_x86_64.rpm</code>\n"
-    "<code>sudo pacman -U Koala.Clash_x64.pkg.tar.xz</code>\n\n"
-    "<b>Шаг 3.</b> Запустите Koala Clash из меню приложений.\n\n"
-    "<b>Шаг 4.</b> Скопируйте вашу ссылку на подписку:\n\n"
-    "<code>{url}</code>\n\n"
-    "<b>Шаг 5.</b> Откройте «Профили», нажмите «+» вверху, вставьте ссылку в поле "
-    "«Адрес подписки» и нажмите «Импорт».\n\n"
-    "<b>Шаг 6.</b> Включите «Режим TUN» — через VPN пойдёт весь трафик системы. "
-    "При первом включении нажмите «Перезапустить от имени администратора». "
-    "Если нужен только браузер, достаточно «Системного прокси».\n\n"
-    "<b>Шаг 7.</b> Подписка обновляется сама. Обновить вручную — кнопкой "
-    "«Обновить все профили» вверху раздела «Профили».\n\n"
+_IOS_INSTALL = (
+    f'Установите <a href="{INCY_APPLE}">Incy</a> из App Store — разработчик <b>LLC ITDEV</b>. '
+    "Если его не видно в App Store, нажмите «🔍 Не нахожу Incy в App Store»."
 )
+
+_WINDOWS_INSTALL = (
+    f'Скачайте <a href="{INCY_DOWNLOAD}incy-windows-setup.exe">установщик Incy для Windows</a> '
+    "и запустите его. Без установки — "
+    f'<a href="{INCY_DOWNLOAD}incy-windows-portable.zip">portable-версия</a>.'
+)
+
+# The .dmg rather than the App Store: it needs no change of App Store region,
+# and it is the only build for Intel Macs at all.
+_MACOS_INSTALL = (
+    "Скачайте Incy для своего Mac: "
+    f'<a href="{INCY_DOWNLOAD}incy-macos-arm64.dmg">Apple Silicon (M1 и новее)</a> или '
+    f'<a href="{INCY_DOWNLOAD}incy-macos-intel.dmg">Intel</a>. '
+    "Откройте файл .dmg и перетащите Incy в «Программы»."
+)
+
+
+def _linux_instruction(subscription_url: str) -> str:
+    url = escape(subscription_url, quote=True)
+    return (
+        "<b>Настройка VPN на Linux (Incy)</b>\n\n"
+        "<b>Шаг 1.</b> Скачайте Incy под свою систему:\n"
+        f'<a href="{INCY_DOWNLOAD}incy-linux-x64.deb">DEB — Debian, Ubuntu, Mint</a>\n'
+        f'<a href="{INCY_DOWNLOAD}incy-linux-x64.rpm">RPM — Fedora</a>\n'
+        f'<a href="{INCY_DOWNLOAD}incy-linux-x64.pkg.tar.zst">Arch Linux</a>\n'
+        f'Для ARM64: <a href="{INCY_DOWNLOAD}incy-linux-arm64.deb">DEB</a> или '
+        f'<a href="{INCY_DOWNLOAD}incy-linux-arm64.rpm">RPM</a>. '
+        f'Остальные сборки — на <a href="{INCY_RELEASES}">странице релиза</a>.\n\n'
+        "<b>Шаг 2.</b> Установите пакет из папки, куда он скачался:\n"
+        "<code>sudo apt install ./incy-linux-x64.deb</code>\n"
+        "<code>sudo dnf install ./incy-linux-x64.rpm</code>\n"
+        "<code>sudo pacman -U incy-linux-x64.pkg.tar.zst</code>\n\n"
+        "<b>Шаг 3.</b> Запустите Incy из меню приложений.\n\n"
+        f"<b>Шаг 4.</b> {_import_step(subscription_url)}\n"
+        "Если не сработало, скопируйте ссылку и добавьте её в Incy из буфера обмена:\n\n"
+        f"<code>{url}</code>\n\n"
+        "<b>Шаг 5.</b> Выберите сервер и нажмите кнопку подключения.\n\n"
+    )
+
 
 _TV_PAIRING_STEPS = (
-    "<b>Шаг 2.</b> Установите Happ на телефон (Google Play / App Store) и "
-    "подключите VPN по инструкции из раздела Android/iOS.\n\n"
-    "<b>Шаг 3.</b> Отсканируйте QR‑код с телефона и выберите отправку нужных конфигураций.\n\n"
-    "<b>Шаг 4.</b> Выберите конфигурацию на телевизоре и нажмите на кнопку включения.\n\n"
+    "<b>Шаг 2.</b> Установите Incy на телефон и добавьте подписку по инструкции "
+    "для Android или iPhone.\n\n"
+    "<b>Шаг 3.</b> Откройте Incy на телевизоре и перейдите к добавлению подписки — "
+    "на экране появятся код из 8 символов и QR‑код.\n\n"
+    "<b>Шаг 4.</b> В Incy на телефоне отсканируйте QR‑код или введите код с экрана — "
+    "подписка перейдёт на телевизор.\n\n"
+    "<b>Шаг 5.</b> Выберите сервер на телевизоре и нажмите кнопку подключения.\n\n"
+)
+
+_TV_MANUAL = (
+    "<b>Если не получилось подключиться</b>\n\n"
+    "• Код действует 5 минут. Закройте экран добавления подписки на телевизоре "
+    "и откройте снова — появится новый.\n"
+    "• Проверьте, что на телефоне подписка уже добавлена и VPN подключается.\n"
+    "• Удобнее всего, когда телефон и телевизор в одной сети Wi‑Fi, но передача "
+    "работает и через интернет.\n\n"
+)
+
+# How to get Incy when the App Store does not show it. The gentler way first:
+# a separate Apple ID touches nothing but the App Store, while changing the
+# country of the main one has preconditions Apple enforces.
+REGION_HELP_HTML = (
+    "<b>🔍 Не нахожу Incy в App Store</b>\n\n"
+    "В российском App Store Incy нет, а приложения с похожим названием — подделки. "
+    "Настоящий Incy выпускает <b>LLC ITDEV</b>. Чтобы его скачать, нужен Apple ID "
+    "другой страны, например США.\n\n"
+    "<b>Способ 1 — отдельный Apple ID (проще)</b>\n"
+    f'1. Создайте новый Apple ID на <a href="{APPLE_ACCOUNT}">account.apple.com</a>, '
+    "страна — США.\n"
+    "2. В App Store нажмите на аватар → «Выйти» и войдите с новым Apple ID. "
+    "Только в App Store — в настройках iCloud ничего не меняйте.\n"
+    "Фото, контакты и iCloud остаются на основном аккаунте.\n\n"
+    "<b>Способ 2 — сменить страну основного Apple ID</b>\n"
+    "1. Отмените активные подписки и потратьте остаток на балансе Apple ID — "
+    "иначе Apple не даст сменить страну.\n"
+    "2. Настройки → ваше имя → «Медиаматериалы и покупки» → «Просмотреть» → "
+    "«Страна или регион» → «Изменить страну или регион».\n"
+    "3. Выберите США, примите условия, способ оплаты — «Нет», адрес — любой адрес в США.\n\n"
+    f'<b>Затем</b> откройте <a href="{INCY_APPLE}">Incy в App Store</a> (разработчик LLC ITDEV) '
+    "и установите. После этого можно вернуться к прежнему Apple ID — Incy останется "
+    "и будет работать, а обновлять его нужно будет из того аккаунта, с которого он установлен."
 )
 
 
@@ -201,6 +291,8 @@ class PlatformSpec:
     # without one (TVs, paired from a phone) skip the panel round-trip.
     needs_url: bool = True
     # Alias into precache_videos.VIDEOS; None means text-only instructions.
+    # Every platform is text-only for now: the recorded videos show Happ, and
+    # the code stays for when videos of Incy exist.
     video_alias: str | None = None
     # Whether the manual follow-up needs the subscription URL specifically.
     manual_needs_url: bool = field(default=True)
@@ -208,41 +300,32 @@ class PlatformSpec:
     manual_edits_message: bool = False
     # Remove the instruction message after sending the manual fallback.
     manual_deletes_origin: bool = False
+    # Offer «🔍 Не нахожу Incy в App Store» -- the Apple devices that install
+    # from the App Store, where a Russian Apple ID cannot see the app.
+    region_help: bool = False
 
 
 PLATFORMS: dict[str, PlatformSpec] = {
     "android": PlatformSpec(
-        instruction=_happ_instruction(
-            "Android",
-            '<a href="https://play.google.com/store/apps/details?id=com.happproxy&hl=ru&pli=1">'
-            "Установите приложение Happ</a> из Google Play.",
-        ),
+        instruction=_incy_instruction("Android", _ANDROID_INSTALL),
         manual=_clipboard_manual,
-        video_alias="android",
         manual_deletes_origin=True,
     ),
     "ios": PlatformSpec(
-        instruction=_happ_instruction("iPhone", f"Установите приложение {_APP_STORE_HTML}"),
+        instruction=_incy_instruction("iPhone", _IOS_INSTALL),
         manual=_clipboard_manual,
-        video_alias="ios",
+        region_help=True,
     ),
     "windows": PlatformSpec(
-        instruction=_happ_instruction(
-            "Windows",
-            "Скачайте "
-            '<a href="https://github.com/Happ-proxy/happ-desktop/releases/latest/download/setup-Happ.x64.exe">'
-            "Happ</a> для Windows.",
-        ),
+        instruction=_incy_instruction("Windows", _WINDOWS_INSTALL),
         manual=_clipboard_manual,
-        video_alias="windows",
     ),
     "macos": PlatformSpec(
-        instruction=_happ_instruction("macOS", f"Установите {_APP_STORE_HTML}"),
+        instruction=_incy_instruction("macOS", _MACOS_INSTALL),
         manual=_clipboard_manual,
-        video_alias="macos",
     ),
     "linux": PlatformSpec(
-        instruction=lambda url: _LINUX_INSTRUCTION.format(url=escape(url, quote=True)),
+        instruction=_linux_instruction,
         manual=lambda _url: (
             "<b>Не получилось подключиться?</b>\n\n"
             "Если возникли проблемы, напишите в техподдержку или прочитайте ответы на "
@@ -253,46 +336,30 @@ PLATFORMS: dict[str, PlatformSpec] = {
     ),
     "tv": PlatformSpec(
         instruction=lambda _url: (
-            "<b>Настройка VPN на Android-TV</b>\n\n"
-            "<b>Шаг 1.</b> Установите Happ на Android TV:\n"
-            '<a href="https://play.google.com/store/apps/details?id=com.happproxy">Google Play</a> или '
-            '<a href="https://github.com/Happ-proxy/happ-android/releases/latest/download/Happ.apk">'
-            "APK‑файл</a>.\n\n"
+            "<b>Настройка VPN на Android TV</b>\n\n"
+            "<b>Шаг 1.</b> Установите Incy на телевизор: "
+            f'<a href="{INCY_ANDROID}">Google Play</a> или '
+            f'<a href="{INCY_APK}">APK‑файл</a>.\n'
             "Если устанавливаете через APK, скачайте файл на флешку, "
             "вставьте флешку в телевизор и откройте APK через файловый менеджер на ТВ.\n\n"
             + _TV_PAIRING_STEPS
         ),
-        manual=lambda _url: (
-            "<b>Если не получилось подключиться</b>\n\n"
-            "<b>Шаг 1.</b> Установите Happ из "
-            '<a href="https://play.google.com/store/apps/details?id=com.happproxy">Google Play</a> '
-            "или скачайте APK: "
-            '<a href="https://github.com/Happ-proxy/happ-android/releases/latest/download/Happ.apk">'
-            "Happ.apk</a>\n\n"
-            "<b>Шаг 2.</b> Скачайте QR‑код на флешку.\n\n"
-            "<b>Шаг 3.</b> На телевизоре откройте Happ → нажмите <i>+</i> → "
-            "выберите добавление через QR‑code → укажите файл на флешке.\n\n"
-        ),
+        manual=lambda _url: _TV_MANUAL,
         needs_url=False,
         manual_needs_url=False,
     ),
     "appletv": PlatformSpec(
         instruction=lambda _url: (
             "<b>Настройка VPN на Apple TV</b>\n\n"
-            "<b>Шаг 1.</b> Установите Happ на Apple TV:\n"
-            '<a href="https://apps.apple.com/us/app/happ-proxy-utility-for-tv/id6748297274">'
-            "Happ для Apple TV</a>\n\n" + _TV_PAIRING_STEPS
+            f'<b>Шаг 1.</b> Установите <a href="{INCY_APPLE}">Incy</a> из App Store '
+            "на телевизоре (разработчик LLC ITDEV, нужен tvOS 17 или новее). "
+            "Если его не видно в App Store, нажмите «🔍 Не нахожу Incy в App Store».\n\n"
+            + _TV_PAIRING_STEPS
         ),
-        manual=lambda _url: (
-            "<b>Не получилось подключиться?</b>\n\n"
-            "На экране импорта выберите «Web Import».\n\n"
-            "Выберите один из вариантов:\n\n"
-            "Откройте в любом браузере сайт tv.happ.su, введите временный код с экрана TV, "
-            "затем добавьте данные и нажмите «Отправить».\n\n"
-        ),
+        manual=lambda _url: _TV_MANUAL,
         needs_url=False,
         manual_needs_url=False,
-        manual_edits_message=True,
+        region_help=True,
     ),
 }
 
@@ -397,7 +464,11 @@ async def platform_instruction(cb: CallbackQuery) -> None:
             return
 
     text = spec.instruction(subscription_url)
-    keyboard = manual_setup_keyboard(key)
+    keyboard = manual_setup_keyboard(
+        key,
+        import_url=import_button_url(subscription_url),
+        region_help=spec.region_help,
+    )
     await cb.answer()
 
     if spec.video_alias and get_settings().show_video_instructions:
@@ -446,3 +517,19 @@ async def platform_manual_setup(cb: CallbackQuery) -> None:
             await cb.message.delete()
         except Exception:
             pass
+
+
+@router.callback_query(F.data.startswith("region_help:"))
+async def platform_region_help(cb: CallbackQuery) -> None:
+    """«🔍 Не нахожу Incy в App Store»: how to reach the real app."""
+    key = cb.data.split(":", 1)[1]
+    if key not in PLATFORMS:
+        await cb.answer()
+        return
+    await cb.answer()
+    await cb.message.answer(
+        REGION_HELP_HTML,
+        parse_mode="HTML",
+        reply_markup=region_help_keyboard(key),
+        disable_web_page_preview=True,
+    )

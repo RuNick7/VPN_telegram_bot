@@ -11,7 +11,15 @@ import (
 
 // The real shape, and the only one that matters: an app scheme whose payload is
 // itself an https:// URL.
-const realLink = "happ://add/https://sub.kairavpn.pro/2wvpucv-MMuRnqsp"
+const realLink = "incy://import/https://sub.kairavpn.pro/2wvpucv-MMuRnqsp"
+
+func TestAnOldHappButtonStillWorks(t *testing.T) {
+	// Setup messages sent before the switch to Incy still carry happ:// buttons.
+	const old = "happ://add/https://sub.kairavpn.pro/2wvpucv-MMuRnqsp"
+	if got, err := Target(old); err != nil || got != old {
+		t.Errorf("Target(%q) = %q, %v; want it passed through", old, got, err)
+	}
+}
 
 func TestAnAppLinkSurvivesByteForByte(t *testing.T) {
 	// Round-tripping it through net/url collapses the `//` in the inner
@@ -27,7 +35,7 @@ func TestAnAppLinkSurvivesByteForByte(t *testing.T) {
 }
 
 func TestTheSchemeIsMatchedWithoutRegardToCase(t *testing.T) {
-	if _, err := Target("HAPP://add/https://sub.example.com/tok"); err != nil {
+	if _, err := Target("INCY://import/https://sub.example.com/tok"); err != nil {
 		t.Errorf("uppercase scheme refused: %v", err)
 	}
 }

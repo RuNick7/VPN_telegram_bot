@@ -7,7 +7,7 @@
 [Releases](https://github.com/RuNick7/vpn-check/releases/latest). Для Mac —
 `KairaVPN-Check.dmg`, для Windows — `KairaVPN-Check-x64.exe`, для Android —
 `KairaVPN-Check.apk`. Перед проверкой
-выключите Happ или другой VPN, вставьте ссылку на подписку и нажмите
+выключите Incy или другой VPN, вставьте ссылку на подписку и нажмите
 «Проверить». «Отправить в поддержку» кладёт отчёт в ваше обращение; ключи,
 ссылка и ваш IP-адрес из него вырезаются.
 

@@ -24,7 +24,7 @@ from app.services.remnawave.vpn_service import (
     get_devices,
     reset_subscription_url,
 )
-from handlers.keyboards import back_to_devices_keyboard, pay_keyboard
+from handlers.keyboards import CONNECT_CALLBACK, RED, back_to_devices_keyboard, pay_keyboard
 
 router = Router()
 logger = logging.getLogger(__name__)
@@ -72,14 +72,15 @@ def devices_keyboard(devices: list[dict]) -> InlineKeyboardMarkup:
         for device in devices
         if device.get("hwid")
     ]
-    rows.append([InlineKeyboardButton(text="🔙 К выбору устройства", callback_data="main_menu")])
+    rows.append([InlineKeyboardButton(text="🔙 К выбору устройства", callback_data=CONNECT_CALLBACK)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _confirm_keyboard(confirm_data: str, *, confirm_text: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=confirm_text, callback_data=confirm_data)],
+            # Red: both confirmations cut a device off.
+            [InlineKeyboardButton(text=confirm_text, callback_data=confirm_data, style=RED)],
             [InlineKeyboardButton(text="🔙 Отмена", callback_data="my_devices")],
         ]
     )

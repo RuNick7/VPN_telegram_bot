@@ -123,14 +123,21 @@ def test_only_listed_packs_have_a_price(spoofed):
     assert LTE_TRAFFIC_PACKS.get(size) is None
 
 
-def test_devices_menu_offers_renewal_at_the_bottom():
-    rows = os_keyboard().inline_keyboard
-    last_row = rows[-1]
-    assert len(last_row) == 1
+def test_main_menu_offers_renewal_under_connect():
+    from handlers.keyboards import main_menu_keyboard
+
+    rows = main_menu_keyboard().inline_keyboard
+    renew = rows[1]
+    assert len(renew) == 1
     # Opens the choice between subscription and traffic, not plans directly --
     # see test_renew_menu.py.
-    assert last_row[0].callback_data == "renew_menu"
-    assert "Продлить" in last_row[0].text
+    assert renew[0].callback_data == "renew_menu"
+    assert "Продлить" in renew[0].text
+
+
+def test_device_picker_leads_back_to_the_menu():
+    last_row = os_keyboard().inline_keyboard[-1]
+    assert [b.callback_data for b in last_row] == ["main_menu"]
 
 
 def test_renewal_button_does_not_look_like_a_device():

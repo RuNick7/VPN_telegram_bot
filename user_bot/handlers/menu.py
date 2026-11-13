@@ -17,7 +17,15 @@ from tgvpn_shared.lte_quota import TRAFFIC_LABEL, format_traffic, remaining_now
 from handlers.email_link import offer_keyboard, offer_text, send_confirmation, should_offer
 from handlers.email_state import EmailCaptureState
 from handlers.constants import SECONDS_IN_DAY, trial_days
-from handlers.keyboards import help_menu_keyboard, os_keyboard, pay_keyboard
+from handlers.keyboards import (
+    CHANNEL_OK_CALLBACK,
+    CONNECT_CALLBACK,
+    channel_prompt_keyboard,
+    help_menu_keyboard,
+    main_menu_keyboard,
+    os_keyboard,
+    pay_keyboard,
+)
 
 
 router = Router()
@@ -29,6 +37,70 @@ CHANNEL_INFO_TEXT_MD = (
     "Там публикуем информацию о техработах, блокировках и важных обновлениях\\.\n"
     "Подпишитесь, чтобы быть в курсе\\."
 )
+
+
+# «Продлить» turns red this many days before the end, and stays red after it.
+RENEW_URGENT_DAYS = 3
+
+CHANNEL_PROMPT_HTML = (
+    "📢 <b>Подпишитесь на наш канал</b>\n\n"
+    "Пишем редко и только по делу: крупные обновления, техработы и что делать, "
+    "если VPN перестал работать. Рекламы в канале нет.\n\n"
+    "Подписка нужна, чтобы вы вовремя узнавали о важных изменениях. "
+    "Подпишитесь и нажмите «Я подписался»."
+)
+
+DEVICE_PICKER_HTML = (
+    "📲 <b>Подключение</b>\n\n"
+    "Выберите устройство, на котором будете пользоваться VPN:"
+)
+
+
+def _renew_urgent(sub_ends: int, now_ts: int) -> bool:
+    return sub_ends - now_ts <= RENEW_URGENT_DAYS * SECONDS_IN_DAY
+
+
+def _channel_prompt_due(row) -> bool:
+    """
+    Whether the one-time channel invitation still has to be shown.
+
+    An invitation, not a gate: «Я подписался» opens the menu without asking
+    Telegram whether it is true. Without a channel configured there is
+    nothing to invite anyone to.
+    """
+    if not STATUS_CHANNEL_URL:
+        return False
+    if row is None:
+        return False
+    try:
+        return not row["channel_prompt_shown"]
+    except (KeyError, IndexError):
+        return False
+
+
+async def _show_channel_prompt(bot, chat_id: int, row, prefix: str = "", *, edit=None) -> bool:
+    """
+    Show the channel invitation once, recording it first.
+
+    The flag is written before the message goes out, as with the email offer:
+    a send that fails costs the invitation rather than repeating it on every
+    /start. Returns False when the invitation could not be recorded, so the
+    caller shows the menu instead of leaving the customer with nothing.
+    """
+    try:
+        await _users.mark_channel_prompt_shown(str(row["id"]))
+    except Exception as exc:
+        logging.warning("Could not record the channel prompt for %s: %s", row["id"], exc)
+        return False
+    text = prefix + CHANNEL_PROMPT_HTML
+    markup = channel_prompt_keyboard(STATUS_CHANNEL_URL)
+    if edit is not None:
+        await edit.edit_text(text, parse_mode="HTML", reply_markup=markup,
+                             disable_web_page_preview=True)
+    else:
+        await bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=markup,
+                               disable_web_page_preview=True)
+    return True
 
 
 def _channel_keyboard() -> InlineKeyboardMarkup:
@@ -93,9 +165,14 @@ async def _traffic_line(telegram_id: int, *, subscription_active: bool) -> str:
 
 async def _render_main_menu(
     chat_obj: types.Message | types.CallbackQuery,
+    *,
+    greeting: str = "С возвращением",
 ) -> None:
     """
     Показывает главное меню. Работает как из Message, так и из CallbackQuery.
+
+    Before the first menu a customer ever sees, the channel invitation is
+    shown in its place, once; its «Я подписался» comes back here.
     """
     is_cb = isinstance(chat_obj, types.CallbackQuery)
     bot = chat_obj.bot
@@ -144,16 +221,20 @@ async def _render_main_menu(
             else "🔓 Аккаунт создан. Пробный период уже был использован — "
             "оформите подписку, чтобы открыть все серверы.\n\n"
         )
-        await msg.edit_text(
-            (
-                "<b>👋 Привет!</b>\n\n"
-                + opening
-                + await _traffic_line(user_id, subscription_active=bool(days))
-                + "Выберите своё устройство:"
-            ),
-            parse_mode="HTML",
-            reply_markup=os_keyboard(),
+        new_row = await _users.get_user_by_id(user_id)
+        shown = _channel_prompt_due(new_row) and await _show_channel_prompt(
+            bot, chat_id, new_row, "<b>👋 Привет!</b>\n\n" + opening, edit=msg
         )
+        if not shown:
+            await msg.edit_text(
+                (
+                    "<b>👋 Привет!</b>\n\n"
+                    + opening
+                    + await _traffic_line(user_id, subscription_active=bool(days))
+                ).rstrip(),
+                parse_mode="HTML",
+                reply_markup=main_menu_keyboard(renew_urgent=not days),
+            )
 
         try:
             await orig_msg.delete()
@@ -170,9 +251,12 @@ async def _render_main_menu(
         await _users.update_telegram_tag(user_id, username)
 
     header = (
-        f"<b>👋 С возвращением, @{username}!</b>\n\n"
-        if username else "<b>👋 С возвращением!</b>\n\n"
+        f"<b>👋 {greeting}, @{username}!</b>\n\n"
+        if username else f"<b>👋 {greeting}!</b>\n\n"
     )
+
+    if _channel_prompt_due(row) and await _show_channel_prompt(bot, chat_id, row, header):
+        return
 
     days_since_expiry = (now_ts - sub_ends) // SECONDS_IN_DAY
 
@@ -183,10 +267,10 @@ async def _render_main_menu(
             f"⏳ <b>Осталось:</b> {days_left} дн.\n\n"
         )
     elif days_since_expiry < FREE_TIER_GRACE_DAYS:
-        # An expired subscription is a downgrade, not a lockout: the device
-        # menu still opens and the connection link still works, just on the
-        # free servers. Showing only a "renew" button here used to leave a
-        # lapsed user with no way to reach their link at all.
+        # An expired subscription is a downgrade, not a lockout: «Подключиться»
+        # still opens and the connection link still works, just on the free
+        # servers. Showing only a "renew" button here used to leave a lapsed
+        # user with no way to reach their link at all.
         body = (
             "🔓 <b>Подписка закончилась</b>\n\n"
             "Доступ сохранён на <b>бесплатных серверах</b> — ссылка подключения работает.\n"
@@ -208,22 +292,22 @@ async def _render_main_menu(
             parse_mode="HTML",
             reply_markup=pay_keyboard(),
         )
-        await _offer_email_bonus_once(chat_id, row)
+        await _offer_email_bonus_once(bot, chat_id, row)
         return
 
     traffic = await _traffic_line(user_id, subscription_active=sub_ends > now_ts)
 
     await bot.send_message(
         chat_id,
-        header + body + traffic + "Выберите своё устройство:",
+        (header + body + traffic).rstrip(),
         parse_mode="HTML",
-        reply_markup=os_keyboard(),
+        reply_markup=main_menu_keyboard(renew_urgent=_renew_urgent(sub_ends, now_ts)),
     )
 
-    await _offer_email_bonus_once(chat_id, row)
+    await _offer_email_bonus_once(bot, chat_id, row)
 
 
-async def _offer_email_bonus_once(chat_id: int, row) -> None:
+async def _offer_email_bonus_once(bot, chat_id: int, row) -> None:
     """
     Offer the email bonus, at most once per account, ever.
 
@@ -244,21 +328,14 @@ async def _offer_email_bonus_once(chat_id: int, row) -> None:
         logging.warning("Could not offer the email bonus to %s: %s", row["id"], exc)
 
 
-async def _send_help_menu(
-    target: types.Message | types.CallbackQuery,
-    *,
-    as_edit: bool = False,
-) -> None:
-    text_md = (
-        "❓ *Помощь и поддержка*\n\n"
-        "Выберите нужный раздел:"
-    )
+HELP_TEXT_MD = (
+    "❓ *Помощь и поддержка*\n\n"
+    "Выберите нужный раздел:"
+)
 
-    if as_edit:
-        await target.message.edit_text(text_md, reply_markup=help_menu_keyboard(), parse_mode="MarkdownV2")
-        await target.answer()
-    else:
-        await target.answer(text_md, reply_markup=help_menu_keyboard(), parse_mode="MarkdownV2")
+
+async def _send_help_menu(target: types.Message) -> None:
+    await target.answer(HELP_TEXT_MD, reply_markup=help_menu_keyboard(), parse_mode="MarkdownV2")
 
 
 @router.message(Command("start"))
@@ -274,12 +351,60 @@ async def main_menu_callback(cb: types.CallbackQuery, state: FSMContext) -> None
 
 @router.message(Command("help"))
 async def help_cmd(message: types.Message) -> None:
-    await _send_help_menu(message, as_edit=False)
+    await _send_help_menu(message)
 
 
 @router.callback_query(F.data == "help")
 async def help_cb(cb: types.CallbackQuery) -> None:
-    await _send_help_menu(cb, as_edit=False)
+    """
+    «❓ Помощь» in the main menu, in place of the menu.
+
+    Through the message the button sits on: `CallbackQuery.answer(text)` is
+    the little toast, not a message.
+    """
+    await cb.answer()
+    if cb.message.text:
+        await cb.message.edit_text(
+            HELP_TEXT_MD, reply_markup=help_menu_keyboard(), parse_mode="MarkdownV2"
+        )
+    else:
+        await cb.message.answer(
+            HELP_TEXT_MD, reply_markup=help_menu_keyboard(), parse_mode="MarkdownV2"
+        )
+
+
+@router.callback_query(F.data == CONNECT_CALLBACK)
+async def connect_cb(cb: types.CallbackQuery, state: FSMContext) -> None:
+    """
+    «Подключиться»: the device picker.
+
+    Edited in place over the menu when it can be. An instruction may have
+    arrived as a video, and a video cannot be edited into text, so «Назад»
+    from one of those sends the picker anew.
+    """
+    await state.clear()
+    await cb.answer()
+    if cb.message.text:
+        await cb.message.edit_text(
+            DEVICE_PICKER_HTML, parse_mode="HTML", reply_markup=os_keyboard()
+        )
+    else:
+        await cb.message.answer(
+            DEVICE_PICKER_HTML, parse_mode="HTML", reply_markup=os_keyboard()
+        )
+
+
+@router.callback_query(F.data == CHANNEL_OK_CALLBACK)
+async def channel_ok_cb(cb: types.CallbackQuery) -> None:
+    """
+    «Я подписался». Taken at its word: nothing asks Telegram whether it is
+    true, and the menu opens either way.
+    """
+    try:
+        await cb.message.delete()
+    except Exception:
+        pass
+    await _render_main_menu(cb, greeting="Привет")
 
 
 @router.callback_query(F.data == "change_email")

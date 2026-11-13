@@ -13,7 +13,7 @@ import pytest
 
 import handlers.setup as setup
 from handlers.keyboards import os_keyboard
-from handlers.setup import PLATFORMS, _auto_import_link
+from handlers.setup import PLATFORMS, _auto_import_link, import_button_url
 
 SUBSCRIPTION_URL = "https://panel.example.com/sub/abc123"
 
@@ -78,7 +78,7 @@ def test_video_aliases_point_at_real_files():
 
 def test_auto_import_link_percent_encodes_the_deep_link(monkeypatch):
     """
-    The `happ://` deep link is a query parameter, so its own separators have
+    The `incy://` deep link is a query parameter, so its own separators have
     to be encoded -- only the Windows handler got this right before Phase 2.
 
     The wrapper is pinned rather than read from the environment. Encoding only
@@ -105,7 +105,7 @@ def test_the_redirect_is_our_own_site(monkeypatch):
 
     # `:` and `/` are left legible: neither has a meaning inside a query, so
     # encoding them would only make the link harder to read in a support chat.
-    assert link == f"https://kairavpn.pro/auto?url=happ://add/{SUBSCRIPTION_URL}"
+    assert link == f"https://kairavpn.pro/auto?url=incy://import/{SUBSCRIPTION_URL}"
 
 
 def test_an_ampersand_cannot_cut_the_link_in_half(monkeypatch):
@@ -135,26 +135,65 @@ def test_without_a_site_the_bare_deep_link_is_used(monkeypatch):
     """
     monkeypatch.setattr(setup, "get_settings", lambda: SimpleNamespace(web_base_url="  "))
 
-    assert _auto_import_link(SUBSCRIPTION_URL) == f"happ://add/{SUBSCRIPTION_URL}"
+    assert _auto_import_link(SUBSCRIPTION_URL) == f"incy://import/{SUBSCRIPTION_URL}"
 
 
-def test_happ_platforms_share_the_same_manual_fallback():
+def test_phone_and_desktop_platforms_share_the_same_manual_fallback():
     """The clipboard-import fallback is one function, not four near-copies."""
-    happ = ("android", "ios", "windows", "macos")
-    rendered = {PLATFORMS[key].manual(SUBSCRIPTION_URL) for key in happ}
+    keys = ("android", "ios", "windows", "macos")
+    rendered = {PLATFORMS[key].manual(SUBSCRIPTION_URL) for key in keys}
     assert len(rendered) == 1
 
 
-def test_linux_points_at_the_latest_koala_clash_release():
+def test_desktop_downloads_follow_incys_fixed_latest_release():
     """
-    NekoRay stopped at 4.0.1 in December 2024, and the steps kept linking to
-    that one file for most of a year. The links now follow whatever release
-    is newest, which only works because the file names carry no version.
+    Not /releases/latest/download/: the newest release in Incy's repository is
+    often an Android-only one, and a desktop file name would 404 there. The
+    project re-uploads every file under the fixed tag `latest` instead.
     """
-    text = PLATFORMS["linux"].instruction("https://sub.kairavpn.pro/abc")
-    assert "Koala Clash" in text
-    assert "nekoray" not in text.lower()
-    links = re.findall(r'href="([^"]+)"', text)
-    assert len(links) >= 3
-    for href in links:
-        assert href.startswith("https://github.com/coolcoala/koala-clash/releases/latest"), href
+    for key in ("windows", "macos", "linux"):
+        text = PLATFORMS[key].instruction("https://sub.kairavpn.pro/abc")
+        links = re.findall(r'href="(https://github[^"]+)"', text)
+        assert len(links) >= 2, key
+        for href in links:
+            assert re.fullmatch(
+                r"https://github\.com/INCY-DEV/incy-platforms/releases/"
+                r"(download/latest/[\w.-]+|tag/latest)",
+                href,
+            ), href
+
+
+@pytest.mark.parametrize("key", sorted(PLATFORMS))
+def test_no_instruction_mentions_an_app_we_dropped(key):
+    spec = PLATFORMS[key]
+    text = spec.instruction(SUBSCRIPTION_URL) + spec.manual(SUBSCRIPTION_URL)
+    assert not re.search(r"happ|koala|nekoray", text, re.IGNORECASE), key
+
+
+def test_app_store_links_name_the_real_incy():
+    """The Russian store carries apps called Incy from other sellers."""
+    texts = [spec.instruction(SUBSCRIPTION_URL) for spec in PLATFORMS.values()]
+    texts.append(setup.REGION_HELP_HTML)
+    links = [h for t in texts for h in re.findall(r'href="([^"]+)"', t) if "apps.apple.com" in h]
+    assert links
+    assert set(links) == {"https://apps.apple.com/us/app/incy/id6756943388"}
+
+
+def test_region_help_is_offered_where_the_app_store_is_the_only_way():
+    """iPhone and Apple TV install from the App Store; the Mac has a .dmg."""
+    offered = {key for key, spec in PLATFORMS.items() if spec.region_help}
+    assert offered == {"ios", "appletv"}
+    assert "LLC ITDEV" in setup.REGION_HELP_HTML
+
+
+def test_import_button_only_exists_with_our_own_redirect(monkeypatch):
+    """Telegram refuses a URL button whose address is an app scheme."""
+    monkeypatch.setattr(setup, "_auto_import_wrapper", lambda: "")
+    assert import_button_url(SUBSCRIPTION_URL) == ""
+
+    monkeypatch.setattr(setup, "_auto_import_wrapper", lambda: "https://kairavpn.pro/auto?url=")
+    url = import_button_url(SUBSCRIPTION_URL)
+    assert url == f"https://kairavpn.pro/auto?url=incy://import/{SUBSCRIPTION_URL}"
+    # The text then points at the button rather than carrying a second link.
+    assert "Добавить в Incy" in PLATFORMS["ios"].instruction(SUBSCRIPTION_URL)
+    assert "auto?url=" not in PLATFORMS["ios"].instruction(SUBSCRIPTION_URL)

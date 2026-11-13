@@ -130,7 +130,12 @@ class Settings(BaseSettings):
     trial_link_bonus_days: int = Field(7, validation_alias="TRIAL_LINK_BONUS_DAYS")
     show_video_instructions: bool = Field(True, validation_alias="SHOW_VIDEO_INSTRUCTIONS")
     faq_url: str = Field("https://nitratex-company.gitbook.io/kairavpn/", validation_alias="FAQ_URL")
-    status_channel_url: str = Field("https://t.me/nitratex1", validation_alias="STATUS_CHANNEL_URL")
+    status_channel_url: str = Field(
+        "https://t.me/KairaVPN_Channel", validation_alias="STATUS_CHANNEL_URL"
+    )
+    # Custom emoji set whose icons replace the ordinary emoji on user_bot's
+    # buttons (user_bot/button_icons.py). Empty: ordinary emoji only.
+    button_icons_set: str = Field("", validation_alias="BUTTON_ICONS_SET")
     # Where "написать в поддержку" points, in the bot and on the website both.
     # It used to be a constant in user_bot/handlers/keyboards.py, which meant
     # the site had no way to learn it and the two could not help but drift.
