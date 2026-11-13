@@ -7,6 +7,10 @@ SUPPORT_URL = _settings.support_url
 FAQ_URL = _settings.faq_url
 STATUS_CHANNEL_URL = _settings.status_channel_url
 VPNCHECK_DOWNLOAD_URL = _settings.vpncheck_download_url.strip()
+# The customer cabinet on the website; empty when no site is configured, and
+# then no button points at it.
+_SITE = _settings.web_base_url.strip().rstrip("/")
+CABINET_URL = f"{_SITE}/app" if _SITE else ""
 
 # Button colours (Bot API `style`). Telegram releases from before February 2026
 # draw these as ordinary buttons, so a colour may only ever add emphasis --
@@ -60,6 +64,11 @@ def main_menu_keyboard(*, renew_urgent: bool = False) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="🎁 Реф. программа", callback_data=REFERRAL_CALLBACK),
                 InlineKeyboardButton(text="❓ Помощь", callback_data="help"),
             ],
+            *(
+                [[InlineKeyboardButton(text="🌐 Личный кабинет на сайте", url=CABINET_URL)]]
+                if CABINET_URL
+                else []
+            ),
         ]
     )
 
@@ -170,25 +179,32 @@ def referral_intro_keyboard() -> InlineKeyboardMarkup:
 
 
 def help_menu_keyboard() -> InlineKeyboardMarkup:
+    """
+    «❓ Помощь»: support on a row of its own, the rest in pairs.
+
+    Support is what most people open this menu for, so it comes first and is
+    the one coloured button. The optional two -- the server check and the
+    cabinet, each shown only when configured -- share a row, so turning one
+    off does not leave a hole in another pair.
+    """
+    optional = []
+    if VPNCHECK_DOWNLOAD_URL:
+        optional.append(InlineKeyboardButton(text="🩺 Проверить серверы", url=VPNCHECK_DOWNLOAD_URL))
+    if CABINET_URL:
+        optional.append(InlineKeyboardButton(text="🌐 Личный кабинет", url=CABINET_URL))
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text="🛠 Тех. поддержка", url=SUPPORT_URL, style=BLUE)],
             [
-                InlineKeyboardButton(text="🛠 Тех. поддержка", url=SUPPORT_URL),
                 InlineKeyboardButton(text="📖 Частые вопросы", url=FAQ_URL),
-            ],
-            [
                 InlineKeyboardButton(text="📢 Канал бота", url=STATUS_CHANNEL_URL),
             ],
-            *_check_servers_row(),
+            *([optional] if optional else []),
             [
                 InlineKeyboardButton(text="📧 Поменять email", callback_data="change_email"),
-            ],
-            [
                 InlineKeyboardButton(text="📄 Документы", callback_data="documents"),
             ],
-            [
-                InlineKeyboardButton(text="🔙 В меню", callback_data="main_menu"),
-            ],
+            [InlineKeyboardButton(text="🔙 В меню", callback_data="main_menu")],
         ]
     )
 

@@ -12,8 +12,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+import handlers.keyboards as keyboards
 import handlers.menu as menu
-from handlers.keyboards import BLUE, GREEN, RED, main_menu_keyboard
+from handlers.keyboards import BLUE, GREEN, RED, help_menu_keyboard, main_menu_keyboard
 
 DAY = 86400
 NOW = 10_000_000
@@ -76,7 +77,8 @@ def _by_callback(keyboard, data: str):
 # -- layout and colours ------------------------------------------------------
 
 
-def test_the_menu_is_connect_renew_then_referral_and_help():
+def test_the_menu_is_connect_renew_then_referral_and_help(monkeypatch):
+    monkeypatch.setattr(keyboards, "CABINET_URL", "")
     rows = main_menu_keyboard().inline_keyboard
     assert [[b.callback_data for b in r] for r in rows] == [
         ["connect"],
@@ -124,6 +126,48 @@ async def test_the_menu_no_longer_asks_for_a_device(repo):
 
     assert "Выберите своё устройство" not in msg.last["text"]
     assert "Действует до" in msg.last["text"]
+
+
+def test_the_cabinet_gets_its_own_bottom_row(monkeypatch):
+    monkeypatch.setattr(keyboards, "CABINET_URL", "https://kairavpn.pro/app")
+    last = main_menu_keyboard().inline_keyboard[-1]
+    assert [(b.text, b.url) for b in last] == [
+        ("🌐 Личный кабинет на сайте", "https://kairavpn.pro/app")
+    ]
+
+
+# -- the help menu -----------------------------------------------------------
+
+
+def test_help_starts_with_support_alone_and_blue(monkeypatch):
+    monkeypatch.setattr(keyboards, "SUPPORT_URL", "https://t.me/support")
+    first = help_menu_keyboard().inline_keyboard[0]
+    assert len(first) == 1
+    assert (first[0].url, first[0].style) == ("https://t.me/support", BLUE)
+
+
+def test_help_pairs_everything_else(monkeypatch):
+    monkeypatch.setattr(keyboards, "VPNCHECK_DOWNLOAD_URL", "https://kairavpn.pro/check")
+    monkeypatch.setattr(keyboards, "CABINET_URL", "https://kairavpn.pro/app")
+    rows = help_menu_keyboard().inline_keyboard
+    assert [len(r) for r in rows] == [1, 2, 2, 2, 1]
+    assert [b.url for b in rows[2]] == ["https://kairavpn.pro/check", "https://kairavpn.pro/app"]
+    assert [b.callback_data for b in rows[3]] == ["change_email", "documents"]
+    assert rows[-1][0].callback_data == "main_menu"
+
+
+@pytest.mark.parametrize(
+    "check, cabinet, expected",
+    [
+        ("https://kairavpn.pro/check", "", [1, 2, 1, 2, 1]),
+        ("", "https://kairavpn.pro/app", [1, 2, 1, 2, 1]),
+        ("", "", [1, 2, 2, 1]),
+    ],
+)
+def test_an_unconfigured_button_leaves_no_hole(monkeypatch, check, cabinet, expected):
+    monkeypatch.setattr(keyboards, "VPNCHECK_DOWNLOAD_URL", check)
+    monkeypatch.setattr(keyboards, "CABINET_URL", cabinet)
+    assert [len(r) for r in help_menu_keyboard().inline_keyboard] == expected
 
 
 # -- the channel invitation --------------------------------------------------
