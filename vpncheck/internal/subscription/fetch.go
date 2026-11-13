@@ -19,12 +19,15 @@ import (
 
 // DefaultUserAgent is what the subscription is requested as.
 //
-// Remnawave answers each client in its own format, chosen by User-Agent. Happ
+// Remnawave answers each client in its own format, chosen by User-Agent. Incy
 // is the app every platform's setup instructions point to, and it is answered
 // with the Xray JSON template -- the configs customers actually connect with,
-// fingerprint and transport settings included. Asking as anything else would
-// check a different config from the one that is failing.
-const DefaultUserAgent = "Happ/5.5.0"
+// fingerprint, transport settings and balancers included. Asking as anything
+// else would check a different config from the one that is failing.
+//
+// Incy introduces itself as `INCY/<version>/<platform>`. The panel picks the
+// template by the `INCY/` prefix, so the platform part here is nominal.
+const DefaultUserAgent = "INCY/3.9.0/Desktop"
 
 // maxBody bounds a subscription download. A real one is tens of kilobytes.
 const maxBody = 8 << 20

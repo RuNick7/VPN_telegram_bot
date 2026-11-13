@@ -1,10 +1,10 @@
 // Package deeplink hands a subscription over to the app it belongs in.
 //
-// Telegram does not render `happ://…` as a link at all -- an app scheme is not
+// Telegram does not render `incy://…` as a link at all -- an app scheme is not
 // something it recognises -- so the one-tap import step in the bot's setup
 // instructions has to be an ordinary https:// URL that turns into one. This is
-// that URL: `/auto?url=happ://add/https://sub.example.com/<token>` answers with
-// a redirect to whatever `url` holds.
+// that URL: `/auto?url=incy://import/https://sub.example.com/<token>` answers
+// with a redirect to whatever `url` holds.
 //
 // It used to be somebody else's server. That worked, and it meant every
 // customer's subscription URL -- which is the credential, whole and sufficient
@@ -35,6 +35,11 @@ import (
 // client app means editing both -- the symptom of forgetting is a setup button
 // that answers 400.
 var allowedSchemes = map[string]bool{
+	"incy": true,
+	// Happ is no longer offered anywhere, but setup messages the bot sent
+	// before the switch still sit in customers' chats with `/auto?url=happ://…`
+	// buttons in them. Refusing the scheme would turn those into a 400 page
+	// for people who still have Happ installed.
 	"happ": true,
 }
 
@@ -47,7 +52,7 @@ var ErrNotAppLink = errors.New("deeplink: not a link to a known app")
 //
 // The value is returned **byte for byte**, never re-serialised. It is tempting
 // to run it through net/url and hand back `u.String()`, and that quietly breaks
-// the only shape this endpoint ever sees: the payload of `happ://add/` is
+// the only shape this endpoint ever sees: the payload of `incy://import/` is
 // itself a URL, and parsing collapses the `//` in `https://sub…` on the way
 // back out. The app is then handed `https:/sub…` and imports nothing.
 func Target(raw string) (string, error) {

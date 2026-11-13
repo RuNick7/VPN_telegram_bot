@@ -10,7 +10,7 @@ connection link even though the link still worked.
 import pytest
 
 from handlers.constants import PRICES
-from handlers.keyboards import os_keyboard, renew_menu_keyboard
+from handlers.keyboards import main_menu_keyboard, renew_menu_keyboard
 from handlers.utils import subscription_discount, subscription_label
 
 
@@ -21,12 +21,13 @@ def _callbacks(keyboard) -> list[str]:
 # -- renewal menu ----------------------------------------------------------
 
 
-def test_the_device_menu_renew_button_opens_the_choice_not_plans():
+def test_the_main_menu_renew_button_opens_the_choice_not_plans():
     """
     Jumping straight to subscription plans made "I ran out of traffic" a dead
     end -- the user had to know about /traffic to get anywhere.
     """
-    assert os_keyboard().inline_keyboard[-1][0].callback_data == "renew_menu"
+    assert "renew_menu" in _callbacks(main_menu_keyboard())
+    assert "subscription_tariffs" not in _callbacks(main_menu_keyboard())
 
 
 def test_renew_menu_offers_both_purchases_when_lte_is_on():

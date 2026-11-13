@@ -12,7 +12,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-const { PLATFORMS, guessPlatform, importLink } = await import(
+const { PLATFORMS, APP_STORE_REGION, guessPlatform, importLink } = await import(
   "../frontend/assets/js/platforms.js"
 );
 
@@ -77,7 +77,7 @@ test("the import link carries the subscription URL and nothing else", () => {
   // survive Telegram's in-app browser, and using it here would hand a third
   // party every customer's subscription link for no gain.
   const link = importLink(URL);
-  assert.ok(link.startsWith("happ://add/"));
+  assert.ok(link.startsWith("incy://import/"));
   assert.ok(link.endsWith(URL));
   assert.doesNotMatch(link, /vless-outline/);
 });
@@ -95,23 +95,57 @@ test("no step sends the subscription link through a third party", () => {
 test("no instruction points at an app we do not use", () => {
   for (const platform of PLATFORMS) {
     const text = textOf(platform.steps(URL)) + " " + textOf(platform.fallback(URL));
-    assert.doesNotMatch(text, /v2ray|hiddify|streisand|foxray|nekoray|nekobox/i, `${platform.key}`);
+    assert.doesNotMatch(
+      text,
+      /happ|koala|v2ray|hiddify|streisand|foxray|nekoray|nekobox/i,
+      `${platform.key}`
+    );
   }
 });
 
-test("the Linux downloads follow the latest Koala Clash release", () => {
-  // A link pinned to one version is how the NekoRay steps went stale: they
-  // kept pointing at 4.0.1 long after it stopped being maintained.
-  const linux = PLATFORMS.find((p) => p.key === "linux");
-  const links = linux
-    .steps(URL)
-    .flatMap((step) => step.body)
-    .filter((part) => part.href)
-    .map((part) => part.href);
-  assert.ok(links.length >= 3, "a package per distribution family");
-  for (const href of links) {
-    assert.match(href, /^https:\/\/github\.com\/coolcoala\/koala-clash\/releases\/latest(\/download\/Koala\.Clash_[\w.]+)?$/);
+test("desktop downloads follow Incy's fixed `latest` release", () => {
+  // Not /releases/latest/download/: the newest release in that repository is
+  // often an Android-only one, and a desktop file name would 404 there.
+  for (const key of ["windows", "macos", "linux"]) {
+    const links = PLATFORMS.find((p) => p.key === key)
+      .steps(URL)
+      .flatMap((step) => step.body)
+      .filter((part) => part.href)
+      .map((part) => part.href);
+    assert.ok(links.length >= 2, `${key} offers a download`);
+    for (const href of links) {
+      assert.match(
+        href,
+        /^https:\/\/github\.com\/INCY-DEV\/incy-platforms\/releases\/(download\/latest\/[\w.-]+|tag\/latest)$/,
+        `${key}: ${href}`
+      );
+    }
   }
+});
+
+test("App Store links name the real Incy, never a look-alike", () => {
+  // The Russian store carries apps called Incy from other sellers.
+  const all = PLATFORMS.flatMap((p) => [
+    ...p.steps(URL),
+    ...p.fallback(URL),
+    ...(p.extra ? p.extra.steps() : []),
+  ])
+    .flatMap((step) => step.body)
+    .filter((part) => part.href && part.href.includes("apps.apple.com"))
+    .map((part) => part.href);
+  assert.ok(all.length >= 2);
+  for (const href of all) {
+    assert.equal(href, "https://apps.apple.com/us/app/incy/id6756943388");
+  }
+});
+
+test("Apple platforms that install from the App Store explain the region", () => {
+  for (const key of ["ios", "appletv"]) {
+    assert.equal(PLATFORMS.find((p) => p.key === key).extra, APP_STORE_REGION, key);
+  }
+  const text = textOf(APP_STORE_REGION.steps());
+  assert.match(text, /LLC ITDEV/);
+  assert.match(text, /Изменить страну или регион/);
 });
 
 test("the default tab follows the user agent", () => {

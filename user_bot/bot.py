@@ -12,6 +12,7 @@ from precache_videos import precache_videos, _load_cache
 from utils.heartbeat import heartbeat_loop
 from utils.reminders import reminders_scheduler
 from handlers.user_handlers import router as user_router
+from button_icons import ButtonIconsMiddleware
 
 # ── config ────────────────────────────────────────────────────────────
 settings = get_settings()
@@ -19,6 +20,9 @@ settings.require("user_bot_token", "database_url", "remnawave_base_url")
 ADMIN_ID = settings.primary_admin_id
 
 bot = Bot(token=settings.user_bot_token)
+# Custom emoji icons on every inline keyboard this bot sends, from any process
+# that imports it (the payment webhook does). Inert while BUTTON_ICONS_SET is empty.
+bot.session.middleware(ButtonIconsMiddleware(settings.button_icons_set))
 dp  = Dispatcher()
 VIDEO_ID_CACHE: dict = {}
 reminders_task: asyncio.Task | None = None

@@ -52,6 +52,7 @@ _EPOCH_SELECT = """
     trial_link_granted,
     bonus_offer_dismissed,
     bonus_offer_shown_in_bot,
+    channel_prompt_shown,
     EXTRACT(EPOCH FROM created_at)::bigint AS created_at
 """
 
@@ -396,6 +397,14 @@ class UserRepository:
         pool = await get_pool()
         await pool.execute(
             "UPDATE users SET bonus_offer_shown_in_bot = TRUE WHERE id = $1::uuid",
+            user_id,
+        )
+
+    async def mark_channel_prompt_shown(self, user_id: str) -> None:
+        """Record that the bot has asked about the news channel, so it asks once."""
+        pool = await get_pool()
+        await pool.execute(
+            "UPDATE users SET channel_prompt_shown = TRUE WHERE id = $1::uuid",
             user_id,
         )
 

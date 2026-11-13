@@ -84,7 +84,7 @@ async def send_nurture_1(bot: Bot, now_ts: int):
     if not users:
         return
     kb = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="☰ Открыть меню", callback_data="main_menu")]]
+        inline_keyboard=[[InlineKeyboardButton(text="📋 Открыть меню", callback_data="main_menu")]]
     )
     text_md = (
         "💡 *Полезные команды бота*\n\n"
@@ -118,7 +118,7 @@ async def send_nurture_2(bot: Bot, now_ts: int):
         "Ваша ссылка и счётчик приглашённых: `/ref`"
     )
     kb = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text="🚀 Моя ссылка", callback_data="referral_info")]]
+        inline_keyboard=[[InlineKeyboardButton(text="🔗 Моя ссылка", callback_data="referral_info")]]
     )
     await _broadcast_and_mark(bot, users, text_md, next_stage=5, kb=kb)
 

@@ -70,7 +70,7 @@ def _callback_data(keyboard) -> list[str]:
     return [b.callback_data for r in keyboard.inline_keyboard for b in r if b.callback_data]
 
 
-async def test_a_recently_expired_user_still_gets_the_device_menu(repo):
+async def test_a_recently_expired_user_can_still_connect(repo):
     """Inside the grace window, the existing downgrade-not-lockout behaviour holds."""
     repo.get_user_by_id.return_value = row(subscription_ends=NOW - (FREE_TIER_GRACE_DAYS - 1) * DAY)
     msg = FakeMessage()
@@ -78,7 +78,7 @@ async def test_a_recently_expired_user_still_gets_the_device_menu(repo):
     await menu._render_main_menu(msg)
 
     assert "Подписка закончилась" in msg.last["text"]
-    assert "os:ios" in _callback_data(msg.last["reply_markup"])
+    assert "connect" in _callback_data(msg.last["reply_markup"])
 
 
 async def test_past_the_grace_window_only_renewal_is_offered(repo):
