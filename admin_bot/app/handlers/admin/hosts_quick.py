@@ -400,7 +400,7 @@ async def host_exclude_confirm(callback: CallbackQuery, state: FSMContext):
         "address": data.get("address"),
         "port": data.get("port"),
         "nodes": data.get("nodes_selected", []),
-        "excludedInternalSquads": data.get("excluded_squads", []),
+        "internalSquads": {"mode": "EXCLUDE", "squads": data.get("excluded_squads", [])},
         "isDisabled": False,
         "isHidden": False,
         "allowInsecure": False,
@@ -421,7 +421,10 @@ async def host_exclude_confirm(callback: CallbackQuery, state: FSMContext):
                 if not host_uuid or host_uuid == new_host_uuid:
                     continue
                 detail = await host_manage_service.get_host(host_uuid)
-                current = detail.get("excludedInternalSquads", []) or []
+                squads_cfg = detail.get("internalSquads") or {}
+                if squads_cfg.get("mode", "EXCLUDE") != "EXCLUDE":
+                    continue  # хост в режиме ALLOW_ONLY — исключения к нему не применяются
+                current = squads_cfg.get("squads", []) or []
                 selected_squads = data.get("selected_squads", [])
                 updated_current = list(current)
                 changed = False
@@ -432,7 +435,7 @@ async def host_exclude_confirm(callback: CallbackQuery, state: FSMContext):
                 if not changed:
                     continue
                 await host_manage_service.update_host(
-                    {"uuid": host_uuid, "excludedInternalSquads": updated_current}
+                    {"uuid": host_uuid, "internalSquads": {"mode": "EXCLUDE", "squads": updated_current}}
                 )
                 updated += 1
 
