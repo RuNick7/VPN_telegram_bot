@@ -93,7 +93,11 @@ async def _send_referral_info(message: Message, telegram_id: int, state: FSMCont
             f"👤 Пригласивший: @{user['referrer_tag']}\n"
             "🚫 Изменить его больше нельзя\n\n"
             "Бонус ему начислится после твоей оплаты 💸\n\n"
-            f"👥 Ты уже пригласил: {referred_cnt} чел\\."
+            # No backslash of our own: escape_markdown_v2 adds the one the dot
+            # needs, and a second one escaped the backslash instead, left the
+            # dot bare, and Telegram refused the whole message -- for everyone
+            # who had named a referrer, the button did nothing.
+            f"👥 Ты уже пригласил: {referred_cnt} чел."
         )
         await message.answer(
             text=text,
@@ -225,18 +229,20 @@ async def referral_info(cb: CallbackQuery) -> None:
     Показ реферальной программы.
     Никаких видео или chat_action — только текст и клавиатура.
     """
-    text = (
-        "🎁 *Реферальная программа*\n\n"
+    body = (
         "Приглашай друзей и получай скидки на все тарифы 💸\n"
         "Чем больше друзей — тем ниже цена подписки 👥\n\n"
         "✅ Скидки сочетаются с длительностью подписки: чем дольше срок — тем дешевле один месяц\n\n"
         "📘 Полная таблица цен и примеры расчётов доступны на сайте:\n"
         "https://nitravpn.gitbook.io/nitravpn/referalnaya-programma"
     )
+    # The heading is markup and stays outside the escaping: escaped, its
+    # asterisks were shown as asterisks instead of making it bold.
+    text = "🎁 *Реферальная программа*\n\n" + escape_markdown_v2(body)
 
     await cb.answer()
     await cb.message.answer(
-        escape_markdown_v2(text),
+        text,
         parse_mode="MarkdownV2",
         reply_markup=back_to_menu_keyboard(),
         disable_web_page_preview=False,
