@@ -23,6 +23,7 @@ RED = "danger"
 # main menu itself.
 CONNECT_CALLBACK = "connect"
 REFERRAL_CALLBACK = "referral"
+REFERRAL_INVITES_CALLBACK = "referral_invites"
 CHANNEL_OK_CALLBACK = "channel_ok"
 
 
@@ -168,13 +169,25 @@ def back_to_devices_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def referral_intro_keyboard() -> InlineKeyboardMarkup:
+def referral_keyboard(*, can_set_referrer: bool) -> InlineKeyboardMarkup:
+    """
+    Under «🎁 Реферальная программа». «Указать пригласившего» only while
+    there is nobody named yet: a referrer is set once and never changed.
+    """
+    rows = [
+        [InlineKeyboardButton(text="👥 Мои приглашения", callback_data=REFERRAL_INVITES_CALLBACK)]
+    ]
+    if can_set_referrer:
+        rows.append(
+            [InlineKeyboardButton(text="✍️ Указать пригласившего", callback_data="referral_set_tag")]
+        )
+    rows.append([InlineKeyboardButton(text="🔙 В меню", callback_data="main_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def referral_invites_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="✍️ Указать пригласившего", callback_data="referral_set_tag")],
-            [InlineKeyboardButton(text="ℹ️ О скидках", callback_data="referral_info")],
-            [InlineKeyboardButton(text="🔙 В меню", callback_data="main_menu")],
-        ]
+        inline_keyboard=[[InlineKeyboardButton(text="🔙 Назад", callback_data=REFERRAL_CALLBACK)]]
     )
 
 

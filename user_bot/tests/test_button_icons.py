@@ -40,7 +40,7 @@ def test_one_icon_per_emoji_and_one_emoji_per_icon():
 
 def test_every_icon_file_is_a_100px_png():
     entries = make_emoji_pack.plan(ICON_DIR)
-    assert len(entries) == len(ICONS) == 31
+    assert len(entries) == len(ICONS) == 32
 
 
 def test_the_icons_carry_their_licence():

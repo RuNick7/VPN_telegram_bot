@@ -255,3 +255,33 @@ async def test_a_real_referrer_is_still_credited():
 
     assert await repo.award_referral("inviter", 3007) is True
     assert (await repo.get_user_by_id(3006))["referred_people"] == 1
+
+
+# -- the «Мои приглашения» list ------------------------------------------------
+
+
+async def test_invitees_are_listed_credited_first():
+    await _make_user(2001, tag="Referrer")
+    await _make_user(2002, tag="anna")
+    await _make_user(2003, tag="den")
+    await _make_user(2004, tag="stranger")
+    await repo.set_referrer_tag(2002, "referrer")  # case differs on purpose
+    await repo.set_referrer_tag(2003, "Referrer")
+    await repo.set_referrer_tag(2004, "someone_else")
+    assert await repo.award_referral("Referrer", 2002) is True
+
+    me = await repo.get_user_by_id(2001)
+    rows = await repo.list_invitees(
+        telegram_tag=me["telegram_tag"], email="", exclude_user_id=str(me["id"])
+    )
+
+    assert [(r["telegram_tag"], r["is_referred"]) for r in rows] == [
+        ("anna", True),
+        ("den", False),
+    ]
+
+
+async def test_without_a_tag_or_email_nobody_can_have_named_you():
+    await _make_user(2010)
+    me = await repo.get_user_by_id(2010)
+    assert await repo.list_invitees(telegram_tag="", email="", exclude_user_id=str(me["id"])) == []
