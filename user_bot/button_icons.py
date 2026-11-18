@@ -72,6 +72,7 @@ ICONS: list[tuple[str, str]] = [
     ("📋", "list"),
     ("🔗", "link"),
     ("🌐", "globe"),
+    ("👥", "users"),
 ]
 
 # How long to wait before asking Telegram for the set again after a failure.

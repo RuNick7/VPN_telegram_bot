@@ -188,6 +188,40 @@ class UserRepository:
             username.strip(),
         )
 
+    async def list_invitees(
+        self, *, telegram_tag: str, email: str, exclude_user_id: str, limit: int = 30
+    ) -> list[asyncpg.Record]:
+        """
+        The people who named this account as their referrer, credited first.
+
+        The inverse of `_REFERRER_MATCHES`: a referrer is named by Telegram tag
+        or, when they have no tag, by email, so both are looked for. Each row
+        carries `telegram_tag` and `is_referred` (credited after the invitee's
+        first payment). Absorbed accounts are left out -- their survivor is
+        the one listed -- and so is the account itself. At most `limit` rows.
+        """
+        tag = (telegram_tag or "").strip()
+        mail = (email or "").strip()
+        if not tag and not mail:
+            return []
+        pool = await get_pool()
+        return await pool.fetch(
+            """
+            SELECT telegram_tag, is_referred
+            FROM users
+            WHERE merged_into IS NULL
+              AND id <> $3::uuid
+              AND coalesce(referrer_tag, '') <> ''
+              AND (
+                    ($1 <> '' AND lower(referrer_tag) = lower($1))
+                 OR ($2 <> '' AND lower(referrer_tag) = lower($2))
+              )
+            ORDER BY is_referred DESC, created_at
+            LIMIT $4
+            """,
+            tag, mail, exclude_user_id, limit,
+        )
+
     async def award_referral_by_user_id(self, referrer_tag: str, user_id: str) -> bool:
         """
         Credit a referrer, addressed by the invitee's internal id.

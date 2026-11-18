@@ -1,82 +1,205 @@
 """
-The referral screens, from «🎁 Реф. программа» in the menu and from /ref.
+The referral screens: «🎁 Реферальная программа» (how it works, opened from
+the menu, /ref and old buttons) and «👥 Мои приглашения» (who invited you,
+whom you invited, what your next friend is worth).
 
-Telegram refuses a MarkdownV2 message with one bare reserved character in it,
-and the user sees a button that does nothing. That is what happened to
-everyone who had named a referrer: a hand-written `\\.` inside text that was
-escaped again came out as an escaped backslash and a bare dot.
+Both are HTML. The old screen was MarkdownV2 and broke on one unescaped dot:
+Telegram refused the message and the button did nothing.
 """
 
+from html.parser import HTMLParser
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
 import handlers.referrals as referrals
-
-RESERVED = set("_*[]()~`>#+-=|{}.!")
-
-
-def bare_reserved(text: str, *, markup: str = "") -> list[str]:
-    """Reserved characters with no backslash before them, except `markup`."""
-    bare, i = [], 0
-    while i < len(text):
-        if text[i] == "\\":
-            i += 2
-            continue
-        if text[i] in RESERVED and text[i] not in markup:
-            bare.append(text[max(0, i - 12) : i + 1])
-        i += 1
-    return bare
+from handlers.constants import PRICES
+from handlers.keyboards import REFERRAL_INVITES_CALLBACK
 
 
-def _sent_text(answer: AsyncMock) -> str:
-    args, kwargs = answer.await_args
-    return kwargs.get("text") or args[0]
+class _Tags(HTMLParser):
+    """Collects tags, failing on anything Telegram's HTML mode would refuse."""
+
+    ALLOWED = {"b", "code"}
+
+    def __init__(self):
+        super().__init__()
+        self.stack = []
+
+    def handle_starttag(self, tag, attrs):
+        assert tag in self.ALLOWED, tag
+        self.stack.append(tag)
+
+    def handle_endtag(self, tag):
+        assert self.stack and self.stack.pop() == tag, tag
 
 
-async def _press_button(monkeypatch, row):
-    monkeypatch.setattr(
-        referrals, "_users", SimpleNamespace(get_user_by_id=AsyncMock(return_value=row))
+def assert_valid_html(text: str) -> None:
+    parser = _Tags()
+    parser.feed(text)
+    parser.close()
+    assert parser.stack == []
+
+
+def _row(**fields):
+    row = {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "telegram_tag": "me",
+        "email": "",
+        "referrer_tag": None,
+        "referred_people": 0,
+    }
+    row.update(fields)
+    return row
+
+
+def _invitee(tag, credited):
+    return {"telegram_tag": tag, "is_referred": credited}
+
+
+def _buttons(markup):
+    return [b.callback_data for r in markup.inline_keyboard for b in r]
+
+
+# -- «🎁 Реферальная программа» ---------------------------------------------
+
+
+def test_the_overview_explains_the_programme_and_the_price_ladder():
+    text = referrals.overview_html("me")
+    assert_valid_html(text)
+    assert "Как это работает" in text
+    assert "Указать пригласившего" in text
+    for tier in range(6):
+        assert f"— {PRICES[tier][1]} ₽/мес" in text
+    assert "5 и больше — 9 ₽/мес" in text
+    assert "<code>@me</code>" in text
+
+
+def test_without_a_telegram_username_it_says_how_to_get_one():
+    text = referrals.overview_html(None)
+    assert_valid_html(text)
+    assert "Имя пользователя" in text
+    assert "<code>@" not in text
+
+
+async def _press(monkeypatch, handler, row, *, data="referral", invitees=()):
+    repo = SimpleNamespace(
+        get_user_by_id=AsyncMock(return_value=row),
+        list_invitees=AsyncMock(return_value=list(invitees)),
     )
-    message = SimpleNamespace(answer=AsyncMock())
-    cb = SimpleNamespace(answer=AsyncMock(), from_user=SimpleNamespace(id=42), message=message)
-    await referrals.referral_program_button(cb, SimpleNamespace(clear=AsyncMock()))
+    monkeypatch.setattr(referrals, "_users", repo)
+    message = SimpleNamespace(text="menu", edit_text=AsyncMock(), answer=AsyncMock())
+    cb = SimpleNamespace(
+        data=data,
+        answer=AsyncMock(),
+        message=message,
+        from_user=SimpleNamespace(id=42, username="me"),
+    )
+    if handler is referrals.referral_invites:
+        await handler(cb)
+    else:
+        await handler(cb, SimpleNamespace(clear=AsyncMock()))
     cb.answer.assert_awaited_once()
-    referrals._users.get_user_by_id.assert_awaited_once_with(42)
-    return message.answer
+    return repo, message
 
 
 @pytest.mark.parametrize(
-    "row",
+    "row, can_set",
     [
-        {"referred_people": 3, "referrer_tag": "some_friend"},
-        {"referred_people": 0, "referrer_tag": None},
-        None,  # no profile yet
+        (_row(), True),
+        (_row(referrer_tag="friend"), False),
+        (None, False),  # no profile yet: nothing to attach a referrer to
     ],
-    ids=["with referrer", "without referrer", "no profile"],
+    ids=["no referrer", "has referrer", "no profile"],
 )
-async def test_the_menu_button_sends_valid_markdown(monkeypatch, row):
-    answer = await _press_button(monkeypatch, row)
-    assert answer.await_args.kwargs["parse_mode"] == "MarkdownV2"
-    assert bare_reserved(_sent_text(answer)) == []
+async def test_the_menu_button_opens_the_overview_in_place(monkeypatch, row, can_set):
+    _, message = await _press(monkeypatch, referrals.referral_program_button, row)
+
+    kwargs = message.edit_text.await_args.kwargs
+    assert kwargs["parse_mode"] == "HTML"
+    assert "Реферальная программа" in message.edit_text.await_args.args[0]
+    buttons = _buttons(kwargs["reply_markup"])
+    assert buttons[0] == REFERRAL_INVITES_CALLBACK
+    assert ("referral_set_tag" in buttons) is can_set
+    assert buttons[-1] == "main_menu"
 
 
-async def test_with_a_referrer_the_count_reads_normally(monkeypatch):
-    answer = await _press_button(monkeypatch, {"referred_people": 3, "referrer_tag": "some_friend"})
-    text = _sent_text(answer)
-    assert "Ты уже пригласил: 3 чел\\." in text
-    assert "\\\\" not in text  # no escaped backslash shown to the user
-    assert "@some\\_friend" in text
+async def _handler_for(data: str):
+    cb = SimpleNamespace(data=data)
+    for handler in referrals.router.callback_query.handlers:
+        results = [await f.call(cb) for f in handler.filters or []]
+        if all(results):
+            return handler.callback
+    return None
 
 
-async def test_the_discounts_screen_has_a_bold_heading_and_nothing_bare():
-    message = SimpleNamespace(answer=AsyncMock())
-    cb = SimpleNamespace(answer=AsyncMock(), message=message)
+@pytest.mark.parametrize("data", ["referral", "referral_info"])
+async def test_old_buttons_open_the_same_screen(data):
+    """`referral_info` is the retired «О скидках» and the reminder's «Моя ссылка»."""
+    assert await _handler_for(data) is referrals.referral_program_button
 
-    await referrals.referral_info(cb)
 
-    text = _sent_text(message.answer)
-    assert text.startswith("🎁 *Реферальная программа*")
-    assert bare_reserved(text, markup="*") == []
-    assert text.count("*") - text.count("\\*") == 2
+# -- «👥 Мои приглашения» -----------------------------------------------------
+
+
+async def test_invitations_list_who_named_you_and_their_status(monkeypatch):
+    row = _row(referrer_tag="friend", referred_people=2, email="me@example.com")
+    invitees = [_invitee("anna", True), _invitee("max_k", True), _invitee("den", False)]
+
+    repo, message = await _press(
+        monkeypatch, referrals.referral_invites, row, invitees=invitees
+    )
+
+    repo.list_invitees.assert_awaited_once_with(
+        telegram_tag="me",
+        email="me@example.com",
+        exclude_user_id=row["id"],
+        limit=referrals.INVITEES_SHOWN + 1,
+    )
+    text = message.edit_text.await_args.args[0]
+    assert_valid_html(text)
+    assert "Тебя пригласил: @friend" in text
+    assert text.index("✅ @anna — засчитано") < text.index("⏳ @den — ждём первую оплату")
+    assert "Засчитано: 2" in text
+    assert f"Твоя цена: {PRICES[2][1]} ₽/мес" in text
+    assert f"Ещё один друг — и будет {PRICES[3][1]} ₽/мес" in text
+    assert _buttons(message.edit_text.await_args.kwargs["reply_markup"]) == ["referral"]
+
+
+def test_nobody_yet_and_no_referrer_read_plainly():
+    text = referrals.invites_html(_row(), [], more=False)
+    assert_valid_html(text)
+    assert "Тебя пригласил: никто" in text
+    assert "Пока никто не указал тебя пригласившим" in text
+
+
+def test_a_website_invitee_without_a_tag_is_still_listed():
+    text = referrals.invites_html(_row(), [_invitee("", False)], more=False)
+    assert "⏳ аккаунт с сайта — ждём первую оплату" in text
+
+
+def test_a_long_list_says_there_are_more():
+    text = referrals.invites_html(_row(), [_invitee("a", True)], more=True)
+    assert "…и другие" in text
+
+
+@pytest.mark.parametrize("credited", [5, 9])
+def test_at_the_top_tier_there_is_no_next_price(credited):
+    text = referrals.invites_html(_row(referred_people=credited), [], more=False)
+    assert f"Твоя цена: {PRICES[5][1]} ₽/мес" in text
+    assert "максимальная скидка" in text
+    assert "Ещё один друг" not in text
+
+
+def test_tags_cannot_inject_markup():
+    text = referrals.invites_html(
+        _row(referrer_tag="<b>x"), [_invitee("<i>y", True)], more=False
+    )
+    assert_valid_html(text)
+    assert "&lt;b&gt;x" in text
+
+
+async def test_without_a_profile_invitations_point_to_start(monkeypatch):
+    _, message = await _press(monkeypatch, referrals.referral_invites, None)
+    assert "/start" in message.answer.await_args.args[0]

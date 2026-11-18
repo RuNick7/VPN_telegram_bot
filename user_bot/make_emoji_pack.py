@@ -20,6 +20,13 @@ in .env:
 
 A pack drawn later goes the same way: same file names under `--images`, a
 new `--name`, the new value in .env, restart.
+
+When ICONS gains an entry, the set already in use is topped up rather than
+made again, so the ids every other icon has keep working:
+
+    docker compose exec bots python user_bot/make_emoji_pack.py --add-missing
+
+then restart the bot so it reads the set anew.
 """
 
 from __future__ import annotations
@@ -32,7 +39,7 @@ from pathlib import Path
 
 from tgvpn_shared.settings import get_settings
 
-from button_icons import ICON_DIR, ICONS
+from button_icons import ICON_DIR, ICONS, normalize
 
 # Telegram's rule for set names, before the `_by_<bot>` suffix is added.
 NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,40}$")
@@ -123,6 +130,38 @@ async def create(owner: int, name: str, title: str, images: Path) -> str:
         await bot.session.close()
 
 
+async def add_missing(owner: int, full_name: str, images: Path) -> list[str]:
+    """Upload the icons the set has no emoji for yet; return those emoji."""
+    from aiogram import Bot
+    from aiogram.types import BufferedInputFile, InputSticker
+
+    entries = plan(images)
+    settings = get_settings()
+    settings.require("user_bot_token")
+    bot = Bot(token=settings.user_bot_token)
+    try:
+        current = await bot.get_sticker_set(name=full_name)
+        have = {normalize(s.emoji) for s in current.stickers if s.emoji}
+        missing = [(emoji, path) for emoji, path in entries if normalize(emoji) not in have]
+        for emoji, path in missing:
+            await bot.add_sticker_to_set(
+                user_id=owner,
+                name=full_name,
+                sticker=InputSticker(
+                    sticker=BufferedInputFile(path.read_bytes(), filename=path.name),
+                    format="static",
+                    emoji_list=[emoji],
+                ),
+            )
+        added = " ".join(e for e, _ in missing) or "ничего — все иконки уже в наборе"
+        print(f"Добавлено в {full_name}: {added}")
+        if missing:
+            print("Перезапустите бота, чтобы он перечитал набор.")
+        return [e for e, _ in missing]
+    finally:
+        await bot.session.close()
+
+
 def main(argv: list[str] | None = None) -> None:
     settings = get_settings()
     parser = argparse.ArgumentParser(description="Создать набор эмодзи для иконок кнопок бота.")
@@ -141,6 +180,11 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--check", action="store_true", help="Только проверить картинки, ничего не отправлять."
     )
+    parser.add_argument(
+        "--add-missing",
+        action="store_true",
+        help="Дополнить существующий набор (BUTTON_ICONS_SET) иконками, которых в нём ещё нет.",
+    )
     args = parser.parse_args(argv)
 
     entries = plan(args.images.expanduser())
@@ -149,6 +193,12 @@ def main(argv: list[str] | None = None) -> None:
         return
     if not args.owner:
         raise SystemExit("Укажите --owner: ADMIN_IDS пуст.")
+    if args.add_missing:
+        full_name = settings.button_icons_set.strip()
+        if not full_name:
+            raise SystemExit("BUTTON_ICONS_SET пуст: дополнять нечего, сначала создайте набор.")
+        asyncio.run(add_missing(args.owner, full_name, args.images.expanduser()))
+        return
     asyncio.run(create(args.owner, args.name, args.title, args.images.expanduser()))
 
 
