@@ -1,0 +1,1484 @@
+/*
+ * KairaVPN — the landing page.
+ *
+ * Its own stylesheet, apart from app.css: the cabinet keeps its look until it
+ * is redesigned in turn, and nothing here can leak into it.
+ *
+ * Colours come from the logo: violet (#7c3aed) for the bird and for actions,
+ * lilac where the bird's head lightens, coral (#ff7a59) to pink (#f0506e) for
+ * the warm accents, in the order the wordmark runs. A dark hero with the
+ * planet, then a light page that rises over it like a second horizon.
+ *
+ * No inline styles anywhere; the CSP forbids them. What varies per element at
+ * run time (pin positions, bar heights, the spotlight) is written through the
+ * CSSOM from landing.js and planet.js.
+ */
+
+@import url("../fonts/fonts.css");
+
+:root {
+  --violet: #7c3aed;
+  --violet-hi: #8b5cf6;
+  --lilac: #a480fc;
+  --coral: #ff7a59;
+  --pink: #f0506e;
+
+  --space: #07050f;
+  --space-2: #0f0b1d;
+
+  --paper: #f5f3fb;
+  --card: #ffffff;
+  --ink: #15111f;
+  --ink-2: #4a4458;
+  --muted: #6b6680;
+  --line: rgb(21 17 31 / 0.08);
+
+  /* Latency: green is good, orange is usable. No red -- a slow server is
+     still a working one, and red next to a ping reads as "broken". */
+  --good: #34d399;
+  --fair: #ffa94d;
+
+  --grad-word: linear-gradient(90deg, var(--lilac), var(--coral) 62%, var(--pink));
+  --grad-warm: linear-gradient(90deg, var(--coral), var(--pink));
+
+  --r-md: 12px;
+  --r-lg: 20px;
+  --r-xl: 32px;
+  --ease: cubic-bezier(0.2, 0.8, 0.25, 1);
+  --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+  scroll-padding-top: 96px;
+}
+
+body {
+  margin: 0;
+  background: var(--space);
+  color: #fff;
+  font: 400 16px/1.55 var(--font);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: clip;
+}
+
+img,
+svg {
+  display: block;
+}
+
+a {
+  color: inherit;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  text-wrap: balance;
+}
+
+:focus-visible {
+  outline: 2px solid var(--lilac);
+  outline-offset: 3px;
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.icon {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.flag {
+  display: inline-block;
+  width: 18px;
+  height: 12px;
+  flex: none;
+  border-radius: 2px;
+}
+
+.grad {
+  background: var(--grad-word);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.wrap {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* -- buttons ------------------------------------------------------------ */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 18px;
+  border: 0;
+  border-radius: 999px;
+  font: 600 0.95rem/1.2 var(--font);
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.2s var(--ease), transform 0.2s var(--ease), box-shadow 0.2s var(--ease), border-color 0.2s var(--ease);
+}
+
+.btn .icon {
+  width: 18px;
+  height: 18px;
+}
+
+.btn-lg {
+  padding: 14px 24px;
+  font-size: 1rem;
+}
+
+.btn-sm {
+  padding: 8px 15px;
+  font-size: 0.88rem;
+}
+
+.btn-light {
+  background: #fff;
+  color: var(--ink);
+}
+
+.btn-light:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 32px -12px rgb(255 255 255 / 0.5);
+}
+
+.btn-ghost {
+  background: rgb(255 255 255 / 0.06);
+  border: 1px solid rgb(255 255 255 / 0.14);
+  color: #fff;
+}
+
+.btn-ghost:hover {
+  background: rgb(255 255 255 / 0.12);
+}
+
+.btn-violet {
+  background: var(--violet);
+  color: #fff;
+}
+
+.btn-violet:hover {
+  background: var(--violet-hi);
+}
+
+.btn-outline {
+  background: #fff;
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+
+.btn-outline:hover {
+  border-color: color-mix(in srgb, var(--violet) 40%, transparent);
+}
+
+.as-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* -- header ------------------------------------------------------------- */
+
+.site-header {
+  position: fixed;
+  z-index: 20;
+  top: 14px;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  width: min(1180px, calc(100% - 32px));
+  padding: 9px 10px 9px 18px;
+  transform: translateX(-50%);
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 999px;
+  background: rgb(15 11 29 / 0.5);
+  backdrop-filter: blur(14px) saturate(1.3);
+  -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  transition: background 0.3s var(--ease);
+}
+
+.site-header.is-scrolled {
+  background: rgb(15 11 29 / 0.82);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+}
+
+.brand-bird {
+  width: auto;
+  height: 30px;
+}
+
+.brand-word {
+  width: auto;
+  height: 19px;
+}
+
+.nav {
+  display: flex;
+  gap: 4px;
+  margin: 0 auto;
+}
+
+.nav a {
+  padding: 8px 12px;
+  border-radius: 999px;
+  color: rgb(255 255 255 / 0.72);
+  font-size: 0.92rem;
+  text-decoration: none;
+  transition: color 0.2s, background 0.2s;
+}
+
+.nav a:hover {
+  background: rgb(255 255 255 / 0.06);
+  color: #fff;
+}
+
+/* -- hero --------------------------------------------------------------- */
+
+/* overflow-x only: the planet runs on below the hero, under the light page,
+   so scrolling never shows the picture ending in a straight line. */
+.hero {
+  position: relative;
+  min-height: max(940px, 100svh);
+  padding: 140px 24px 0;
+  overflow-x: clip;
+  /* Two tiles of faint stars, offset so the repeat does not show. */
+  background:
+    radial-gradient(1px 1px at 22px 38px, rgb(255 255 255 / 0.55), transparent),
+    radial-gradient(1px 1px at 140px 92px, rgb(255 255 255 / 0.35), transparent),
+    radial-gradient(1.5px 1.5px at 210px 18px, rgb(255 255 255 / 0.5), transparent),
+    radial-gradient(1px 1px at 76px 170px, rgb(255 255 255 / 0.3), transparent),
+    radial-gradient(1px 1px at 190px 210px, rgb(255 255 255 / 0.4), transparent),
+    radial-gradient(1px 1px at 330px 140px, rgb(255 255 255 / 0.35), transparent),
+    radial-gradient(1.5px 1.5px at 280px 290px, rgb(255 255 255 / 0.45), transparent),
+    radial-gradient(1px 1px at 40px 300px, rgb(255 255 255 / 0.3), transparent),
+    radial-gradient(70% 55% at 50% 100%, rgb(124 58 237 / 0.22), transparent 70%),
+    var(--space);
+  background-size: 240px 240px, 240px 240px, 240px 240px, 240px 240px, 360px 360px, 360px 360px, 360px 360px, 360px 360px, 100% 100%, auto;
+}
+
+.hero-copy {
+  position: relative;
+  z-index: 3;
+  max-width: 820px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 6px 14px;
+  border: 1px solid rgb(255 255 255 / 0.14);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.04);
+  color: rgb(255 255 255 / 0.85);
+  font-size: 0.85rem;
+}
+
+.pill-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--coral);
+  box-shadow: 0 0 10px 2px rgb(255 122 89 / 0.6);
+}
+
+.hero h1 {
+  margin: 22px 0 18px;
+  font-size: clamp(2.5rem, 6.2vw, 5rem);
+  font-weight: 700;
+  line-height: 1.04;
+  letter-spacing: -0.035em;
+}
+
+.lead {
+  max-width: 560px;
+  margin: 0 auto;
+  color: rgb(255 255 255 / 0.72);
+  font-size: 1.1rem;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 30px;
+}
+
+.hero-offer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+/* The free period, said once and loudly, under the button it applies to. */
+.trial-pill {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 4px 8px;
+  margin: 0;
+  padding: 8px 18px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background:
+    linear-gradient(rgb(15 11 29 / 0.92), rgb(15 11 29 / 0.92)) padding-box,
+    linear-gradient(90deg, var(--lilac), var(--coral), var(--pink)) border-box;
+  font-size: 0.92rem;
+}
+
+.trial-pill b {
+  font-weight: 650;
+}
+
+.trial-pill span {
+  color: rgb(255 255 255 / 0.68);
+}
+
+.hero-price {
+  margin: 0;
+  color: rgb(255 255 255 / 0.6);
+  font-size: 0.92rem;
+}
+
+.hero-price b {
+  color: #fff;
+}
+
+/* The same offer at the top of the price list. */
+.trial-banner {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  align-items: center;
+  gap: 28px;
+  margin-bottom: 18px;
+  padding: 22px 28px;
+  overflow: hidden;
+  border: 1.5px solid transparent;
+  border-radius: var(--r-lg);
+  background:
+    linear-gradient(#fff, #fff) padding-box,
+    linear-gradient(90deg, var(--lilac), var(--coral), var(--pink)) border-box;
+}
+
+.trial-fig {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.trial-fig b {
+  font-size: 3rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.trial-fig span {
+  color: var(--ink-2);
+  font-size: 0.86rem;
+  line-height: 1.3;
+}
+
+.trial-banner p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+/* -- the planet --------------------------------------------------------- */
+
+/* One tall picture: the whole hero, plus 460px below it that the light page's
+   transparent top lets through until its horizon rises over it. planet.js
+   puts the horizon just under the copy, whatever the screen's shape, and the
+   atmosphere fades up from there to the top -- no edge anywhere. */
+.planet {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: -460px;
+  pointer-events: none;
+}
+
+.planet canvas {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.6s var(--ease);
+}
+
+.planet.is-ready canvas,
+.planet.planet--flat canvas {
+  opacity: 1;
+}
+
+.planet-pins {
+  position: absolute;
+  inset: 0;
+}
+
+.pin {
+  position: absolute;
+  width: 0;
+  height: 0;
+}
+
+.pin-dot,
+.pin-ping {
+  position: absolute;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.pin-dot {
+  width: 7px;
+  height: 7px;
+  background: #fff;
+  box-shadow: 0 0 0 2px var(--lilac), 0 0 12px 3px rgb(164 128 252 / 0.55);
+  transition: box-shadow 0.4s var(--ease);
+}
+
+.pin--server.is-target .pin-dot {
+  box-shadow: 0 0 0 2px var(--coral), 0 0 16px 5px rgb(255 122 89 / 0.6);
+}
+
+.pin--you .pin-dot {
+  width: 9px;
+  height: 9px;
+  background: var(--coral);
+  box-shadow: 0 0 0 3px rgb(255 122 89 / 0.3), 0 0 18px 6px rgb(255 122 89 / 0.45);
+}
+
+.pin--you .pin-ping {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--coral);
+  animation: ping 2.4s ease-out infinite;
+}
+
+/* No backdrop-filter on anything that sits over the planet: the blur would be
+   recomputed every time the planet repaints underneath. A denser fill instead. */
+.pin-label {
+  position: absolute;
+  top: 12px;
+  left: 0;
+  padding: 3px 10px;
+  transform: translateX(-50%);
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 999px;
+  background: rgb(15 11 29 / 0.86);
+  color: #fff;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.planet .pin-label {
+  opacity: 0;
+  transition: opacity 0.5s var(--ease) 0.2s;
+}
+
+.planet.is-risen .pin-label {
+  opacity: 1;
+}
+
+@keyframes ping {
+  from {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.8;
+  }
+  to {
+    transform: translate(-50%, -50%) scale(3.4);
+    opacity: 0;
+  }
+}
+
+/* The result of the last comet, beside the city it reached. */
+.ping-card {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  transform: translate(20px, -50%);
+  border: 1px solid rgb(255 255 255 / 0.12);
+  border-radius: 14px;
+  background: rgb(15 11 29 / 0.92);
+  box-shadow: 0 14px 34px -10px rgb(0 0 0 / 0.55);
+  white-space: nowrap;
+}
+
+.ping-card::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -6px;
+  width: 10px;
+  height: 10px;
+  transform: translateY(-50%) rotate(45deg);
+  border-bottom: 1px solid rgb(255 255 255 / 0.12);
+  border-left: 1px solid rgb(255 255 255 / 0.12);
+  background: rgb(15 11 29 / 0.95);
+}
+
+/* Where there is no room on the right, the card goes left; on a phone, where
+   there is room on neither side, it goes under the city. */
+.ping-card.is-left {
+  transform: translate(calc(-100% - 20px), -50%);
+}
+
+.ping-card.is-left::after {
+  left: auto;
+  right: -6px;
+  transform: translateY(-50%) rotate(-135deg);
+}
+
+.ping-card.is-below {
+  transform: translate(-50%, 22px);
+}
+
+.ping-card.is-below::after {
+  top: -6px;
+  left: 50%;
+  transform: translateX(-50%) rotate(135deg);
+}
+
+/* `scale` rather than `transform`, so the entrance composes with whichever
+   side the card is on. */
+.ping-card.is-in {
+  animation: card-in 0.45s var(--ease) both;
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    scale: 0.92;
+  }
+  to {
+    opacity: 1;
+    scale: 1;
+  }
+}
+
+.ping-place {
+  display: flex;
+  flex-direction: column;
+}
+
+.ping-place b {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 600;
+}
+
+.ping-place span {
+  color: rgb(255 255 255 / 0.55);
+  font-size: 0.78rem;
+}
+
+.ping-ms {
+  display: flex;
+  flex-direction: column;
+  padding-left: 14px;
+  border-left: 1px solid rgb(255 255 255 / 0.12);
+}
+
+.ping-ms b {
+  color: var(--good);
+  font-size: 1.1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ping-card[data-q="fair"] .ping-ms b {
+  color: var(--fair);
+}
+
+.ping-ms span {
+  color: rgb(255 255 255 / 0.55);
+  font-size: 0.74rem;
+}
+
+/* The bar of locations along the bottom of the hero. */
+.loc-bar {
+  position: absolute;
+  z-index: 4;
+  bottom: 96px;
+  left: 50%;
+  display: flex;
+  gap: 4px;
+  max-width: calc(100% - 32px);
+  padding: 5px;
+  overflow-x: auto;
+  transform: translateX(-50%);
+  border: 1px solid rgb(255 255 255 / 0.1);
+  border-radius: 999px;
+  background: rgb(15 11 29 / 0.86);
+  scrollbar-width: none;
+}
+
+.loc-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.loc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgb(255 255 255 / 0.72);
+  font: 500 0.86rem/1.2 var(--font);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.loc-chip:hover {
+  background: rgb(255 255 255 / 0.07);
+  color: #fff;
+}
+
+.loc-chip[aria-pressed="true"] {
+  background: rgb(255 255 255 / 0.13);
+  color: #fff;
+}
+
+/* The latency a chip has measured, once its city has been reached. */
+.chip-ms {
+  color: var(--good);
+  font-variant-numeric: tabular-nums;
+}
+
+.chip-ms[data-q="fair"] {
+  color: var(--fair);
+}
+
+/* The visitor's own city. A native <select> lies over the chip, invisible,
+   so the phone's own picker opens on tap. */
+.loc-chip--you {
+  position: relative;
+  margin-right: 4px;
+  border-radius: 999px 6px 6px 999px;
+  background: rgb(255 122 89 / 0.12);
+  color: #fff;
+}
+
+.loc-chip--you .icon {
+  width: 14px;
+  height: 14px;
+  opacity: 0.7;
+}
+
+.loc-chip--you select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+.loc-chip--you:focus-within {
+  outline: 2px solid var(--lilac);
+  outline-offset: 2px;
+}
+
+.you-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--coral);
+  box-shadow: 0 0 8px 2px rgb(255 122 89 / 0.6);
+}
+
+/* -- the light page ----------------------------------------------------- */
+
+/* The light page. Its top 220px stay dark (transparent over the body), and the
+   horizon below draws the curve the light rises through.
+
+   overflow-x: clip, not hidden: the horizon is far wider than the screen, and
+   mobile Chrome grows the layout viewport to fit anything that overflows
+   sideways. */
+.paper {
+  position: relative;
+  z-index: 2;
+  overflow-x: clip;
+  background: linear-gradient(to bottom, transparent 220px, var(--paper) 220px);
+  color: var(--ink);
+}
+
+/* A second horizon. It starts below the fold, so nothing white shows on the
+   first screen, and where the browser can tie an animation to scrolling it
+   also rises into place as it comes into view. The edge is a thin gradient
+   line in the logo's colours with a soft glow, and the light behind it starts
+   lavender rather than white, so dark turns to light gradually. */
+.horizon {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  left: 50%;
+  width: max(2600px, 240vw);
+  height: 560px;
+  transform: translate(-50%, 0);
+  /* Its own layer: the big blurred glow is painted once and then only moved. */
+  will-change: transform;
+  border-radius: 50% 50% 0 0 / 100% 100% 0 0;
+  background: linear-gradient(90deg, var(--lilac) 38%, var(--violet) 46%, var(--coral) 54%, var(--pink) 62%);
+  box-shadow:
+    0 -10px 36px rgb(164 128 252 / 0.32),
+    0 -30px 110px rgb(255 122 89 / 0.16);
+  /* The glow belongs above the edge only; below, its blur would leave a
+     faint band across the page where the element ends. */
+  clip-path: inset(-400px -40px 0 -40px);
+  pointer-events: none;
+}
+
+.horizon::after {
+  content: "";
+  position: absolute;
+  inset: 2px 0 0;
+  border-radius: inherit;
+  background: linear-gradient(to bottom, #2a1d4d 0, #8f7fc2 40px, #e7e1f8 110px, var(--paper) 200px);
+}
+
+/* The rise is a scroll-driven animation, not a scroll listener: it runs on
+   the compositor together with the scroll itself, so the edge never trails a
+   frame behind the page the way a script moving it would. Browsers without
+   scroll timelines simply show it in place. */
+@supports (animation-timeline: view()) {
+  @media (prefers-reduced-motion: no-preference) {
+    .horizon {
+      animation: horizon-rise linear both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 80%;
+    }
+  }
+}
+
+@keyframes horizon-rise {
+  from {
+    transform: translate(-50%, 160px);
+  }
+  to {
+    transform: translate(-50%, 0);
+  }
+}
+
+.section {
+  position: relative;
+  z-index: 1;
+  padding: 104px 0 0;
+}
+
+.paper > .section:first-of-type {
+  padding-top: 150px;
+}
+
+.section--last {
+  padding-bottom: 104px;
+}
+
+.section-head {
+  max-width: 700px;
+  margin: 0 auto 40px;
+  text-align: center;
+}
+
+.section-head p {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 1.05rem;
+}
+
+.kicker {
+  display: inline-block;
+  margin-bottom: 10px;
+  color: var(--violet);
+  font-size: 0.8rem;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.kicker--dark {
+  color: var(--lilac);
+}
+
+h2 {
+  font-size: clamp(1.9rem, 3.6vw, 2.75rem);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+
+/* -- cards -------------------------------------------------------------- */
+
+.cards {
+  display: grid;
+  gap: 18px;
+}
+
+.cols-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.card {
+  position: relative;
+  padding: 26px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--card);
+  transition: transform 0.3s var(--ease), box-shadow 0.3s var(--ease);
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 22px 44px -24px rgb(76 29 149 / 0.35);
+}
+
+.spot::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(280px circle at var(--mx, 50%) var(--my, -40%), rgb(124 58 237 / 0.09), transparent 70%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s;
+}
+
+.spot:hover::before {
+  opacity: 1;
+}
+
+.card h3 {
+  margin: 18px 0 8px;
+  font-size: 1.12rem;
+  font-weight: 650;
+}
+
+.card p {
+  margin: 0;
+  color: var(--ink-2);
+  font-size: 0.95rem;
+  line-height: 1.6;
+}
+
+.card-icon {
+  display: inline-grid;
+  width: 46px;
+  height: 46px;
+  place-items: center;
+  border-radius: 14px;
+  background: rgb(124 58 237 / 0.1);
+  color: var(--violet);
+}
+
+.card-icon--coral {
+  background: rgb(255 122 89 / 0.14);
+  color: #e65a37;
+}
+
+.platforms {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin: 24px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.platforms li {
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink-2);
+  font-size: 0.88rem;
+}
+
+/* -- plans -------------------------------------------------------------- */
+
+.plans {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+.plan {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 22px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: #fff;
+}
+
+.plan[data-best="true"] {
+  border: 1.5px solid transparent;
+  background:
+    linear-gradient(#fff, #fff) padding-box,
+    linear-gradient(135deg, var(--violet), var(--coral) 70%, var(--pink)) border-box;
+  box-shadow: 0 26px 50px -30px rgb(124 58 237 / 0.55);
+}
+
+.plan-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 26px;
+}
+
+.plan h3 {
+  color: var(--ink-2);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.badge {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--grad-warm);
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.plan-price b {
+  font-size: 2.2rem;
+  font-weight: 750;
+  letter-spacing: -0.03em;
+}
+
+.plan-note {
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.btn-plan {
+  margin-top: auto;
+  border-radius: var(--r-md);
+  background: var(--ink);
+  color: #fff;
+}
+
+.btn-plan:hover {
+  background: var(--violet);
+}
+
+.plan[data-best="true"] .btn-plan {
+  background: var(--violet);
+}
+
+.plan[data-best="true"] .btn-plan:hover {
+  background: var(--violet-hi);
+}
+
+/* -- dark islands ------------------------------------------------------- */
+
+.island {
+  position: relative;
+  padding: clamp(28px, 5vw, 56px);
+  overflow: hidden;
+  border-radius: var(--r-xl);
+  background:
+    radial-gradient(120% 140% at 100% 0%, rgb(124 58 237 / 0.38), transparent 55%),
+    radial-gradient(90% 120% at 0% 100%, rgb(255 122 89 / 0.16), transparent 60%),
+    var(--space-2);
+  color: #fff;
+}
+
+.island p {
+  color: rgb(255 255 255 / 0.72);
+}
+
+.island h2 {
+  margin-bottom: 12px;
+}
+
+.referral {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  align-items: center;
+  gap: 40px;
+  margin-top: 22px;
+}
+
+.referral-copy .btn {
+  margin-top: 12px;
+}
+
+.referral-figure {
+  text-align: center;
+}
+
+.big {
+  display: inline-block;
+  font-size: clamp(4.5rem, 11vw, 8rem);
+  font-weight: 800;
+  line-height: 0.9;
+  letter-spacing: -0.05em;
+}
+
+.ladder {
+  display: flex;
+  gap: 10px;
+  height: 160px;
+  margin: 26px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  height: 100%;
+  color: rgb(255 255 255 / 0.55);
+  font-size: 0.74rem;
+}
+
+.step-track {
+  display: flex;
+  flex: 1;
+  align-items: flex-end;
+  width: 100%;
+}
+
+.step-bar {
+  width: 100%;
+  border-radius: 8px 8px 4px 4px;
+  background: rgb(255 255 255 / 0.13);
+}
+
+.step[data-last="true"] .step-bar {
+  background: linear-gradient(180deg, var(--coral), var(--violet));
+}
+
+.step b {
+  color: #fff;
+  font-size: 0.85rem;
+}
+
+/* Two lines' room for every label, so a wrapped "без друзей" does not lift
+   its own bar and price out of line with the rest. */
+.step > span:last-child {
+  min-height: 2.6em;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.locations {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  gap: 40px;
+}
+
+.fine {
+  font-size: 0.8rem;
+}
+
+.island .fine {
+  color: rgb(255 255 255 / 0.45);
+}
+
+.loc-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.loc-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 14px;
+  background: rgb(255 255 255 / 0.05);
+}
+
+.loc-row .flag {
+  width: 22px;
+  height: 15px;
+}
+
+.loc-name {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+.loc-name b {
+  font-weight: 600;
+}
+
+.loc-name span {
+  color: rgb(255 255 255 / 0.55);
+  font-size: 0.82rem;
+}
+
+.loc-ms {
+  color: var(--good);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.loc-ms[data-q="fair"] {
+  color: var(--fair);
+}
+
+/* -- support ------------------------------------------------------------ */
+
+.support {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  padding: 32px;
+}
+
+.support-bird {
+  width: 128px;
+  height: 128px;
+  flex: none;
+}
+
+.support-copy p {
+  margin: 8px 0 18px;
+  color: var(--ink-2);
+}
+
+.support-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+/* -- closing call to action -------------------------------------------- */
+
+.cta {
+  text-align: center;
+}
+
+.cta-bird {
+  width: 92px;
+  height: auto;
+  margin: 0 auto 14px;
+  filter: drop-shadow(0 12px 30px rgb(124 58 237 / 0.55));
+}
+
+.cta p {
+  margin: 0 0 24px;
+}
+
+/* -- footer ------------------------------------------------------------- */
+
+.site-footer {
+  position: relative;
+  z-index: 1;
+  padding: 56px 0 44px;
+  border-top: 1px solid var(--line);
+}
+
+.footer-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: 32px;
+}
+
+.footer-brand .brand-word {
+  height: 24px;
+}
+
+.footer-brand p {
+  max-width: 340px;
+  margin: 14px 0 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.footer-brand .credit {
+  margin-top: 10px;
+  font-size: 0.78rem;
+}
+
+.footer-brand .credit a {
+  color: inherit;
+}
+
+.site-footer nav {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 0.92rem;
+}
+
+.site-footer nav a,
+.site-footer nav .as-link {
+  color: var(--ink-2);
+  text-decoration: none;
+}
+
+.site-footer nav a:hover,
+.site-footer nav .as-link:hover {
+  color: var(--violet);
+}
+
+.footer-title {
+  margin-bottom: 4px;
+  color: var(--ink);
+  font-weight: 650;
+}
+
+/* -- entrance ----------------------------------------------------------- */
+
+/* Only once landing.js has said it will reveal them: without the script the
+   sections are simply there. */
+.reveal-on [data-reveal] {
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 0.7s var(--ease), transform 0.7s var(--ease);
+}
+
+.reveal-on [data-reveal].is-in {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .pin--you .pin-ping {
+    display: none;
+  }
+
+  .ping-card.is-in {
+    animation: none;
+  }
+
+  .card,
+  .card:hover {
+    transform: none;
+  }
+}
+
+/* -- narrow screens ----------------------------------------------------- */
+
+@media (max-width: 1000px) {
+  .plans {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .trial-banner {
+    grid-template-columns: auto 1fr;
+    gap: 16px 24px;
+  }
+
+  .trial-banner p,
+  .trial-banner .btn {
+    grid-column: 1 / -1;
+  }
+
+  .nav {
+    display: none;
+  }
+
+  .brand {
+    margin-right: auto;
+  }
+
+  .cols-3 {
+    grid-template-columns: 1fr;
+  }
+
+  .referral,
+  .locations {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .site-header {
+    top: 10px;
+    gap: 12px;
+    padding: 7px 8px 7px 14px;
+  }
+
+  .nav {
+    display: none;
+  }
+
+  .brand {
+    margin-right: auto;
+  }
+
+  .brand-bird {
+    height: 26px;
+  }
+
+  .brand-word {
+    height: 16px;
+  }
+
+  /* Compact enough that the planet, the ping card and the location bar are on
+     the first screen of an ordinary phone, while the light page still starts
+     below it. */
+  .hero {
+    min-height: max(860px, 100svh);
+    padding: 92px 16px 0;
+  }
+
+  .pill {
+    font-size: 0.8rem;
+  }
+
+  .hero h1 {
+    margin: 16px 0 12px;
+    font-size: 2.2rem;
+  }
+
+  .lead {
+    font-size: 0.98rem;
+  }
+
+  .hero-actions {
+    margin-top: 22px;
+  }
+
+  .hero-actions .btn-lg {
+    padding: 12px 20px;
+  }
+
+  .hero-offer {
+    gap: 8px;
+    margin-top: 14px;
+  }
+
+  .trial-pill {
+    flex-direction: column;
+    gap: 2px;
+    padding: 7px 16px;
+    border-radius: 16px;
+    font-size: 0.82rem;
+  }
+
+  .hero-price {
+    font-size: 0.86rem;
+  }
+
+
+  .loc-bar {
+    left: 16px;
+    right: 16px;
+    bottom: 76px;
+    max-width: none;
+    transform: none;
+  }
+
+  .wrap {
+    padding: 0 16px;
+  }
+
+  /* Narrower on a phone, or the curve is too gentle to see across 375px. */
+  .horizon {
+    width: 330vw;
+    height: 440px;
+  }
+
+  .section {
+    padding-top: 80px;
+  }
+
+  .support {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .support-links {
+    justify-content: center;
+  }
+
+  .footer-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .plans {
+    grid-template-columns: 1fr;
+  }
+
+  .trial-banner {
+    grid-template-columns: 1fr;
+    padding: 20px;
+  }
+
+  .ping-card {
+    gap: 10px;
+    padding: 8px 11px;
+  }
+}

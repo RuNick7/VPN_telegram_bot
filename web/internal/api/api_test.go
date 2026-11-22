@@ -1,9 +1,17 @@
 package api
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/netip"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/config"
+	"github.com/RuNick7/VPN_telegram_bot/web/internal/geoip"
+	"github.com/RuNick7/VPN_telegram_bot/web/internal/pricing"
 )
 
 func TestReturnURLRefusesToRedirectOffSite(t *testing.T) {
@@ -89,5 +97,99 @@ func TestSessionCookieIsHostPrefixed(t *testing.T) {
 	// session cookie for us.
 	if SessionCookie != "__Host-session" {
 		t.Errorf("session cookie is %q", SessionCookie)
+	}
+}
+
+func TestReferralLadderFollowsThePriceTable(t *testing.T) {
+	ladder := referralLadder()
+	if len(ladder) != pricing.MaxTier+1 {
+		t.Fatalf("ladder has %d steps, want %d", len(ladder), pricing.MaxTier+1)
+	}
+	for invited, price := range ladder {
+		want, _ := pricing.SubscriptionPrice(1, invited)
+		if price != want {
+			t.Errorf("step %d is %d ₽, the table says %d ₽", invited, price, want)
+		}
+		if invited > 0 && price > ladder[invited-1] {
+			t.Errorf("inviting a friend raises the price at step %d", invited)
+		}
+	}
+	if ladder[len(ladder)-1] != referralBestPrice() {
+		t.Errorf("the last step %d ₽ is not the best price %d ₽", ladder[len(ladder)-1], referralBestPrice())
+	}
+}
+
+func TestWhereAmIWithoutADatabaseIsUnknown(t *testing.T) {
+	s := &Server{}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/whereami", nil)
+	req.RemoteAddr = "77.88.8.8:5000"
+	s.handleWhereAmI(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("status %d, want 204", rec.Code)
+	}
+	if got := rec.Header().Get("Cache-Control"); !strings.Contains(got, "no-store") {
+		t.Errorf("Cache-Control %q: a city answer must not be cached for the next visitor", got)
+	}
+}
+
+func TestOnlyPublicAddressesAreLookedUp(t *testing.T) {
+	for addr, want := range map[string]bool{
+		"77.88.8.8":          true,
+		"2a02:6b8::feed:0ff": true,
+		"::ffff:77.88.8.8":   true,
+		"127.0.0.1":          false, // everybody, behind a proxy that hides the address
+		"10.1.2.3":           false,
+		"192.168.0.10":       false,
+		"::1":                false,
+		"fe80::1":            false,
+	} {
+		if got := publicAddress(netip.MustParseAddr(addr)); got != want {
+			t.Errorf("publicAddress(%s) = %v, want %v", addr, got, want)
+		}
+	}
+}
+
+// End to end against a real city database when GEOIP_TEST_DB names one:
+// the address arrives the way it does behind the proxy, in X-Forwarded-For.
+func TestWhereAmIWithARealDatabase(t *testing.T) {
+	path := os.Getenv("GEOIP_TEST_DB")
+	if path == "" {
+		t.Skip("GEOIP_TEST_DB not set")
+	}
+	db, err := geoip.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	s := &Server{}
+	s.EnableGeo(db)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/whereami", nil)
+	req.RemoteAddr = "127.0.0.1:40000"
+	req.Header.Set("X-Forwarded-For", "46.61.0.1")
+	rec := httptest.NewRecorder()
+	s.handleWhereAmI(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d", rec.Code)
+	}
+	var place geoip.Place
+	if err := json.Unmarshal(rec.Body.Bytes(), &place); err != nil {
+		t.Fatal(err)
+	}
+	if place.Country != "RU" || place.Lat == 0 || place.Lon == 0 {
+		t.Errorf("got %+v", place)
+	}
+	if strings.Contains(rec.Body.String(), "46.61.0.1") {
+		t.Error("the answer echoes the address back")
+	}
+
+	// Behind a proxy that hides addresses everyone is loopback: unknown.
+	req = httptest.NewRequest(http.MethodGet, "/api/whereami", nil)
+	req.RemoteAddr = "127.0.0.1:40000"
+	rec = httptest.NewRecorder()
+	s.handleWhereAmI(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("loopback: status %d, want 204", rec.Code)
 	}
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/account"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/auth"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/config"
+	"github.com/RuNick7/VPN_telegram_bot/web/internal/geoip"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/pricing"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/push"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/store"
@@ -46,6 +47,9 @@ type Server struct {
 	// Web Push; nil when no VAPID key is configured.
 	push      *push.Service
 	pushTests *testLimiter
+
+	// City database for /api/whereami; nil when GEOIP_DB is not set.
+	geo *geoip.DB
 }
 
 func NewServer(
@@ -67,6 +71,7 @@ func (s *Server) Routes() http.Handler {
 
 	mux.HandleFunc("GET /api/health", s.handleHealth)
 	mux.HandleFunc("GET /api/config", s.handleClientConfig)
+	mux.HandleFunc("GET /api/whereami", s.handleWhereAmI)
 
 	// Auth. Unauthenticated by definition.
 	mux.HandleFunc("POST /api/auth/magic-link", s.handleRequestMagicLink)
@@ -293,6 +298,22 @@ func referralBestPrice() int {
 	return price
 }
 
+// referralLadder is what a month costs with 0, 1, ... MaxTier people invited,
+// so the landing page can draw every step without a copy of the price table.
+// Nil if any tier does not sell a monthly plan: a ladder with a gap in it
+// would misstate the steps, and the page then shows only the best price.
+func referralLadder() []int {
+	ladder := make([]int, 0, pricing.MaxTier+1)
+	for invited := 0; invited <= pricing.MaxTier; invited++ {
+		price, ok := pricing.SubscriptionPrice(1, invited)
+		if !ok {
+			return nil
+		}
+		ladder = append(ladder, price)
+	}
+	return ladder
+}
+
 func (s *Server) handleClientConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"telegram_login":   s.cfg.TelegramLoginEnabled(),
@@ -302,11 +323,17 @@ func (s *Server) handleClientConfig(w http.ResponseWriter, r *http.Request) {
 		"traffic_enabled":  s.cfg.LTEEnabled,
 		"support_enabled":  s.cfg.SupportEnabled,
 		"trial_days":       s.cfg.WebTrialDays,
-		"plans":            pricing.PlansFor(0),
+		// The other two halves of the free period, so the landing page can
+		// say what each route is worth instead of repeating one number:
+		// signing up through the bot, and linking the second identity.
+		"telegram_trial_days":   s.cfg.TrialDays,
+		"trial_link_bonus_days": s.cfg.TrialLinkBonusDays,
+		"plans":                 pricing.PlansFor(0),
 		// What a month costs once somebody has invited the most that counts.
 		// Sent rather than written into the markup so the landing page cannot
 		// advertise a saving the price table no longer offers.
 		"referral_best_price": referralBestPrice(),
+		"referral_ladder":     referralLadder(),
 		"docs": map[string]string{
 			"license": s.cfg.Links.License,
 			"privacy": s.cfg.Links.Privacy,

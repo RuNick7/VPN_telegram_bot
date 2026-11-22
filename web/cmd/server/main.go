@@ -19,6 +19,7 @@ import (
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/auth"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/config"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/deeplink"
+	"github.com/RuNick7/VPN_telegram_bot/web/internal/geoip"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/mailer"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/panel"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/push"
@@ -137,6 +138,19 @@ func run(log *slog.Logger) error {
 	accountSvc := account.NewService(st, panelClient, cfg.FreeTierEnabled, cfg.WebTrialDays,
 		cfg.PaidSquadName, cfg.LTEEnabled, cfg.LTESquadName)
 	server := api.NewServer(cfg, st, authSvc, accountSvc, yookassa.New(cfg.YooKassaShopID, cfg.YooKassaSecretKey), log)
+
+	if cfg.GeoIPPath != "" {
+		// Optional, so a missing or damaged file is a warning, not a failed
+		// start: the landing page only loses its guess of the visitor's city.
+		db, err := geoip.Open(cfg.GeoIPPath)
+		if err != nil {
+			log.Warn("geoip database not loaded; /api/whereami will answer unknown", "path", cfg.GeoIPPath, "err", err)
+		} else {
+			defer db.Close()
+			log.Info("geoip database loaded", "type", db.Type, "built", db.Built.Format("2006-01-02"))
+			server.EnableGeo(db)
+		}
+	}
 
 	if cfg.Push.Enabled() {
 		// A key that does not parse stops the start rather than the sends:

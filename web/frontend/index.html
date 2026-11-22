@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>KairaVPN — безопасный доступ без ограничений</title>
 <meta name="description" content="VPN без логов и без ограничений скорости. Подписка от 89 ₽ в месяц, оплата картой, подключение за минуту на любом устройстве.">
-<meta name="theme-color" content="#000000">
+<meta name="theme-color" content="#07050f">
 <meta name="robots" content="index, follow">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="KairaVPN">
@@ -15,14 +15,11 @@
 <link rel="canonical" href="https://kairavpn.pro/">
 <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png">
-<!-- The two subsets every page needs before it can paint text. The rest of the
-     stylesheet's @font-face rules load on demand via unicode-range. -->
 <link rel="preload" href="/assets/fonts/inter-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="/assets/fonts/jetbrains-mono-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="apple-mobile-web-app-title" content="KairaVPN">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
-<link rel="stylesheet" href="/assets/css/app.css">
+<link rel="stylesheet" href="/assets/css/landing.css">
 <script type="module" src="/assets/js/landing.js"></script>
 <script type="module" src="/assets/js/footer.js"></script>
 <script type="module" src="/assets/js/pwa.js"></script>
@@ -31,143 +28,225 @@
 <!--icon-sprite-->
 
 <header class="site-header">
-  <a class="brand" href="/">
-    <svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg>
-    <span>KairaVPN</span>
+  <a class="brand" href="/" aria-label="KairaVPN — на главную">
+    <img class="brand-bird" src="/assets/img/kaira-bird.png" alt="" width="152" height="147">
+    <img class="brand-word" src="/assets/img/kaira-wordmark.png" alt="KairaVPN" width="315" height="54">
   </a>
-  <nav class="row">
-    <a class="mono muted" href="#tariffs">Тарифы</a>
-    <a class="btn btn-sm" href="/login" data-cabinet-link>Личный кабинет</a>
+  <nav class="nav" aria-label="Разделы">
+    <a href="#tariffs">Тарифы</a>
+    <a href="#features">Возможности</a>
+    <a href="#devices">Устройства</a>
+    <a href="#locations">Локации</a>
   </nav>
+  <a class="btn btn-light btn-sm" href="/login" data-cabinet-link>Личный кабинет</a>
 </header>
 
 <main>
-
   <section class="hero">
-    <!-- Poster first, always. The video is attached by script only where it is
-         worth the bytes; see landing.js. -->
-    <picture>
-      <source srcset="/assets/img/hero-poster.avif" type="image/avif">
-      <img class="hero-media" src="/assets/img/hero-poster.webp" alt="" width="1600" height="900" fetchpriority="high" decoding="async">
-    </picture>
-
-    <div class="hero-body">
-      <div>
-        <div class="hero-mark">
-          <svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg>
-        </div>
-        <h1 class="display">Безопасный доступ.<br><span class="accent">Без ограничений.</span></h1>
-        <p class="lead">Быстрый, прямой и защищённый. Обход блокировок мгновенно. Только чистый доступ к сети.</p>
+    <div class="hero-copy">
+      <span class="pill"><span class="pill-dot"></span>Серверы в 4 странах Европы</span>
+      <h1>Безопасный доступ.<br><span class="grad">Без ограничений.</span></h1>
+      <p class="lead">Быстрый и защищённый VPN: заблокированные сайты открываются сразу, без сложных настроек.</p>
+      <div class="hero-actions">
+        <a class="btn btn-light btn-lg" href="/login">
+          Подключить VPN
+          <svg class="icon" aria-hidden="true"><use href="#i-arrow-right"></use></svg>
+        </a>
+        <a class="btn btn-ghost btn-lg" href="#tariffs">Тарифы</a>
       </div>
-      <div class="hero-price">
-        <span class="mono accent">Месячный тариф</span>
-        <span class="h-md num" data-monthly-price>—</span>
-        <p class="mono-sm strong" data-trial-hero hidden></p>
-        <a class="btn btn-lg" href="/login">Подключить VPN</a>
+      <div class="hero-offer">
+        <!-- Filled from /api/config: the free period is a setting, so the page
+             does not promise a number of days the server no longer gives. -->
+        <p class="trial-pill" data-trial-pill hidden></p>
+        <p class="hero-price">Месячный тариф — <b class="num" data-monthly-price>89 ₽</b></p>
       </div>
     </div>
+
+    <div class="planet" data-planet>
+      <canvas class="planet-gl" aria-hidden="true"></canvas>
+      <canvas class="planet-fx" aria-hidden="true"></canvas>
+      <div class="planet-pins"></div>
+    </div>
+    <div class="loc-bar" data-loc-bar aria-label="Локации серверов"></div>
   </section>
 
-  <!-- There was a strip of four figures here: channel, nodes, whitelist
-       bypass, price. Every one of them is stated again below with an
-       explanation attached, and the price a third time in the hero — the same
-       three facts read three times before a visitor reached the tariffs. The
-       version that explains itself is the one worth keeping. -->
+  <div class="paper" data-paper>
+    <div class="horizon" aria-hidden="true"></div>
 
-  <section class="section">
-    <div class="wrap">
-      <span class="section-tag">01 // Инфраструктура</span>
-      <div class="grid-lines cols-3">
-        <div class="card-hover stack">
-          <svg class="icon icon-lg accent" aria-hidden="true"><use href="#i-eye-off"></use></svg>
-          <h3 class="mono strong">Без логов</h3>
-          <p class="mono-sm muted">Мы не пишем историю подключений и не храним то, что вы открываете. Хранить нечего — значит нечего и выдать.</p>
+    <section class="section" id="tariffs" data-reveal>
+      <div class="wrap">
+        <header class="section-head">
+          <span class="kicker">Тарифы</span>
+          <h2>Чем дольше, тем дешевле месяц</h2>
+          <p>Скорость и все серверы одинаковы на любом тарифе — отличается только срок.</p>
+        </header>
+
+        <div class="trial-banner" data-trial-banner hidden>
+          <div class="trial-fig">
+            <b class="grad num" data-trial-base>7</b>
+            <span>дней бесплатно<br>после регистрации</span>
+          </div>
+          <div class="trial-fig" data-trial-bonus-fig hidden>
+            <b class="grad num" data-trial-bonus>+7</b>
+            <span>за почту<br>и Telegram вместе</span>
+          </div>
+          <p data-trial-text></p>
+          <a class="btn btn-violet" href="/login">Попробовать бесплатно</a>
         </div>
-        <div class="card-hover stack">
-          <svg class="icon icon-lg accent" aria-hidden="true"><use href="#i-unlock"></use></svg>
-          <h3 class="mono strong">Обход белых списков</h3>
-          <p class="mono-sm muted">Протоколы с маскировкой трафика: соединение выглядит как обычный HTTPS и проходит там, где открыт доступ только к разрешённому списку сайтов.</p>
+
+        <!-- Current prices, so the page is right before /api/config answers
+             and stays right if it never does. landing.js replaces them with
+             the live table. -->
+        <div class="plans" data-plans>
+          <article class="plan spot"><div class="plan-top"><h3>1 месяц</h3></div><div class="plan-price"><b class="num">89 ₽</b></div><p class="plan-note">30 дней доступа</p><a class="btn btn-plan" href="/login">Подключить</a></article>
+          <article class="plan spot"><div class="plan-top"><h3>3 месяца</h3><span class="badge">−7%</span></div><div class="plan-price"><b class="num">249 ₽</b></div><p class="plan-note">83 ₽ в месяц · 90 дней</p><a class="btn btn-plan" href="/login">Подключить</a></article>
+          <article class="plan spot"><div class="plan-top"><h3>6 месяцев</h3><span class="badge">−10%</span></div><div class="plan-price"><b class="num">479 ₽</b></div><p class="plan-note">80 ₽ в месяц · 180 дней</p><a class="btn btn-plan" href="/login">Подключить</a></article>
+          <article class="plan spot" data-best="true"><div class="plan-top"><h3>1 год</h3><span class="badge">−16%</span></div><div class="plan-price"><b class="num">899 ₽</b></div><p class="plan-note">75 ₽ в месяц · 360 дней</p><a class="btn btn-plan" href="/login">Подключить</a></article>
         </div>
-        <div class="card-hover stack">
-          <svg class="icon icon-lg accent" aria-hidden="true"><use href="#i-speed"></use></svg>
-          <h3 class="mono strong">Канал 2 Гбит/с</h3>
-          <p class="mono-sm muted">Скорость не режется искусственно и не зависит от тарифа. Нагрузка распределяется балансировщиками между четырьмя узлами в разных локациях.</p>
+
+        <!-- Shown only once /api/config has confirmed both numbers. -->
+        <div class="island referral" data-referral hidden>
+          <div class="referral-copy">
+            <span class="kicker kicker--dark">Друзья</span>
+            <h2>Пригласите друга — подписка подешевеет</h2>
+            <p>Каждый приглашённый друг снижает цену. Пятеро друзей — и месяц стоит <b class="num" data-referral-best>9 ₽</b> вместо <b class="num" data-monthly-price>89 ₽</b>.</p>
+            <a class="btn btn-light" href="/login">Получить ссылку в кабинете</a>
+          </div>
+          <div class="referral-figure">
+            <span class="big num grad" data-referral-best>9 ₽</span>
+            <ol class="ladder" data-referral-ladder hidden aria-label="Цена месяца по числу друзей"></ol>
+          </div>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <section class="section">
-    <div class="wrap">
-      <span class="section-tag">02 // Устройства</span>
-      <div class="grid-lines cols-3">
-        <div class="stack">
-          <svg class="icon icon-lg accent" aria-hidden="true"><use href="#i-tv"></use></svg>
-          <h3 class="mono strong">Телевизор и приставка</h3>
-          <p class="mono-sm muted">Android TV и Apple TV настраиваются по той же подписке. Инструкция — в личном кабинете.</p>
-        </div>
-        <div class="stack">
-          <svg class="icon icon-lg accent" aria-hidden="true"><use href="#i-phone"></use></svg>
-          <h3 class="mono strong">Телефон</h3>
-          <p class="mono-sm muted">iOS и Android: один QR-код из кабинета, приложение подхватывает конфигурацию само.</p>
-        </div>
-        <div class="stack">
-          <svg class="icon icon-lg accent" aria-hidden="true"><use href="#i-monitor"></use></svg>
-          <h3 class="mono strong">Компьютер и консоль</h3>
-          <p class="mono-sm muted">Windows, macOS и Linux. Одна ссылка подписки на все устройства сразу.</p>
+    <section class="section" id="features" data-reveal>
+      <div class="wrap">
+        <header class="section-head">
+          <span class="kicker">Возможности</span>
+          <h2>Что вы получаете</h2>
+        </header>
+        <div class="cards cols-3">
+          <article class="card spot">
+            <span class="card-icon"><svg class="icon" aria-hidden="true"><use href="#i-eye-off"></use></svg></span>
+            <h3>Без логов</h3>
+            <p>Мы не записываем, какие сайты вы открываете и когда подключаетесь. Нечего хранить — значит, нечего и передать.</p>
+          </article>
+          <article class="card spot">
+            <span class="card-icon card-icon--coral"><svg class="icon" aria-hidden="true"><use href="#i-unlock"></use></svg></span>
+            <h3>Работает даже при белых списках</h3>
+            <p>Соединение выглядит как обычный веб-трафик — будто вы просто открываете сайт. Поэтому VPN работает даже там, где оставлен доступ только к разрешённым сайтам.</p>
+          </article>
+          <article class="card spot">
+            <span class="card-icon"><svg class="icon" aria-hidden="true"><use href="#i-speed"></use></svg></span>
+            <h3>Канал 10 Гбит/с</h3>
+            <p>Скорость не урезается и одинакова на любом тарифе. Подключения сами распределяются между серверами в разных странах, чтобы ни один не был перегружен.</p>
+          </article>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <section class="section" id="tariffs">
-    <div class="wrap">
-      <span class="section-tag">03 // Тарифы</span>
-      <div class="grid-lines cols-4" data-plans>
-        <div class="plan"><span class="mono-sm muted skeleton">Загрузка</span><div class="metric skeleton">000 ₽</div></div>
-        <div class="plan"><span class="mono-sm muted skeleton">Загрузка</span><div class="metric skeleton">000 ₽</div></div>
-        <div class="plan"><span class="mono-sm muted skeleton">Загрузка</span><div class="metric skeleton">000 ₽</div></div>
-        <div class="plan"><span class="mono-sm muted skeleton">Загрузка</span><div class="metric skeleton">000 ₽</div></div>
+    <section class="section" id="devices" data-reveal>
+      <div class="wrap">
+        <header class="section-head">
+          <span class="kicker">Устройства</span>
+          <h2>Одна подписка на все устройства</h2>
+          <p>Телефон, компьютер и телевизор подключаются по одной ссылке из личного кабинета.</p>
+        </header>
+        <div class="cards cols-3">
+          <article class="card spot">
+            <span class="card-icon"><svg class="icon" aria-hidden="true"><use href="#i-phone"></use></svg></span>
+            <h3>Телефон</h3>
+            <p>iPhone и Android. Отсканируйте QR-код в личном кабинете — приложение настроится само.</p>
+          </article>
+          <article class="card spot">
+            <span class="card-icon"><svg class="icon" aria-hidden="true"><use href="#i-monitor"></use></svg></span>
+            <h3>Компьютер и консоль</h3>
+            <p>Windows, macOS и Linux. Скопируйте ссылку из кабинета в приложение — и всё готово.</p>
+          </article>
+          <article class="card spot">
+            <span class="card-icon card-icon--coral"><svg class="icon" aria-hidden="true"><use href="#i-tv"></use></svg></span>
+            <h3>Телевизор и приставка</h3>
+            <p>Android TV и Apple TV подключаются по той же подписке. Пошаговая инструкция — в личном кабинете.</p>
+          </article>
+        </div>
+        <ul class="platforms" aria-label="Платформы">
+          <li>iOS</li><li>Android</li><li>Windows</li><li>macOS</li><li>Linux</li><li>Android TV</li><li>Apple TV</li>
+        </ul>
       </div>
-      <!-- The trial is announced once, in the hero, next to the price it
-           changes the meaning of. It used to be repeated here as well.
+    </section>
 
-           The referral line used to read "цена снижается на каждом уровне,
-           вплоть до пятого" — "уровень" is our word for a column in the price
-           table, and it left a reader to guess what a level was and what
-           reaching the fifth would get them. Both numbers now come from
-           /api/config, so the page cannot promise a saving the price table
-           has stopped offering. -->
-      <p class="mono-sm muted" data-referral-line hidden>
-        Пригласите друга — подписка подешевеет. Пятеро друзей, и месяц стоит
-        <span class="strong num" data-referral-best>—</span> вместо
-        <span class="strong num" data-monthly-price>—</span>.
-      </p>
-    </div>
-  </section>
+    <section class="section" id="locations" data-reveal>
+      <div class="wrap">
+        <div class="island locations">
+          <div>
+            <span class="kicker kicker--dark">Локации</span>
+            <h2>Серверы в Европе</h2>
+            <p>Серверы стоят в четырёх странах. Подключения сами распределяются между ними, поэтому скорость не проседает, даже когда пользователей много.</p>
+            <p class="fine" data-locations-from></p>
+          </div>
+          <ul class="loc-list" data-locations></ul>
+        </div>
+      </div>
+    </section>
 
-</main>
+    <section class="section" data-reveal>
+      <div class="wrap">
+        <div class="support card">
+          <img class="support-bird" src="/assets/img/kaira-support.png" alt="" width="255" height="255">
+          <div class="support-copy">
+            <h2>Мы на связи</h2>
+            <p>Не получается подключиться или есть вопрос — напишите в Telegram, ответим.</p>
+            <div class="support-links">
+              <a class="btn btn-violet" href="https://t.me/KairaSupp" rel="noopener" data-support>
+                <svg class="icon" aria-hidden="true"><use href="#i-telegram"></use></svg>
+                <span>Telegram <span data-support-handle>@KairaSupp</span></span>
+              </a>
+              <a class="btn btn-outline" href="#" data-channel hidden>Канал с новостями</a>
+              <button class="btn btn-outline" type="button" data-copy-mail="kaira.supp@gmail.com">kaira.supp@gmail.com</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
 
-<footer class="site-footer">
-  <div class="wrap row between wrap-row">
-    <div class="stack">
-      <span class="mono accent">KairaVPN</span>
-      <p class="mono-sm muted">Быстрый доступ к любым сайтам. Мы не смотрим, что вы открываете.</p>
-    </div>
-    <nav aria-label="Документы">
-      <span class="mono-sm strong">Документы</span>
-      <a class="mono-sm muted" href="/docs/license" data-doc="license">Лицензионное соглашение</a>
-      <a class="mono-sm muted" href="/docs/privacy" data-doc="privacy">Политика конфиденциальности</a>
-    </nav>
-    <nav aria-label="Связь">
-      <span class="mono-sm strong">Связь</span>
-      <a class="mono-sm muted" href="#" data-support hidden>Поддержка в Telegram</a>
-      <a class="mono-sm muted" href="#" data-channel hidden>Канал с новостями</a>
-      <button class="mono-sm muted as-link" type="button"
-              data-copy-mail="kaira.supp@gmail.com">kaira.supp@gmail.com</button>
-    </nav>
+    <section class="section section--last" data-reveal>
+      <div class="wrap">
+        <div class="island cta">
+          <img class="cta-bird" src="/assets/img/kaira-bird.png" alt="" width="152" height="147">
+          <h2>Подключитесь за минуту</h2>
+          <p>Оплата картой, одна ссылка на все устройства.</p>
+          <a class="btn btn-light btn-lg" href="/login">
+            Подключить VPN
+            <svg class="icon" aria-hidden="true"><use href="#i-arrow-right"></use></svg>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <footer class="site-footer">
+      <div class="wrap footer-row">
+        <div class="footer-brand">
+          <img class="brand-word" src="/assets/img/kaira-wordmark.png" alt="KairaVPN" width="315" height="54">
+          <p>Быстрый доступ к любым сайтам. Мы не смотрим, что вы открываете.</p>
+          <!-- Required by the database's licence (CC BY 4.0): the city on the
+               planet comes from DB-IP's free IP to City Lite. -->
+          <p class="credit">Город по IP определяется с помощью <a href="https://db-ip.com" rel="noopener">DB-IP</a></p>
+        </div>
+        <nav aria-label="Документы">
+          <span class="footer-title">Документы</span>
+          <a href="/docs/license" data-doc="license">Лицензионное соглашение</a>
+          <a href="/docs/privacy" data-doc="privacy">Политика конфиденциальности</a>
+        </nav>
+        <nav aria-label="Связь">
+          <span class="footer-title">Связь</span>
+          <a href="https://t.me/KairaSupp" rel="noopener" data-support>Поддержка в Telegram</a>
+          <a href="#" data-channel hidden>Канал с новостями</a>
+          <button class="as-link" type="button" data-copy-mail="kaira.supp@gmail.com">kaira.supp@gmail.com</button>
+        </nav>
+      </div>
+    </footer>
   </div>
-</footer>
-
+</main>
 </body>
 </html>
