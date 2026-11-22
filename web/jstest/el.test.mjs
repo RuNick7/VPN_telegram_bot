@@ -39,7 +39,7 @@ globalThis.document = {
 const { el } = await import("../frontend/assets/js/core.js");
 
 test("a true attribute is written as the string the stylesheet looks for", () => {
-  // Every selector in app.css reads [data-x="true"]. Writing the HTML boolean
+  // Every selector in the stylesheets reads [data-x="true"]. Writing the HTML boolean
   // convention -- an empty value -- matched none of them, which left three
   // things silently inert: the device pips never lit up, the best-value plan
   // was never highlighted, and a spent gift was never dimmed.

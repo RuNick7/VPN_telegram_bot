@@ -65,8 +65,8 @@ type Config struct {
 	// `server -gen-vapid`.
 	Push Push
 
-	// GeoIPPath is an MMDB city database (DB-IP City Lite, fetched by
-	// tools/geoip/update.sh). Optional: without it /api/whereami answers
+	// GeoIPPath is an MMDB city database (DB-IP City Lite, downloaded
+	// monthly from db-ip.com). Optional: without it /api/whereami answers
 	// "unknown" and the landing page falls back to the visitor's time zone.
 	GeoIPPath string
 }

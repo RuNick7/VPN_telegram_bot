@@ -1,8 +1,8 @@
 /*
  * KairaVPN — the landing page.
  *
- * Its own stylesheet, apart from app.css: the cabinet keeps its look until it
- * is redesigned in turn, and nothing here can leak into it.
+ * Its own stylesheet, apart from cabinet.css (every other page), so nothing
+ * here can leak into the cabinet.
  *
  * Colours come from the logo: violet (#7c3aed) for the bird and for actions,
  * lilac where the bird's head lightens, coral (#ff7a59) to pink (#f0506e) for
@@ -243,14 +243,9 @@ h3 {
   text-decoration: none;
 }
 
-.brand-bird {
+.brand-logo {
   width: auto;
-  height: 30px;
-}
-
-.brand-word {
-  width: auto;
-  height: 19px;
+  height: 40px;
 }
 
 .nav {
@@ -1247,8 +1242,8 @@ h2 {
   gap: 32px;
 }
 
-.footer-brand .brand-word {
-  height: 24px;
+.footer-brand .brand-logo {
+  height: 44px;
 }
 
 .footer-brand p {
@@ -1376,12 +1371,8 @@ h2 {
     margin-right: auto;
   }
 
-  .brand-bird {
-    height: 26px;
-  }
-
-  .brand-word {
-    height: 16px;
+  .brand-logo {
+    height: 34px;
   }
 
   /* Compact enough that the planet, the ping card and the location bar are on

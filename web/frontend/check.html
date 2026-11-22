@@ -5,15 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Проверка серверов — KairaVPN</title>
 <meta name="description" content="Программа «KairaVPN Проверка»: проверяет каждый сервер подписки и отправляет отчёт в поддержку. Windows, macOS и Linux.">
-<meta name="theme-color" content="#000000">
-<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png">
+<meta name="theme-color" content="#07050f">
+<link rel="icon" href="/assets/img/kaira-favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/img/kaira-touch-icon.png">
 <link rel="preload" href="/assets/fonts/inter-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/assets/fonts/jetbrains-mono-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="apple-mobile-web-app-title" content="KairaVPN">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
-<link rel="stylesheet" href="/assets/css/app.css">
+<link rel="stylesheet" href="/assets/css/cabinet.css">
 <script type="module" src="/assets/js/check.js"></script>
 <script type="module" src="/assets/js/footer.js"></script>
 <script type="module" src="/assets/js/pwa.js"></script>
@@ -21,10 +21,9 @@
 <body>
 <!--icon-sprite-->
 
-<header class="site-header">
-  <a class="brand" href="/">
-    <svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg>
-    <span>KairaVPN</span>
+<header class="top-bar">
+  <a class="brand" href="/" aria-label="KairaVPN — на главную">
+    <img class="brand-logo" src="/assets/img/kaira-logo.svg" alt="KairaVPN" width="870" height="265">
   </a>
   <nav class="row">
     <a class="mono muted" href="/">На главную</a>
@@ -32,7 +31,7 @@
   </nav>
 </header>
 
-<main>
+<main class="page-main">
   <section class="section">
     <div class="wrap stack check-hero">
       <span class="section-tag">Проверка серверов</span>
@@ -58,7 +57,7 @@
 
   <section class="section">
     <div class="wrap">
-      <span class="section-tag">01 // Как проверить</span>
+      <span class="section-tag">Как проверить</span>
       <ol class="steps check-steps">
         <li class="step">
           <span class="step-num num">01</span>
@@ -94,7 +93,7 @@
 
   <section class="section">
     <div class="wrap">
-      <span class="section-tag">02 // Первый запуск</span>
+      <span class="section-tag">Первый запуск</span>
       <div class="grid-lines cols-2">
         <div class="stack">
           <h2 class="mono strong">macOS</h2>
@@ -123,7 +122,7 @@
 
   <section class="section" id="files">
     <div class="wrap stack">
-      <span class="section-tag">03 // Все файлы</span>
+      <span class="section-tag">Все файлы</span>
       <div class="panel check-files">
         <ul class="rows">
           <li>
@@ -153,10 +152,10 @@
   </section>
 </main>
 
-<footer class="site-footer">
+<footer class="site-footer page-footer">
   <div class="wrap row between wrap-row">
     <div class="stack">
-      <span class="mono accent">KairaVPN</span>
+      <img class="footer-logo" src="/assets/img/kaira-logo.svg" alt="KairaVPN" width="870" height="265">
       <p class="mono-sm muted">Быстрый доступ к любым сайтам. Мы не смотрим, что вы открываете.</p>
     </div>
     <nav aria-label="Документы">

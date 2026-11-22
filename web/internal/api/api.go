@@ -50,6 +50,9 @@ type Server struct {
 
 	// City database for /api/whereami; nil when GEOIP_DB is not set.
 	geo *geoip.DB
+
+	// The last server status answer; see handleServerStatus.
+	status statusCache
 }
 
 func NewServer(
@@ -98,6 +101,7 @@ func (s *Server) Routes() http.Handler {
 	mux.Handle("POST /api/subscription/reset-link", s.authenticated(s.handleResetLink))
 
 	mux.Handle("GET /api/devices", s.authenticated(s.handleListDevices))
+	mux.Handle("GET /api/status", s.authenticated(s.handleServerStatus))
 	mux.Handle("DELETE /api/devices/{id}", s.authenticated(s.handleDeleteDevice))
 
 	mux.Handle("GET /api/traffic", s.authenticated(s.handleTraffic))

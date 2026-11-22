@@ -2,15 +2,18 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/config"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/geoip"
+	"github.com/RuNick7/VPN_telegram_bot/web/internal/panel"
 	"github.com/RuNick7/VPN_telegram_bot/web/internal/pricing"
 )
 
@@ -191,5 +194,77 @@ func TestWhereAmIWithARealDatabase(t *testing.T) {
 	s.handleWhereAmI(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Errorf("loopback: status %d, want 204", rec.Code)
+	}
+}
+
+func TestNodeHealthIsSummedPerLocation(t *testing.T) {
+	nodes := []panel.Node{
+		{CountryCode: "FI", IsConnected: true},
+		{CountryCode: "fi", IsConnected: true},
+		{CountryCode: "DE", IsConnected: true},
+		{CountryCode: "DE", IsConnected: false},
+		{CountryCode: "NL", IsConnected: false},
+		{CountryCode: "FR", IsConnected: true, IsDisabled: true}, // switched off on purpose
+		{CountryCode: "RU", IsConnected: true},                   // not a location on the map
+	}
+	got := summarizeNodes(nodes)
+	want := []locationStatus{
+		{ID: "fi", State: "ok", Online: 2, Total: 2},
+		{ID: "de", State: "partial", Online: 1, Total: 2},
+		{ID: "nl", State: "down", Online: 0, Total: 1},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d locations %+v, want %d", len(got), got, len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("location %d: got %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestServerStatusAsksThePanelSparingly(t *testing.T) {
+	var cache statusCache
+	calls := 0
+	panelErr := errors.New("panel down")
+	up := func() ([]panel.Node, error) {
+		calls++
+		return []panel.Node{{CountryCode: "FI", IsConnected: true}}, nil
+	}
+	down := func() ([]panel.Node, error) {
+		calls++
+		return nil, panelErr
+	}
+	start := time.Unix(1_800_000_000, 0)
+
+	// With nothing cached, a failing panel is an error -- once. Visitors in the
+	// next few seconds get the same answer without waiting on it again.
+	if _, _, err := cache.get(start, down); !errors.Is(err, panelErr) {
+		t.Fatalf("first failure: err %v", err)
+	}
+	if _, _, err := cache.get(start.Add(5*time.Second), down); !errors.Is(err, panelErr) || calls != 1 {
+		t.Fatalf("within the retry window: err %v after %d calls, want the remembered error after 1", err, calls)
+	}
+
+	// Recovery is noticed once the window passes, and then cached a minute.
+	at := start.Add(statusRetry)
+	if got, _, err := cache.get(at, up); err != nil || len(got) != 1 || calls != 2 {
+		t.Fatalf("after the window: %+v, %v after %d calls", got, err, calls)
+	}
+	if _, _, _ = cache.get(at.Add(30*time.Second), up); calls != 2 {
+		t.Fatalf("a fresh answer was fetched again: %d calls", calls)
+	}
+
+	// A later failure keeps showing the last good answer, still at most once
+	// per window, until that answer is too old to stand for the present.
+	later := at.Add(statusFresh)
+	if got, checked, err := cache.get(later, down); err != nil || len(got) != 1 || !checked.Equal(at) {
+		t.Fatalf("stale answer: %+v checked %v, err %v", got, checked, err)
+	}
+	if _, _, _ = cache.get(later.Add(time.Second), down); calls != 3 {
+		t.Fatalf("retried inside the window: %d calls", calls)
+	}
+	if _, _, err := cache.get(at.Add(statusStale), down); !errors.Is(err, panelErr) {
+		t.Fatalf("an answer older than statusStale was still served: err %v", err)
 	}
 }

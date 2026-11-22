@@ -6,8 +6,8 @@
 <title>Обзор — KairaVPN</title>
 <meta name="theme-color" content="#07050f">
 <meta name="robots" content="noindex, nofollow">
-<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png">
+<link rel="icon" href="/assets/img/kaira-favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/img/kaira-touch-icon.png">
 <link rel="preload" href="/assets/fonts/inter-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/assets/fonts/jetbrains-mono-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="manifest" href="/manifest.webmanifest">
@@ -23,8 +23,7 @@
 
 <header class="site-header">
   <a class="brand" href="/app" aria-label="KairaVPN — обзор">
-    <img class="brand-bird" src="/assets/img/kaira-bird.png" alt="" width="152" height="147">
-    <img class="brand-word" src="/assets/img/kaira-wordmark.png" alt="KairaVPN" width="315" height="54">
+    <img class="brand-logo" src="/assets/img/kaira-logo.svg" alt="KairaVPN" width="870" height="265">
   </a>
   <nav class="tabs" aria-label="Разделы кабинета">
     <a href="/app" data-tab><span data-icon="dashboard"></span>Обзор</a>
@@ -51,10 +50,12 @@
        data-band carries data-single (set by overview.js) as it did on the
        old two-column band. -->
   <section class="hero-card" data-band aria-label="Подписка">
-    <div class="globe" data-globe aria-hidden="true">
-      <canvas></canvas>
-      <div class="globe-pins" data-globe-pins></div>
+    <div class="globe" data-globe>
+      <canvas aria-hidden="true"></canvas>
+      <div class="globe-pins" data-globe-pins aria-label="Локации серверов"></div>
     </div>
+    <!-- One line for all locations, filled from /api/status. -->
+    <div class="globe-status" data-globe-status role="status" hidden></div>
 
     <div class="hero-body">
       <div class="row status-row">
@@ -96,12 +97,12 @@
         <span class="mono-sm" data-traffic-label>Трафик</span>
         <span data-icon="chart"></span>
       </div>
-      <div class="row between wrap-row">
-        <div class="metric num"><span data-traffic-used>—</span> <small data-traffic-total></small></div>
-        <a class="btn btn-sm" href="/app/plans#traffic">Купить гигабайты</a>
-      </div>
+      <div class="metric num"><span data-traffic-used>—</span> <small data-traffic-total></small></div>
       <div class="meter" data-traffic-meter><span></span></div>
       <p class="mono-sm muted" data-traffic-note></p>
+      <div class="actions cell-foot">
+        <a class="btn btn-sm" href="/app/plans#traffic"><span data-icon="plus"></span> Купить гигабайты</a>
+      </div>
     </div>
 
     <div class="card-hover stack" data-referrals-cell>
@@ -111,7 +112,9 @@
       </div>
       <div class="metric num" data-referral-count>—</div>
       <p class="mono-sm muted" data-referral-note></p>
-      <a class="mono-sm accent" href="/app/profile#referrals">Реферальная программа →</a>
+      <div class="actions cell-foot">
+        <a class="btn btn-ghost btn-sm" href="/app/profile#referrals"><span data-icon="group"></span> Пригласить друзей</a>
+      </div>
     </div>
 
     <div class="card-hover stack">
@@ -121,6 +124,9 @@
       </div>
       <div class="metric num"><span data-device-count>—</span> <small data-device-limit></small></div>
       <div class="pips" data-device-pips></div>
+      <div class="actions cell-foot">
+        <a class="btn btn-ghost btn-sm" href="/app/devices"><span data-icon="devices"></span> Мои устройства</a>
+      </div>
     </div>
 
     <!-- Bot and channel share one cell rather than taking two. The grid is a
@@ -133,10 +139,9 @@
         <span data-icon="telegram"></span>
       </div>
       <div class="mono strong" data-bot-handle>—</div>
-      <p class="mono-sm muted">Тот же аккаунт, что здесь.</p>
-      <div class="row wrap-row">
-        <a class="mono-sm accent" data-bot-link href="#" rel="noopener" hidden>Бот →</a>
-        <a class="mono-sm accent" data-channel-link href="#" rel="noopener" hidden>Канал →</a>
+      <div class="actions cell-foot">
+        <a class="btn btn-sm" data-bot-link href="#" rel="noopener" hidden><span data-icon="telegram"></span> Открыть бота</a>
+        <a class="btn btn-ghost btn-sm" data-channel-link href="#" rel="noopener" hidden>Канал</a>
       </div>
     </div>
 
@@ -155,7 +160,7 @@
           <span data-icon="copy"></span>
         </button>
       </div>
-      <a class="mono-sm accent" href="/app/devices">Инструкции по установке и QR-код →</a>
+      <a class="btn btn-ghost btn-sm" href="/app/devices"><span data-icon="qr"></span> QR-код и инструкции</a>
     </div>
   </section>
 
@@ -180,7 +185,7 @@
 <footer class="site-footer app-footer">
   <div class="wrap row between wrap-row">
     <div class="stack">
-      <span class="mono accent">KairaVPN</span>
+      <img class="footer-logo" src="/assets/img/kaira-logo.svg" alt="KairaVPN" width="870" height="265">
       <p class="mono-sm muted">Быстрый доступ к любым сайтам. Мы не смотрим, что вы открываете.</p>
     </div>
     <nav aria-label="Документы">

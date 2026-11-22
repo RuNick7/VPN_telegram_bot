@@ -26,19 +26,21 @@
  * activation.
  */
 
-const VERSION = "v1";
+const VERSION = "v2";
 const CACHE = `kaira-${VERSION}`;
 const OFFLINE = "/offline";
 
 const PRECACHE = [
   OFFLINE,
-  "/assets/css/app.css",
+  "/assets/css/cabinet.css",
   "/assets/js/core.js",
   "/assets/js/footer.js",
   "/assets/js/pwa.js",
   "/assets/fonts/inter-cyrillic.woff2",
   "/assets/fonts/inter-latin.woff2",
-  "/assets/img/favicon.svg",
+  "/assets/img/kaira-favicon.svg",
+  "/assets/img/kaira-logo.svg",
+  "/assets/img/kaira-bird.svg",
 ];
 
 self.addEventListener("install", (event) => {
@@ -94,7 +96,7 @@ self.addEventListener("push", (event) => {
       body: data.body || "",
       tag: data.tag || undefined,
       lang: "ru",
-      icon: "/assets/img/icon-192.png",
+      icon: "/assets/img/kaira-icon-192.png",
       data: { url: sitePath(data.url) },
     }),
   );

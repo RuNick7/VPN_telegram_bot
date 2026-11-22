@@ -178,6 +178,13 @@ function renderReferrals(referrals, user) {
  * and the same estimate the landing page uses (places.js). Started straight
  * away rather than after /api/me: it does not depend on the account.
  */
+const STATE_TEXT = {
+  ok: "Все серверы доступны",
+  partial: "Частичная недоступность",
+  down: "Недоступен",
+  unknown: "Статус проверяется",
+};
+
 function setUpGlobe() {
   const host = $("[data-globe]");
   const layer = $("[data-globe-pins]");
@@ -187,19 +194,98 @@ function setUpGlobe() {
   // three do not overlap.
   const sides = { nl: "l", fr: "l" };
   const sites = CITIES.map((city) => {
-    const pin = el("div", { class: "site-pin", "data-side": sides[city.id] || "r" }, [
+    const pin = el("button", {
+      type: "button",
+      class: "site-pin",
+      "data-side": sides[city.id] || "r",
+      "data-state": "unknown",
+      "aria-expanded": "false",
+    }, [
       el("span", { class: "pin-mark" }, [el("span", { class: "pin-ping" }), el("span", { class: "pin-dot" })]),
       el("span", { class: "pin-label" }, [flag(city.id), el("b", { text: city.city }), el("span", { class: "pin-ms" })]),
     ]);
     layer.append(pin);
-    return { ...city, el: pin };
+    return { ...city, el: pin, state: "unknown", online: 0, total: 0, strength: 1 };
   });
+
+  // The card a pin opens: the location's status and the ping to it.
+  const card = el("div", { class: "pin-card", role: "dialog", "aria-modal": "false" });
+  card.hidden = true;
+  layer.append(card);
+  let open = null;
+
+  const describe = (site) => {
+    if (site.state === "partial") return `${STATE_TEXT.partial} · работает ${site.online} из ${site.total}`;
+    if (site.state === "ok" && site.total > 1) return `${STATE_TEXT.ok} · ${site.total} из ${site.total}`;
+    return STATE_TEXT[site.state] || STATE_TEXT.unknown;
+  };
+
+  const fillCard = (site) => {
+    const ms = estimatePing(home, site);
+    card.replaceChildren(
+      el("div", { class: "pin-card-head" }, [
+        flag(site.id),
+        el("span", {}, [el("b", { text: site.city }), el("span", { class: "muted", text: ` · ${site.country}` })]),
+      ]),
+      el("p", { class: "pin-card-state", "data-state": site.state }, [el("span", { class: "state-dot" }), describe(site)]),
+      el("p", { class: "pin-card-ping" }, [
+        "Пинг от вас ",
+        el("b", { class: "num", "data-q": quality(ms), text: `≈ ${ms} мс` }),
+      ])
+    );
+  };
+
+  // Beside the pin on its label's side, then pulled back inside the globe: on
+  // a phone a card to the right of Frankfurt would otherwise run off the edge.
+  const placeCard = (site) => {
+    const gap = 16;
+    const edge = 8;
+    const x = parseFloat(site.el.style.left) || 0;
+    const y = parseFloat(site.el.style.top) || 0;
+    const width = card.offsetWidth;
+    let left = site.el.dataset.side === "l" ? x - width - gap : x + gap;
+    left = Math.min(Math.max(left, edge), Math.max(edge, layer.clientWidth - width - edge));
+    card.style.left = `${left}px`;
+    card.style.top = `${y + gap}px`;
+  };
+
+  const close = () => {
+    if (!open) return;
+    open.el.setAttribute("aria-expanded", "false");
+    open = null;
+    card.hidden = true;
+  };
+
+  for (const site of sites) {
+    site.el.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (open === site) return close();
+      close();
+      open = site;
+      fillCard(site);
+      card.hidden = false;
+      placeCard(site);
+      site.el.setAttribute("aria-expanded", "true");
+    });
+  }
+  document.addEventListener("click", (event) => {
+    if (open && !card.contains(event.target)) close();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") close();
+  });
+
   const writePings = () => {
     for (const site of sites) {
       const ms = estimatePing(home, site);
       const tag = site.el.querySelector(".pin-ms");
       tag.textContent = `≈ ${ms} мс`;
       tag.dataset.q = quality(ms);
+      site.el.setAttribute("aria-label", `${site.city}: ${describe(site)}, пинг около ${ms} мс`);
+    }
+    if (open) {
+      fillCard(open);
+      placeCard(open);
     }
   };
   writePings();
@@ -221,6 +307,39 @@ function setUpGlobe() {
       globe.setOrigin([home.lon, home.lat]);
     });
   }
+
+  // Health per location from the panel. A location the panel has no
+  // enabled nodes for is not offered, so its pin goes; a failed call leaves
+  // every pin as it is, uncoloured, rather than claiming an outage.
+  api("/api/status")
+    .then((status) => {
+      const byId = new Map((status.locations || []).map((loc) => [loc.id, loc]));
+      for (const site of sites) {
+        const loc = byId.get(site.id);
+        if (!loc) {
+          site.el.hidden = true;
+          site.strength = 0;
+          continue;
+        }
+        Object.assign(site, { state: loc.state, online: loc.online, total: loc.total });
+        site.strength = loc.state === "down" ? 0.35 : 1;
+        site.el.dataset.state = loc.state;
+      }
+      globe.refresh();
+      writePings();
+
+      const shown = sites.filter((site) => byId.has(site.id));
+      const summary = $("[data-globe-status]");
+      if (!summary || !shown.length) return;
+      const down = shown.filter((site) => site.state === "down").length;
+      const fine = shown.filter((site) => site.state === "ok").length;
+      const overall = fine === shown.length ? "ok" : down === shown.length ? "down" : "partial";
+      const words = { ok: "Все серверы доступны", partial: "Частичная недоступность", down: "Серверы недоступны" };
+      summary.dataset.state = overall;
+      summary.replaceChildren(el("span", { class: "state-dot" }), words[overall]);
+      summary.hidden = false;
+    })
+    .catch((err) => console.error("status", err));
 }
 
 setUpGlobe();

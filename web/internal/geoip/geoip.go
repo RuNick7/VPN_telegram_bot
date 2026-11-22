@@ -5,8 +5,8 @@
 // Written against the format rather than imported: the reader is a binary
 // search tree walk and a small value decoder, a few hundred lines with the
 // standard library, and the database is DB-IP's free "IP to City Lite"
-// (CC BY 4.0 -- the page credits it), refreshed monthly by
-// tools/geoip/update.sh.
+// (CC BY 4.0 -- the page credits it), published monthly at
+// https://db-ip.com/db/download/ip-to-city-lite as an .mmdb file.
 //
 // Nothing here is used to decide anything about a request. The answer only
 // chooses where a comet starts from on a picture.

@@ -352,8 +352,14 @@ export class Globe {
       const p = this.project([s.lon, s.lat]);
       s.el.style.left = `${p.x}px`;
       s.el.style.top = `${p.y}px`;
-      s.el.hidden = !p.visible;
+      // A site with no strength (a location without servers) stays hidden.
+      s.el.hidden = !p.visible || s.strength === 0;
     }
+  }
+
+  /** Redraw after a site's strength changed (its status arrived). */
+  refresh() {
+    this.kick();
   }
 
   /** Move the wave's origin, e.g. once the visitor's city is known. */
@@ -432,7 +438,7 @@ export class Globe {
     gl.uniform3fv(u.uCoral, this.colors.coral);
     gl.uniform4f(u.uFade, ...(g.narrow ? [0.04, 0.04, 0.02, 0.14] : [0.34, 0.04, 0.02, 0.08]));
     const arr = new Float32Array(32);
-    this.sites.slice(0, 8).forEach((s, i) => arr.set([s.lon, s.lat, 1, 1], i * 4));
+    this.sites.slice(0, 8).forEach((s, i) => arr.set([s.lon, s.lat, s.strength ?? 1, 1], i * 4));
     gl.uniform4fv(u.uSites, arr);
     gl.uniform1i(u.uSiteCount, Math.min(8, this.sites.length));
     gl.drawArrays(gl.TRIANGLES, 0, 3);

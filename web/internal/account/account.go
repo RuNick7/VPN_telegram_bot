@@ -410,3 +410,8 @@ func (s *Service) ExtendSubscription(ctx context.Context, user *store.User, days
 	}
 	return newEnds, nil
 }
+
+// Nodes lists the panel's nodes, for the server status the cabinet shows.
+func (s *Service) Nodes(ctx context.Context) ([]panel.Node, error) {
+	return s.panel.Nodes(ctx)
+}

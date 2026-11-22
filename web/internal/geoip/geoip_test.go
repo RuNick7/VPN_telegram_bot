@@ -376,7 +376,7 @@ func TestCleanCityName(t *testing.T) {
 }
 
 // Runs against a real database when GEOIP_TEST_DB names one, for example the
-// DB-IP City Lite file tools/geoip/update.sh fetches. Skipped otherwise.
+// DB-IP City Lite file from db-ip.com. Skipped otherwise.
 func TestRealDatabase(t *testing.T) {
 	path := os.Getenv("GEOIP_TEST_DB")
 	if path == "" {

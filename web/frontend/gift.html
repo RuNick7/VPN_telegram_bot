@@ -5,19 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Подарок — KairaVPN</title>
 <meta name="description" content="Активация подарочной подписки KairaVPN.">
-<meta name="theme-color" content="#000000">
+<meta name="theme-color" content="#07050f">
 <!-- The path carries a single-use gift code. Neither a crawler nor a Referer
      header has any business with it. -->
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
-<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png">
+<link rel="icon" href="/assets/img/kaira-favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/img/kaira-touch-icon.png">
 <link rel="preload" href="/assets/fonts/inter-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/assets/fonts/jetbrains-mono-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="apple-mobile-web-app-title" content="KairaVPN">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
-<link rel="stylesheet" href="/assets/css/app.css">
+<link rel="stylesheet" href="/assets/css/cabinet.css">
 <script type="module" src="/assets/js/gift.js"></script>
 <script type="module" src="/assets/js/footer.js"></script>
 <script type="module" src="/assets/js/pwa.js"></script>
@@ -25,16 +25,16 @@
 <body>
 <!--icon-sprite-->
 
-<header class="site-header">
-  <a class="brand" href="/">
-    <svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg>
-    <span>KairaVPN</span>
+<header class="top-bar">
+  <a class="brand" href="/" aria-label="KairaVPN — на главную">
+    <img class="brand-logo" src="/assets/img/kaira-logo.svg" alt="KairaVPN" width="870" height="265">
   </a>
 </header>
 
-<main>
+<main class="page-main">
   <div class="slab">
     <div class="slab-inner stack">
+      <img class="slab-mark" src="/assets/img/kaira-bird.svg" alt="" width="275" height="265">
 
       <div>
         <span class="section-tag">Подарочная подписка</span>
@@ -72,10 +72,10 @@
   </div>
 </main>
 
-<footer class="site-footer">
+<footer class="site-footer page-footer">
   <div class="wrap row between wrap-row">
     <div class="stack">
-      <span class="mono accent">KairaVPN</span>
+      <img class="footer-logo" src="/assets/img/kaira-logo.svg" alt="KairaVPN" width="870" height="265">
       <p class="mono-sm muted">Быстрый доступ к любым сайтам. Мы не смотрим, что вы открываете.</p>
     </div>
     <nav aria-label="Документы">

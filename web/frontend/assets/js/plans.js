@@ -75,35 +75,44 @@ function planCard(plan, { gift }) {
     text: gift ? "Подарить" : "Оплатить",
   });
 
+  // Every card has the same rows in the same places -- the term and its
+  // discount on one line, the price, one line of detail, the button -- so
+  // the prices line up across the row whether or not a card has a discount.
+  const perMonth = Math.round(plan.price / plan.months);
+  const days = `${plan.days} ${plural(plan.days, "день", "дня", "дней")}`;
   return el("div", { class: "plan", "data-best": !gift && plan.discount >= 20 }, [
-    el("div", { class: "stack" }, [
-      el("span", { class: "mono-sm muted", text: plan.label }),
-      el("div", { class: "metric num", text: formatRub(plan.price) }),
+    el("div", { class: "plan-top" }, [
+      el("span", { class: "plan-label", text: plan.label }),
       plan.discount > 0 ? el("span", { class: "badge", text: `−${plan.discount}%` }) : null,
-      el("span", {
-        class: "mono-sm muted",
-        text: `${plan.days} ${plural(plan.days, "день", "дня", "дней")}`,
-      }),
     ]),
+    el("div", { class: "plan-price num", text: formatRub(plan.price) }),
+    el("p", {
+      class: "plan-note",
+      text: plan.months > 1 ? `${formatRub(perMonth)} в месяц · ${days}` : `${days} доступа`,
+    }),
     button,
   ]);
 }
 
 function packCard(pack, label) {
+  const perGB = pack.price / pack.gigabytes;
   return el("div", { class: "plan" }, [
-    el("div", { class: "stack" }, [
-      el("span", { class: "mono-sm muted", text: label }),
-      el("div", { class: "metric num", text: `${pack.gigabytes} ГБ` }),
+    el("div", { class: "plan-top" }, [
+      el("span", { class: "plan-label", text: label }),
       pack.discount > 0 ? el("span", { class: "badge", text: `−${pack.discount}%` }) : null,
-      el("span", { class: "mono-sm strong num", text: formatRub(pack.price) }),
     ]),
+    el("div", { class: "plan-price num", text: `${pack.gigabytes} ГБ` }),
+    el("p", {
+      class: "plan-note",
+      text: `${formatRub(pack.price)} · ${perGB.toLocaleString("ru-RU", { maximumFractionDigits: 1 })} ₽ за ГБ`,
+    }),
     el("button", {
       class: "btn btn-block",
       type: "button",
       disabled: !paymentsEnabled,
       onclick: (event) =>
         startPayment(event.currentTarget, "/api/payments/traffic", { gigabytes: pack.gigabytes }),
-      text: "Купить",
+      text: `Купить за ${formatRub(pack.price)}`,
     }),
   ]);
 }
