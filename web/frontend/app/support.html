@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Поддержка — KairaVPN</title>
-<meta name="theme-color" content="#000000">
+<meta name="theme-color" content="#07050f">
 <meta name="robots" content="noindex, nofollow">
 <link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png">
@@ -13,7 +13,7 @@
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="apple-mobile-web-app-title" content="KairaVPN">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
-<link rel="stylesheet" href="/assets/css/app.css">
+<link rel="stylesheet" href="/assets/css/cabinet.css">
 <script type="module" src="/assets/js/support.js"></script>
 <script type="module" src="/assets/js/footer.js"></script>
 <script type="module" src="/assets/js/pwa.js"></script>
@@ -22,18 +22,18 @@
 <!--icon-sprite-->
 
 <header class="site-header">
-  <a class="brand" href="/app">
-    <svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg>
-    <span>KairaVPN</span>
+  <a class="brand" href="/app" aria-label="KairaVPN — обзор">
+    <img class="brand-bird" src="/assets/img/kaira-bird.png" alt="" width="152" height="147">
+    <img class="brand-word" src="/assets/img/kaira-wordmark.png" alt="KairaVPN" width="315" height="54">
   </a>
   <nav class="tabs" aria-label="Разделы кабинета">
-    <a href="/app" data-tab>Обзор</a>
-    <a href="/app/plans" data-tab>Тарифы</a>
-    <a href="/app/devices" data-tab>Устройства</a>
-    <a href="/app/profile" data-tab>Профиль</a>
-    <a href="/app/support" data-tab data-tab-support hidden>Поддержка</a>
+    <a href="/app" data-tab><span data-icon="dashboard"></span>Обзор</a>
+    <a href="/app/plans" data-tab><span data-icon="card"></span>Тарифы</a>
+    <a href="/app/devices" data-tab><span data-icon="devices"></span>Устройства</a>
+    <a href="/app/profile" data-tab><span data-icon="person"></span>Профиль</a>
+    <a href="/app/support" data-tab data-tab-support hidden><span data-icon="chat"></span>Поддержка</a>
   </nav>
-  <div class="row">
+  <div class="who-box">
     <div class="who">
       <span class="mono-sm strong" data-me-email>&nbsp;</span>
       <span class="mono-sm accent" data-me-tag hidden></span>
@@ -46,7 +46,7 @@
 
   <section class="section">
     <div class="wrap stack">
-      <span class="section-tag">01 // Поддержка</span>
+      <span class="section-tag">Поддержка</span>
       <div class="notice" data-notice hidden role="status"></div>
 
       <div class="notice" data-support-off hidden>

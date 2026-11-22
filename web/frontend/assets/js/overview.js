@@ -20,6 +20,8 @@ import {
   setText,
   show,
 } from "./core.js";
+import { Globe } from "./globe.js";
+import { CITIES, flag, savedHome, zoneHome, locatedHome, estimatePing, quality } from "./places.js";
 
 // -- subscription ---------------------------------------------------------
 
@@ -167,6 +169,61 @@ function renderReferrals(referrals, user) {
       : `Уровень скидки ${tier} из ${referrals.max_tier ?? 5}`
   );
 }
+
+// -- globe ----------------------------------------------------------------
+
+/**
+ * The dotted globe in the hero card, with each server location lit and
+ * labelled with its estimated ping from the visitor's city -- the same city
+ * and the same estimate the landing page uses (places.js). Started straight
+ * away rather than after /api/me: it does not depend on the account.
+ */
+function setUpGlobe() {
+  const host = $("[data-globe]");
+  const layer = $("[data-globe-pins]");
+  if (!host || !layer) return;
+  let home = savedHome() || zoneHome();
+  // Amsterdam and Paris sit left of Frankfurt; their labels go left so the
+  // three do not overlap.
+  const sides = { nl: "l", fr: "l" };
+  const sites = CITIES.map((city) => {
+    const pin = el("div", { class: "site-pin", "data-side": sides[city.id] || "r" }, [
+      el("span", { class: "pin-mark" }, [el("span", { class: "pin-ping" }), el("span", { class: "pin-dot" })]),
+      el("span", { class: "pin-label" }, [flag(city.id), el("b", { text: city.city }), el("span", { class: "pin-ms" })]),
+    ]);
+    layer.append(pin);
+    return { ...city, el: pin };
+  });
+  const writePings = () => {
+    for (const site of sites) {
+      const ms = estimatePing(home, site);
+      const tag = site.el.querySelector(".pin-ms");
+      tag.textContent = `≈ ${ms} мс`;
+      tag.dataset.q = quality(ms);
+    }
+  };
+  writePings();
+
+  const globe = new Globe(host, {
+    land: "/assets/img/planet-land.png",
+    origin: [home.lon, home.lat],
+    sites,
+    watch: host.closest(".hero-card") || host,
+  });
+
+  // A city the visitor picked on the landing page stands; otherwise the
+  // server's answer for their address, when it has one.
+  if (!savedHome()) {
+    locatedHome().then((found) => {
+      if (!found) return;
+      home = found;
+      writePings();
+      globe.setOrigin([home.lon, home.lat]);
+    });
+  }
+}
+
+setUpGlobe();
 
 // -- boot -----------------------------------------------------------------
 
