@@ -305,9 +305,13 @@ boot(async () => {
     $("[data-plans]"),
     plans.plans.map((plan) => planCard(plan, { gift: false, best: plan === bestPlan }))
   );
+  // Gifts have prices of their own: the regular ones, since the referral
+  // discount is for the customer's own subscription. They used to be drawn
+  // from the same list as the plans above, so a customer with discounts saw a
+  // gift for 59 ₽ and was then asked 899 ₽ by YooKassa.
   fill(
     $("[data-gifts]"),
-    plans.plans.map((plan) => planCard(plan, { gift: true }))
+    (plans.gift_plans || []).map((plan) => planCard(plan, { gift: true }))
   );
 
   const tierNote = $("[data-tier-note]");
