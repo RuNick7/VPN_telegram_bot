@@ -14,7 +14,7 @@ import pytest
 
 import handlers.keyboards as keyboards
 import handlers.menu as menu
-from handlers.keyboards import BLUE, GREEN, RED, help_menu_keyboard, main_menu_keyboard
+from handlers.keyboards import MAIN, URGENT, help_menu_keyboard, main_menu_keyboard
 
 DAY = 86400
 NOW = 10_000_000
@@ -87,26 +87,26 @@ def test_the_menu_is_connect_renew_then_referral_and_help(monkeypatch):
     ]
 
 
-def test_connect_is_green_and_renew_is_blue_normally():
+def test_connect_and_renew_are_the_main_colour_normally():
     keyboard = main_menu_keyboard(renew_urgent=False)
-    assert _by_callback(keyboard, "connect").style == GREEN
-    assert _by_callback(keyboard, "renew_menu").style == BLUE
+    assert _by_callback(keyboard, "connect").style == MAIN
+    assert _by_callback(keyboard, "renew_menu").style == MAIN
     assert _by_callback(keyboard, "referral").style is None
     assert _by_callback(keyboard, "help").style is None
 
 
 def test_renew_turns_red_when_it_matters():
-    assert _by_callback(main_menu_keyboard(renew_urgent=True), "renew_menu").style == RED
+    assert _by_callback(main_menu_keyboard(renew_urgent=True), "renew_menu").style == URGENT
 
 
 @pytest.mark.parametrize(
     "ends, style",
     [
-        (NOW + 30 * DAY, BLUE),
-        (NOW + 4 * DAY, BLUE),
-        (NOW + 3 * DAY, RED),
-        (NOW + 1 * DAY, RED),
-        (NOW - 2 * DAY, RED),  # expired, still inside the free grace window
+        (NOW + 30 * DAY, MAIN),
+        (NOW + 4 * DAY, MAIN),
+        (NOW + 3 * DAY, URGENT),
+        (NOW + 1 * DAY, URGENT),
+        (NOW - 2 * DAY, URGENT),  # expired, still inside the free grace window
     ],
 )
 async def test_renew_colour_follows_the_days_left(repo, ends, style):
@@ -139,11 +139,11 @@ def test_the_cabinet_gets_its_own_bottom_row(monkeypatch):
 # -- the help menu -----------------------------------------------------------
 
 
-def test_help_starts_with_support_alone_and_blue(monkeypatch):
+def test_help_starts_with_support_alone_and_uncoloured(monkeypatch):
     monkeypatch.setattr(keyboards, "SUPPORT_URL", "https://t.me/support")
     first = help_menu_keyboard().inline_keyboard[0]
     assert len(first) == 1
-    assert (first[0].url, first[0].style) == ("https://t.me/support", BLUE)
+    assert (first[0].url, first[0].style) == ("https://t.me/support", None)
 
 
 def test_help_pairs_everything_else(monkeypatch):

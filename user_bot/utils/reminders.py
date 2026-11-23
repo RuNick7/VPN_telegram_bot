@@ -9,6 +9,7 @@ from tgvpn_shared.settings import get_settings
 from tgvpn_shared.db import UserRepository
 
 from handlers.constants import PRICES, trial_days
+from handlers.keyboards import URGENT
 from handlers.utils import escape_markdown_v2
 
 logger = logging.getLogger(__name__)
@@ -28,9 +29,10 @@ REMINDER_TEXT = (
     "Чтобы не потерять доступ — продлите её."
 )
 
+# Sent a day before the end, so renewal is urgent: red, as in the menu.
 pay_kb = InlineKeyboardMarkup(
     inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Продлить", callback_data="subscription_tariffs")]
+        [InlineKeyboardButton(text="💳 Продлить", callback_data="subscription_tariffs", style=URGENT)]
     ]
 )
 
