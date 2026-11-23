@@ -26,19 +26,21 @@
  * activation.
  */
 
-const VERSION = "v1";
+const VERSION = "v2";
 const CACHE = `kaira-${VERSION}`;
 const OFFLINE = "/offline";
 
 const PRECACHE = [
   OFFLINE,
-  "/assets/css/app.css",
+  "/assets/css/cabinet.css",
   "/assets/js/core.js",
   "/assets/js/footer.js",
   "/assets/js/pwa.js",
   "/assets/fonts/inter-cyrillic.woff2",
   "/assets/fonts/inter-latin.woff2",
-  "/assets/img/favicon.svg",
+  "/assets/img/kaira-favicon.svg",
+  "/assets/img/kaira-logo.svg",
+  "/assets/img/kaira-bird.svg",
 ];
 
 self.addEventListener("install", (event) => {
@@ -94,7 +96,13 @@ self.addEventListener("push", (event) => {
       body: data.body || "",
       tag: data.tag || undefined,
       lang: "ru",
-      icon: "/assets/img/icon-192.png",
+      // icon-192.png and the other unprefixed names hold this same bird:
+      // workers installed before this one still ask for those, until they
+      // update, and should not keep showing the old logo meanwhile.
+      icon: "/assets/img/kaira-icon-192.png",
+      // The small monochrome icon in Android's status bar. Without one the
+      // browser puts its own logo there. Only the alpha channel is used.
+      badge: "/assets/img/kaira-badge-96.png",
       data: { url: sitePath(data.url) },
     }),
   );

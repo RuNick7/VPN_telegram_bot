@@ -64,6 +64,11 @@ type Config struct {
 	// Push is Web Push. On when the VAPID private key is set; see
 	// `server -gen-vapid`.
 	Push Push
+
+	// GeoIPPath is an MMDB city database (DB-IP City Lite, downloaded
+	// monthly from db-ip.com). Optional: without it /api/whereami answers
+	// "unknown" and the landing page falls back to the visitor's time zone.
+	GeoIPPath string
 }
 
 type Push struct {
@@ -155,7 +160,9 @@ func Load(envFiles ...string) (*Config, error) {
 			// one ever had to be.
 			License: getString("LICENSE_URL", "/docs/license"),
 			Privacy: getString("PRIVACY_POLICY_URL", "/docs/privacy"),
-			Support: getString("SUPPORT_URL", ""),
+			// Same default as the bots (shared/tgvpn_shared/settings.py), so
+			// the site and the bot send people to one support contact.
+			Support: getString("SUPPORT_URL", "https://t.me/KairaSupp"),
 			Channel: getString("STATUS_CHANNEL_URL", ""),
 			FAQ:     getString("FAQ_URL", ""),
 		},
@@ -171,6 +178,7 @@ func Load(envFiles ...string) (*Config, error) {
 			VAPIDPublicKey:  getString("WEB_PUSH_VAPID_PUBLIC_KEY", ""),
 			VAPIDPrivateKey: getString("WEB_PUSH_VAPID_PRIVATE_KEY", ""),
 		},
+		GeoIPPath: getString("GEOIP_DB", ""),
 	}
 	cfg.Push.Subject = getString("WEB_PUSH_SUBJECT", cfg.BaseURL)
 	cfg.WebTrialDays = getInt("WEB_TRIAL_DAYS", cfg.TrialDays)

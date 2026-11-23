@@ -588,3 +588,25 @@ func (c *Client) SquadUUIDByName(ctx context.Context, name string) (string, erro
 	}
 	return found, nil
 }
+
+// Node is what the cabinet's server status needs about one panel node: where
+// it is and whether the panel can reach it. Names and addresses stay here.
+type Node struct {
+	UUID        string `json:"uuid"`
+	CountryCode string `json:"countryCode"`
+	IsConnected bool   `json:"isConnected"`
+	IsDisabled  bool   `json:"isDisabled"`
+}
+
+// Nodes lists the panel's nodes.
+func (c *Client) Nodes(ctx context.Context) ([]Node, error) {
+	raw, err := c.do(ctx, http.MethodGet, "/nodes", nil)
+	if err != nil {
+		return nil, err
+	}
+	var nodes []Node
+	if err := json.Unmarshal(raw, &nodes); err != nil {
+		return nil, fmt.Errorf("panel: decode nodes: %w", err)
+	}
+	return nodes, nil
+}

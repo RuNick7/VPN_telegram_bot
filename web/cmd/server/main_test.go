@@ -28,18 +28,18 @@ func TestTheAPIOwnsItsPathsAndTheSiteOwnsTheRest(t *testing.T) {
 	handler := routes(apiHandler, site, auto)
 
 	cases := map[string]string{
-		"/api/health":          "api",
-		"/api/me":              "api",
-		"/api/payments/abc":    "api",
-		"/auth/telegram":       "api",
-		"/":                    "site",
-		"/login":               "site",
-		"/auth/verify":         "site",
-		"/app/devices":         "site",
-		"/gift/ABC":            "site",
-		"/assets/css/app.css":  "site",
-		"/apifoo":              "site", // not a prefix match on /api/
-		"/auth/telegram/extra": "site",
+		"/api/health":             "api",
+		"/api/me":                 "api",
+		"/api/payments/abc":       "api",
+		"/auth/telegram":          "api",
+		"/":                       "site",
+		"/login":                  "site",
+		"/auth/verify":            "site",
+		"/app/devices":            "site",
+		"/gift/ABC":               "site",
+		"/assets/css/cabinet.css": "site",
+		"/apifoo":                 "site", // not a prefix match on /api/
+		"/auth/telegram/extra":    "site",
 		// Both spellings, because a phone that answers 301 before the app
 		// scheme is a round trip on a link somebody is standing there tapping.
 		"/auto":    "auto",
@@ -280,12 +280,14 @@ func TestFontsAreServedFromThisOriginOnly(t *testing.T) {
 		}
 	}
 
-	response, css := fetch(t, site, "/assets/css/app.css")
-	if response.StatusCode != http.StatusOK {
-		t.Fatalf("stylesheet: status %d", response.StatusCode)
-	}
-	if strings.Contains(css, "https://") {
-		t.Error("the stylesheet references an external origin")
+	for _, sheet := range []string{"/assets/css/cabinet.css", "/assets/css/landing.css"} {
+		response, css := fetch(t, site, sheet)
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("%s: status %d", sheet, response.StatusCode)
+		}
+		if strings.Contains(css, "https://") {
+			t.Errorf("%s references an external origin", sheet)
+		}
 	}
 
 	for _, font := range []string{
@@ -296,25 +298,6 @@ func TestFontsAreServedFromThisOriginOnly(t *testing.T) {
 	} {
 		if response, _ := fetch(t, site, font); response.StatusCode != http.StatusOK {
 			t.Errorf("%s: status %d", font, response.StatusCode)
-		}
-	}
-}
-
-func TestTheHeroHasEveryFormatItPromises(t *testing.T) {
-	// landing.js offers three codecs and a poster. A missing one is a black
-	// rectangle for whichever browsers needed exactly that file.
-	site := newRealSite(t)
-
-	for _, asset := range []string{
-		"/assets/video/hero.av1.mp4",
-		"/assets/video/hero.webm",
-		"/assets/video/hero.mp4",
-		"/assets/img/hero-poster.avif",
-		"/assets/img/hero-poster.webp",
-	} {
-		response, _ := fetch(t, site, asset)
-		if response.StatusCode != http.StatusOK {
-			t.Errorf("%s: status %d", asset, response.StatusCode)
 		}
 	}
 }

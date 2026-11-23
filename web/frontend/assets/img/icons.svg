@@ -12,7 +12,7 @@
   There is deliberately no <style> block in here. CSS inside a sprite does not
   apply to content cloned by an *external* <use>, so styling the symbols from
   here would leave every icon as an unstyled black fill -- invisible on a black
-  page. Instead the paint comes from `.icon` in app.css: fill, stroke,
+  page. Instead the paint comes from `.icon` in the page's stylesheet: fill, stroke,
   stroke-width and the line joins are all inherited properties, so setting them
   on the referencing <svg class="icon"> reaches the cloned content. An inline
   <style> here would also be refused by the page's Content-Security-Policy.

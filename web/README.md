@@ -89,6 +89,8 @@ Session cookie is `__Host-session`: HttpOnly, Secure, SameSite=Lax.
 |---|---|---|
 | `GET` | `/api/health` | pings Postgres |
 | `GET` | `/api/config` | which login routes and features are on |
+| `GET` | `/api/whereami` | the visitor's city from `GEOIP_DB`; 204 when unknown |
+| `GET` | `/api/status` | per location: `ok`/`partial`/`down`, from the panel's nodes; cached a minute |
 | `POST` | `/api/auth/magic-link` | `{email}` → always the same answer |
 | `POST` | `/api/auth/verify` | `{token}` → sets the session cookie |
 | `POST` | `/api/auth/telegram` | login-widget payload, HMAC-checked |

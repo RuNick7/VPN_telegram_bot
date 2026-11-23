@@ -328,3 +328,22 @@ func TestNewRequiresSomeCredential(t *testing.T) {
 		t.Fatal("expected an error with no credentials")
 	}
 }
+
+func TestNodesDecodesThePanelsList(t *testing.T) {
+	client := testClient(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/nodes" {
+			t.Errorf("asked for %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"response":[
+			{"uuid":"n1","name":"Finland 1","address":"203.0.113.5","countryCode":"FI","isConnected":true,"isDisabled":false},
+			{"uuid":"n2","name":"Germany 1","address":"203.0.113.6","countryCode":"DE","isConnected":false,"isDisabled":true}
+		]}`))
+	})
+	nodes, err := client.Nodes(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 2 || nodes[0].CountryCode != "FI" || !nodes[0].IsConnected || !nodes[1].IsDisabled {
+		t.Errorf("got %+v", nodes)
+	}
+}

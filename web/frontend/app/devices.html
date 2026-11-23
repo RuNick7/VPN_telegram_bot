@@ -4,16 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Устройства — KairaVPN</title>
-<meta name="theme-color" content="#000000">
+<meta name="theme-color" content="#07050f">
 <meta name="robots" content="noindex, nofollow">
-<link rel="icon" href="/assets/img/favicon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png">
+<link rel="icon" href="/assets/img/kaira-favicon-32.png" type="image/png" sizes="32x32">
+<link rel="icon" href="/assets/img/kaira-favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/img/kaira-touch-icon.png">
 <link rel="preload" href="/assets/fonts/inter-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/assets/fonts/jetbrains-mono-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="apple-mobile-web-app-title" content="KairaVPN">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
-<link rel="stylesheet" href="/assets/css/app.css">
+<link rel="stylesheet" href="/assets/css/cabinet.css">
 <script type="module" src="/assets/js/devices.js"></script>
 <script type="module" src="/assets/js/footer.js"></script>
 <script type="module" src="/assets/js/pwa.js"></script>
@@ -22,18 +23,17 @@
 <!--icon-sprite-->
 
 <header class="site-header">
-  <a class="brand" href="/app">
-    <svg class="icon" aria-hidden="true"><use href="#i-shield"></use></svg>
-    <span>KairaVPN</span>
+  <a class="brand" href="/app" aria-label="KairaVPN — обзор">
+    <img class="brand-logo" src="/assets/img/kaira-logo.svg" alt="KairaVPN" width="870" height="265">
   </a>
   <nav class="tabs" aria-label="Разделы кабинета">
-    <a href="/app" data-tab>Обзор</a>
-    <a href="/app/plans" data-tab>Тарифы</a>
-    <a href="/app/devices" data-tab>Устройства</a>
-    <a href="/app/profile" data-tab>Профиль</a>
-    <a href="/app/support" data-tab data-tab-support hidden>Поддержка</a>
+    <a href="/app" data-tab><span data-icon="dashboard"></span>Обзор</a>
+    <a href="/app/plans" data-tab><span data-icon="card"></span>Тарифы</a>
+    <a href="/app/devices" data-tab><span data-icon="devices"></span>Устройства</a>
+    <a href="/app/profile" data-tab><span data-icon="person"></span>Профиль</a>
+    <a href="/app/support" data-tab data-tab-support hidden><span data-icon="chat"></span>Поддержка</a>
   </nav>
-  <div class="row">
+  <div class="who-box">
     <div class="who">
       <span class="mono-sm strong" data-me-email>&nbsp;</span>
       <span class="mono-sm accent" data-me-tag hidden></span>
@@ -46,7 +46,7 @@
 
   <section class="split" data-band>
     <div class="stack">
-      <span class="section-tag">01 // Подключение</span>
+      <span class="section-tag">Подключение</span>
       <h1 class="h-md">Одна ссылка на всё</h1>
       <p class="mono-sm muted">Вставьте её в приложение на любом устройстве. Конфигурация подтянется сама и будет обновляться, когда мы меняем узлы.</p>
 
@@ -88,17 +88,17 @@
 
   <section class="section">
     <div class="wrap stack">
-      <span class="section-tag">02 // Инструкция по установке</span>
+      <span class="section-tag">Инструкция по установке</span>
       <p class="mono-sm muted">Выберите устройство — покажем шаги именно для него.</p>
       <div class="chips" role="tablist" aria-label="Операционная система" data-os-tabs></div>
       <div data-os-panel role="tabpanel" tabindex="0"></div>
-      <a class="mono-sm accent" href="#" data-faq hidden rel="noopener" target="_blank">Частые вопросы →</a>
+      <a class="btn btn-ghost btn-sm" href="#" data-faq hidden rel="noopener" target="_blank"><span data-icon="info"></span> Частые вопросы</a>
     </div>
   </section>
 
   <section class="section">
     <div class="wrap stack">
-      <span class="section-tag">03 // Подключённые устройства</span>
+      <span class="section-tag">Подключённые устройства</span>
       <p class="mono-sm muted" data-device-summary></p>
       <div class="panel" data-device-panel>
         <ul class="rows" data-device-list></ul>
@@ -112,7 +112,7 @@
 <footer class="site-footer app-footer">
   <div class="wrap row between wrap-row">
     <div class="stack">
-      <span class="mono accent">KairaVPN</span>
+      <img class="footer-logo" src="/assets/img/kaira-logo.svg" alt="KairaVPN" width="870" height="265">
       <p class="mono-sm muted">Быстрый доступ к любым сайтам. Мы не смотрим, что вы открываете.</p>
     </div>
     <nav aria-label="Документы">
