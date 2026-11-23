@@ -61,7 +61,7 @@ async function startPayment(button, endpoint, body) {
 
 // -- rendering ------------------------------------------------------------
 
-function planCard(plan, { gift }) {
+function planCard(plan, { gift, best = false }) {
   const button = el("button", {
     class: gift ? "btn btn-outline btn-block" : "btn btn-block",
     type: "button",
@@ -80,7 +80,7 @@ function planCard(plan, { gift }) {
   // the prices line up across the row whether or not a card has a discount.
   const perMonth = Math.round(plan.price / plan.months);
   const days = `${plan.days} ${plural(plan.days, "день", "дня", "дней")}`;
-  return el("div", { class: "plan", "data-best": !gift && plan.discount >= 20 }, [
+  return el("div", { class: "plan", "data-best": best }, [
     el("div", { class: "plan-top" }, [
       el("span", { class: "plan-label", text: plan.label }),
       plan.discount > 0 ? el("span", { class: "badge", text: `−${plan.discount}%` }) : null,
@@ -295,9 +295,15 @@ boot(async () => {
   paymentsEnabled = Boolean(plans.payments_enabled);
   $("[data-payments-off]").hidden = paymentsEnabled;
 
+  // One plan carries the "best value" frame, as on the landing page: the one
+  // with the largest discount. It used to be every plan at 20% or more, which
+  // at the higher referral levels framed two cards side by side (−25% and
+  // −45%) and read as a glitch rather than a recommendation.
+  const top = Math.max(0, ...plans.plans.map((plan) => plan.discount || 0));
+  const bestPlan = top > 0 ? plans.plans.find((plan) => plan.discount === top) : null;
   fill(
     $("[data-plans]"),
-    plans.plans.map((plan) => planCard(plan, { gift: false }))
+    plans.plans.map((plan) => planCard(plan, { gift: false, best: plan === bestPlan }))
   );
   fill(
     $("[data-gifts]"),
