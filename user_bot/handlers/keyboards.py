@@ -12,12 +12,24 @@ VPNCHECK_DOWNLOAD_URL = _settings.vpncheck_download_url.strip()
 _SITE = _settings.web_base_url.strip().rstrip("/")
 CABINET_URL = f"{_SITE}/app" if _SITE else ""
 
-# Button colours (Bot API `style`). Telegram releases from before February 2026
-# draw these as ordinary buttons, so a colour may only ever add emphasis --
-# never carry meaning a plain button would lose.
-GREEN = "success"
-BLUE = "primary"
-RED = "danger"
+# Button colours (Bot API `style`), named by what they mean rather than how
+# they look. Telegram releases from before February 2026 draw these as
+# ordinary buttons, so a colour may only ever add emphasis -- never carry
+# meaning a plain button would lose.
+#
+#   MAIN    the one main action of a screen: «Подключиться», «Продлить» while
+#           it is not urgent, «Оплатить». Bot API "primary": blue by default,
+#           and apps may tint it to the chat theme (violet on a violet one).
+#   DONE    a step completed or confirmed: «Я подписался», «Добавить в Incy».
+#   URGENT  irreversible actions, and renewal when it is urgent: «Сбросить
+#           ссылку», removing a device, «Продлить» from three days before the
+#           end and after it.
+#
+# Everything else -- support, «Назад», instructions -- has no colour, so it
+# does not compete with the screen's main button.
+MAIN = "primary"
+DONE = "success"
+URGENT = "danger"
 
 # The menu screens. `connect` opens the device picker, which used to be the
 # main menu itself.
@@ -51,14 +63,14 @@ def main_menu_keyboard(*, renew_urgent: bool = False) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="🚀 Подключиться", callback_data=CONNECT_CALLBACK, style=GREEN
+                    text="🚀 Подключиться", callback_data=CONNECT_CALLBACK, style=MAIN
                 )
             ],
             [
                 InlineKeyboardButton(
                     text="💳 Продлить",
                     callback_data="renew_menu",
-                    style=RED if renew_urgent else BLUE,
+                    style=URGENT if renew_urgent else MAIN,
                 )
             ],
             [
@@ -84,7 +96,7 @@ def channel_prompt_keyboard(channel_url: str) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text="📢 Подписаться на канал", url=channel_url)],
             [
                 InlineKeyboardButton(
-                    text="✅ Я подписался", callback_data=CHANNEL_OK_CALLBACK, style=GREEN
+                    text="✅ Я подписался", callback_data=CHANNEL_OK_CALLBACK, style=DONE
                 )
             ],
         ]
@@ -128,7 +140,7 @@ def pay_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="💳 Продлить подписку", callback_data="subscription_tariffs", style=RED
+                    text="💳 Продлить подписку", callback_data="subscription_tariffs", style=URGENT
                 )
             ],
         ]
@@ -195,8 +207,9 @@ def help_menu_keyboard() -> InlineKeyboardMarkup:
     """
     «❓ Помощь»: support on a row of its own, the rest in pairs.
 
-    Support is what most people open this menu for, so it comes first and is
-    the one coloured button. The optional two -- the server check and the
+    Support is what most people open this menu for, so it comes first, on a
+    row of its own -- but uncoloured, so it does not compete with the main
+    menu's main action. The optional two -- the server check and the
     cabinet, each shown only when configured -- share a row, so turning one
     off does not leave a hole in another pair.
     """
@@ -207,7 +220,7 @@ def help_menu_keyboard() -> InlineKeyboardMarkup:
         optional.append(InlineKeyboardButton(text="🌐 Личный кабинет", url=CABINET_URL))
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🛠 Тех. поддержка", url=SUPPORT_URL, style=BLUE)],
+            [InlineKeyboardButton(text="🛠 Тех. поддержка", url=SUPPORT_URL)],
             [
                 InlineKeyboardButton(text="📖 Частые вопросы", url=FAQ_URL),
                 InlineKeyboardButton(text="📢 Канал бота", url=STATUS_CHANNEL_URL),
@@ -237,7 +250,7 @@ def manual_setup_keyboard(
     rows = []
     if import_url:
         rows.append(
-            [InlineKeyboardButton(text="📲 Добавить в Incy", url=import_url, style=GREEN)]
+            [InlineKeyboardButton(text="📲 Добавить в Incy", url=import_url, style=DONE)]
         )
     if region_help:
         rows.append(
@@ -285,7 +298,7 @@ def support_faq_back_to_devices_keyboard() -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(text="📱 Мои устройства", callback_data="my_devices"),
                 InlineKeyboardButton(
-                    text="🔄 Сбросить ссылку", callback_data="sub_reset", style=RED
+                    text="🔄 Сбросить ссылку", callback_data="sub_reset", style=URGENT
                 ),
             ],
             [InlineKeyboardButton(text="🔙 К выбору устройства", callback_data=CONNECT_CALLBACK)],
@@ -323,7 +336,7 @@ def gift_tariffs_keyboard(tariffs: dict[int, dict[str, int | str]]) -> InlineKey
 def gift_payment_keyboard(url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🎁 Оплатить подарок", url=url, style=GREEN)],
+            [InlineKeyboardButton(text="🎁 Оплатить подарок", url=url, style=MAIN)],
             [InlineKeyboardButton(text="🔙 Назад", callback_data="gift_subscription")],
         ]
     )
@@ -332,7 +345,7 @@ def gift_payment_keyboard(url: str) -> InlineKeyboardMarkup:
 def payment_keyboard(url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="💳 Перейти к оплате", url=url, style=GREEN)],
+            [InlineKeyboardButton(text="💳 Перейти к оплате", url=url, style=MAIN)],
             [InlineKeyboardButton(text="🔙 Назад", callback_data="subscription_tariffs")],
         ]
     )
@@ -363,7 +376,7 @@ def lte_packs_keyboard(packs: dict[int, int]) -> InlineKeyboardMarkup:
 def lte_payment_keyboard(url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="💳 Перейти к оплате", url=url, style=GREEN)],
+            [InlineKeyboardButton(text="💳 Перейти к оплате", url=url, style=MAIN)],
             [InlineKeyboardButton(text="🔙 Назад", callback_data=TRAFFIC_TOPUP_CALLBACK)],
         ]
     )
