@@ -96,7 +96,13 @@ self.addEventListener("push", (event) => {
       body: data.body || "",
       tag: data.tag || undefined,
       lang: "ru",
+      // icon-192.png and the other unprefixed names hold this same bird:
+      // workers installed before this one still ask for those, until they
+      // update, and should not keep showing the old logo meanwhile.
       icon: "/assets/img/kaira-icon-192.png",
+      // The small monochrome icon in Android's status bar. Without one the
+      // browser puts its own logo there. Only the alpha channel is used.
+      badge: "/assets/img/kaira-badge-96.png",
       data: { url: sitePath(data.url) },
     }),
   );
