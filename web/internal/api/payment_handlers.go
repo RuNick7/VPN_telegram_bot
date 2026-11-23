@@ -170,7 +170,8 @@ func (s *Server) handleBuyGift(w http.ResponseWriter, r *http.Request, user *sto
 
 	// Gifts are priced at tier 0. The referral ladder is a discount on your
 	// own subscription; letting it price a gift would turn it into a way to
-	// resell cheap subscriptions to other people.
+	// resell cheap subscriptions to other people. /api/plans shows the same
+	// prices as "gift_plans"; keep the two together.
 	price, ok := pricing.SubscriptionPrice(body.Months, 0)
 	if !ok {
 		writeError(w, http.StatusBadRequest, "unknown_plan", "Такого тарифа нет.")

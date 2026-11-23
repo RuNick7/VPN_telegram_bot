@@ -213,9 +213,13 @@ func (s *Server) handleTraffic(w http.ResponseWriter, r *http.Request, user *sto
 
 func (s *Server) handlePlans(w http.ResponseWriter, r *http.Request, user *store.User) {
 	body := map[string]any{
-		"tier":             pricing.Tier(user.ReferredPeople),
-		"referred_people":  user.ReferredPeople,
-		"plans":            pricing.PlansFor(user.ReferredPeople),
+		"tier":            pricing.Tier(user.ReferredPeople),
+		"referred_people": user.ReferredPeople,
+		"plans":           pricing.PlansFor(user.ReferredPeople),
+		// Gifts at their own prices: tier 0, exactly what handleBuyGift
+		// charges. The gift cards used to be drawn from "plans", so someone
+		// with referral discounts saw a gift for 59 ₽ and was asked 899 ₽.
+		"gift_plans":       pricing.PlansFor(0),
 		"payments_enabled": s.cfg.PaymentsEnabled(),
 	}
 	// Traffic is only offered when quotas are on; selling what nothing meters
