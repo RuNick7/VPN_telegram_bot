@@ -1353,11 +1353,27 @@ textarea.input {
   margin-top: auto;
 }
 
+/* The best-value plan: a rounded card with a gradient edge, set a little
+   inside its cell. The grid around the plans rounds its outer corners and
+   clips whatever sits under them, so a frame on the cell's own square edge
+   lost its gradient exactly at the rounding whenever the plan was in a
+   corner -- which the longest plan, last in its row, always is. */
 .plan[data-best="true"] {
+  position: relative;
+  isolation: isolate;
+}
+
+.plan[data-best="true"]::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0.375rem;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
   background:
     linear-gradient(var(--raise), var(--raise)) padding-box,
     linear-gradient(135deg, var(--violet), var(--coral) 70%, var(--pink)) border-box;
-  border: 1px solid transparent;
+  pointer-events: none;
 }
 
 /* -- lists -------------------------------------------------------------- */
