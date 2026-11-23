@@ -11,7 +11,7 @@
  * what the service costs and where to ask.
  */
 
-import { $, $$, el, formatRub, daysLabel, plural, clientConfig } from "./core.js";
+import { $, $$, el, formatRub, daysLabel, plural, clientConfig, trialOffer } from "./core.js";
 import { Planet } from "./planet.js";
 import {
   CITIES,
@@ -240,12 +240,9 @@ function renderLadder(ladder) {
  * the second identity (email onto Telegram or the other way round) adds.
  */
 function renderTrial(config) {
-  const web = Number(config.trial_days) || 0;
-  const bot = config.telegram_trial_days === undefined ? web : Number(config.telegram_trial_days) || 0;
-  const bonus = Number(config.trial_link_bonus_days) || 0;
-  const base = web > 0 && bot > 0 ? Math.min(web, bot) : Math.max(web, bot);
-  if (base <= 0) return;
-  const most = Math.max(web, bot) + bonus;
+  const offer = trialOffer(config);
+  if (!offer) return;
+  const { web, bot, bonus, base, most } = offer;
 
   let extra = "карта не нужна";
   if (bonus > 0) extra = `до ${daysLabel(most)}, если привязать почту и Telegram`;

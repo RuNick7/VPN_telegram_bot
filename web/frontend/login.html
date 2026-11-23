@@ -13,7 +13,6 @@
 <link rel="icon" href="/assets/img/kaira-favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/assets/img/kaira-touch-icon.png">
 <link rel="preload" href="/assets/fonts/inter-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="/assets/fonts/jetbrains-mono-cyrillic.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="apple-mobile-web-app-title" content="KairaVPN">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
@@ -22,93 +21,108 @@
 <script type="module" src="/assets/js/footer.js"></script>
 <script type="module" src="/assets/js/pwa.js"></script>
 </head>
-<body>
+<body class="auth-page">
 <!--icon-sprite-->
 
-<header class="top-bar">
-  <a class="brand" href="/" aria-label="KairaVPN — на главную">
-    <img class="brand-logo" src="/assets/img/kaira-logo.svg" alt="KairaVPN" width="870" height="265">
-  </a>
-</header>
+<!-- Two halves on a wide screen: the form on the left, what the trial and the
+     service give on the right. On a phone that panel shrinks to a line about
+     the trial over the form. -->
+<div class="auth">
+  <div class="auth-side">
+    <header class="auth-top">
+      <a class="brand" href="/" aria-label="KairaVPN — на главную">
+        <img class="brand-logo" src="/assets/img/kaira-logo.svg" alt="KairaVPN" width="870" height="265">
+      </a>
+      <a class="btn btn-ghost btn-sm" href="/">На главную</a>
+    </header>
 
-<main class="page-main">
-  <div class="slab">
-    <div class="slab-inner stack">
-      <img class="slab-mark" src="/assets/img/kaira-bird.svg" alt="" width="275" height="265">
-
-      <div>
+    <main class="auth-main">
+      <div class="auth-box">
         <span class="section-tag">Вход и регистрация</span>
-        <h1 class="h-md">Без пароля</h1>
-        <p class="lead">Мы не храним пароли. Введите почту — пришлём ссылку, по которой вы войдёте. Если аккаунта ещё нет, он создастся сам.</p>
-      </div>
+        <h1 class="auth-title">Войдите <span class="grad-word">без пароля</span></h1>
+        <p class="lead">Введите почту — пришлём ссылку, по которой вы сразу окажетесь в кабинете. Если аккаунта ещё нет, он создастся сам.</p>
 
-      <div class="notice" data-notice hidden role="status"></div>
+        <div class="notice" data-notice hidden role="status"></div>
 
-      <form class="stack" data-email-form novalidate>
-        <div class="field">
-          <label for="email">Электронная почта</label>
-          <input class="input" id="email" name="email" type="email" inputmode="email"
-                 autocomplete="email" required placeholder="you@example.com" spellcheck="false">
+        <form class="auth-form" data-email-form novalidate>
+          <div class="field">
+            <label for="email">Электронная почта</label>
+            <input class="input input-lg" id="email" name="email" type="email" inputmode="email"
+                   autocomplete="email" required placeholder="you@example.com" spellcheck="false">
+          </div>
+          <button class="btn btn-lg btn-block" type="submit" data-submit>
+            <svg class="icon" aria-hidden="true"><use href="#i-mail"></use></svg>
+            Получить ссылку для входа
+          </button>
+        </form>
+
+        <!-- Shown after a successful request. The form is replaced rather than
+             left alongside it, so nobody re-submits while the letter is in
+             flight and then wonders which of two links is live. -->
+        <div class="auth-sent" data-sent hidden>
+          <span class="auth-sent-mark" aria-hidden="true">
+            <svg class="icon icon-lg"><use href="#i-mail"></use></svg>
+          </span>
+          <h2 class="h-sm">Проверьте почту</h2>
+          <!-- The address as typed, so a typo shows. Says nothing about whether
+               it has an account: the letter goes either way, and the account
+               is made when the link is opened. -->
+          <p class="muted">Отправили ссылку на <b class="auth-sent-to" data-sent-to></b></p>
+          <ul class="auth-tips">
+            <li>Откройте письмо от KairaVPN и нажмите кнопку входа в нём.</li>
+            <li>Письма нет пару минут — загляните в «Спам» и «Промоакции».</li>
+            <li>Ссылка одноразовая и действует недолго: открывайте свежую.</li>
+          </ul>
+          <button class="btn btn-ghost btn-block" type="button" data-again>Ввести другой адрес</button>
         </div>
-        <button class="btn btn-block" type="submit" data-submit>
-          <svg class="icon" aria-hidden="true"><use href="#i-mail"></use></svg>
-          Прислать ссылку
-        </button>
-      </form>
 
-      <!-- Shown after a successful request. The form is replaced rather than
-           left alongside it, so nobody re-submits while the letter is in
-           flight and then wonders which of two links is live. -->
-      <div class="panel stack" data-sent hidden>
-        <div class="row">
-          <svg class="icon icon-lg accent" aria-hidden="true"><use href="#i-mail"></use></svg>
-          <strong class="mono strong">Проверьте почту</strong>
+        <!-- Our own button, not Telegram's iframe. The widget renders a fixed
+             blue pill that cannot be styled from here -- it sits in a
+             cross-origin frame -- and it was the one element on the site that
+             looked borrowed. The script is still Telegram's and still does the
+             authenticating; only the thing you click is ours. -->
+        <div class="auth-alt" data-telegram-block hidden>
+          <div class="auth-or"><span>или</span></div>
+          <button class="btn btn-outline btn-lg btn-block" type="button" data-telegram-login>
+            <svg class="icon" aria-hidden="true"><use href="#i-telegram"></use></svg>
+            Войти через Telegram
+          </button>
+          <p class="mono-sm muted">Пользуетесь ботом? Откроется тот же аккаунт, что в нём.</p>
         </div>
-        <p class="mono-sm muted" data-sent-detail></p>
-        <button class="btn btn-ghost btn-block btn-sm" type="button" data-again>Ввести другой адрес</button>
+
+        <p class="auth-legal mono-sm muted">
+          Продолжая, вы соглашаетесь с
+          <a class="accent" href="/docs/license" data-doc="license">лицензионным соглашением</a>
+          и <a class="accent" href="/docs/privacy" data-doc="privacy">политикой конфиденциальности</a>.
+        </p>
       </div>
+    </main>
 
-      <!-- Our own button, not Telegram's iframe. The widget renders a fixed
-           blue pill that cannot be styled from here -- it sits in a
-           cross-origin frame -- and it was the one element on the site that
-           looked borrowed. The script is still Telegram's and still does the
-           authenticating; only the thing you click is ours. -->
-      <div class="stack" data-telegram-block hidden>
-        <p class="mono-sm muted">Или войдите через Telegram, если пользуетесь ботом:</p>
-        <button class="btn btn-outline btn-block" type="button" data-telegram-login>
-          <span data-icon="telegram"></span> Войти через Telegram
-        </button>
-      </div>
-
-      <p class="mono-sm muted">
-        Продолжая, вы соглашаетесь с
-        <a class="accent" href="/docs/license" data-doc="license">лицензионным соглашением</a>.
-      </p>
-
-    </div>
+    <!-- The shared footer, folded into one line: the documents and a way to
+         reach support, as on every page. -->
+    <footer class="site-footer auth-foot mono-sm">
+      <a class="muted" href="#" data-support hidden>Поддержка в Telegram</a>
+      <button class="muted as-link" type="button" data-copy-mail="kaira.supp@gmail.com">kaira.supp@gmail.com</button>
+      <a class="muted" href="/docs/license" data-doc="license">Соглашение</a>
+      <a class="muted" href="/docs/privacy" data-doc="privacy">Конфиденциальность</a>
+    </footer>
   </div>
-</main>
 
-<footer class="site-footer page-footer">
-  <div class="wrap row between wrap-row">
-    <div class="stack">
-      <img class="footer-logo" src="/assets/img/kaira-logo.svg" alt="KairaVPN" width="870" height="265">
-      <p class="mono-sm muted">Быстрый доступ к любым сайтам. Мы не смотрим, что вы открываете.</p>
+  <aside class="auth-art" aria-label="Что даёт KairaVPN">
+    <div class="auth-perks">
+      <img class="auth-perks-mark" src="/assets/img/kaira-bird.svg" alt="" width="275" height="265">
+      <p class="auth-perks-kicker">Серверы в 4 странах Европы</p>
+      <h2 class="auth-perks-title" data-perk-trial>Подключение за минуту</h2>
+      <p class="auth-perks-note" data-perk-note hidden></p>
+      <ul class="auth-perk-list">
+        <li><svg class="icon" aria-hidden="true"><use href="#i-eye-off"></use></svg>Без логов: мы не смотрим, что вы открываете</li>
+        <li><svg class="icon" aria-hidden="true"><use href="#i-unlock"></use></svg>Работает даже при белых списках</li>
+        <li><svg class="icon" aria-hidden="true"><use href="#i-speed"></use></svg>Канал 10 Гбит/с</li>
+        <li><svg class="icon" aria-hidden="true"><use href="#i-devices"></use></svg>Одна подписка на все устройства</li>
+      </ul>
     </div>
-    <nav aria-label="Документы">
-      <span class="mono-sm strong">Документы</span>
-      <a class="mono-sm muted" href="/docs/license" data-doc="license">Лицензионное соглашение</a>
-      <a class="mono-sm muted" href="/docs/privacy" data-doc="privacy">Политика конфиденциальности</a>
-    </nav>
-    <nav aria-label="Связь">
-      <span class="mono-sm strong">Связь</span>
-      <a class="mono-sm muted" href="#" data-support hidden>Поддержка в Telegram</a>
-      <a class="mono-sm muted" href="#" data-channel hidden>Канал с новостями</a>
-      <button class="mono-sm muted as-link" type="button"
-              data-copy-mail="kaira.supp@gmail.com">kaira.supp@gmail.com</button>
-    </nav>
-  </div>
-</footer>
+  </aside>
+</div>
 
 </body>
 </html>

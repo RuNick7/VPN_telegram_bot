@@ -844,6 +844,12 @@ textarea.input {
     bottom: 1.5rem;
     left: calc(50% + var(--side) / 2);
   }
+
+  /* The offset is for the cabinet's sidebar; the one-card pages (gift, the
+     two link confirmations) have none, so theirs stays centred. */
+  .slab .notice[data-notice] {
+    left: 50%;
+  }
 }
 
 .notice-close {
@@ -2022,6 +2028,309 @@ a.file-chip:hover {
   /* The logo already leads home; on a phone the text link only crowds the
      cabinet button onto a second line. */
   .top-bar nav a:not(.btn) {
+    display: none;
+  }
+}
+
+/* -- sign-in ------------------------------------------------------------ */
+
+/* Two halves on a wide screen: the form, and a panel with what the trial and
+   the service give. On a phone one column, that panel a line about the trial
+   above the form. `.auth-side` dissolves there (display: contents) so its
+   header, form and footer can sit either side of it. */
+.auth {
+  display: grid;
+  grid-template-columns: minmax(0, 34rem) minmax(0, 1fr);
+  min-height: 100svh;
+}
+
+.auth-side {
+  display: flex;
+  flex-direction: column;
+  padding: 1.5rem 2.5rem;
+}
+
+.auth-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.auth-main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  padding: 2.5rem 0;
+}
+
+.auth-box {
+  width: 100%;
+  max-width: 25rem;
+  margin: 0 auto;
+}
+
+.auth-title {
+  margin: 0.625rem 0 0.75rem;
+  font-size: clamp(2rem, 3vw, 2.6rem);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+
+.auth-box .section-tag {
+  color: var(--lilac);
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.auth-box .lead {
+  color: var(--muted);
+}
+
+/* The logo's own gradient, for a word in a heading. */
+.grad-word {
+  background: var(--grad-word);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Elsewhere flash() messages float over the bottom of the window. Here the
+   whole form is always on screen, so the message sits in place above it. */
+.auth-box > .notice[data-notice] {
+  position: static;
+  width: auto;
+  margin-top: 1.25rem;
+  transform: none;
+  box-shadow: none;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 1.75rem;
+}
+
+.input-lg {
+  padding: 0.875rem 1rem;
+  font-size: 1rem;
+}
+
+/* After the letter has gone. */
+.auth-sent {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1.75rem;
+  padding: 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background:
+    radial-gradient(120% 90% at 0% 0%, rgb(124 58 237 / 0.16), transparent 60%),
+    var(--panel);
+}
+
+.auth-sent-to {
+  color: var(--text);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.auth-sent-mark {
+  display: grid;
+  width: 3rem;
+  height: 3rem;
+  place-items: center;
+  border-radius: 50%;
+  background: rgb(124 58 237 / 0.18);
+  color: var(--lilac);
+}
+
+.auth-tips {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.25rem 0 0.5rem;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.auth-tips li {
+  position: relative;
+  padding-left: 1.125rem;
+}
+
+.auth-tips li::before {
+  content: "";
+  position: absolute;
+  top: 0.55em;
+  left: 0.25rem;
+  width: 0.3125rem;
+  height: 0.3125rem;
+  border-radius: 50%;
+  background: var(--lilac);
+}
+
+/* "или", with a rule either side. */
+.auth-or {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+  margin: 1.5rem 0 1rem;
+  color: var(--dim);
+  font-size: 0.82rem;
+}
+
+.auth-or::before,
+.auth-or::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.auth-alt p {
+  margin-top: 0.625rem;
+  text-align: center;
+}
+
+.auth-legal {
+  margin-top: 1.75rem;
+}
+
+.auth-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+}
+
+.auth-foot a:hover,
+.auth-foot button:hover {
+  color: var(--text);
+}
+
+/* The right half: a framed panel with what the trial and the service give,
+   centred in it under the bird. */
+.auth-art {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0.75rem 0.75rem 0.75rem 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  background:
+    radial-gradient(90% 55% at 50% 100%, rgb(124 58 237 / 0.3), transparent 70%),
+    radial-gradient(55% 45% at 90% 0%, rgb(255 122 89 / 0.1), transparent 60%),
+    var(--panel);
+}
+
+.auth-perks {
+  max-width: 34rem;
+  padding: 3rem;
+}
+
+.auth-perks-mark {
+  width: 4.5rem;
+  height: auto;
+  margin-bottom: 1.75rem;
+}
+
+.auth-perks-kicker {
+  color: var(--lilac);
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.auth-perks-title {
+  margin: 0.625rem 0 0.5rem;
+  font-size: clamp(1.8rem, 2.6vw, 2.5rem);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+
+.auth-perks-note {
+  max-width: 28rem;
+  color: var(--muted);
+}
+
+.auth-perk-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.auth-perk-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.95rem;
+}
+
+.auth-perk-list .icon {
+  color: var(--lilac);
+}
+
+@media (max-width: 63.999rem) {
+  .auth {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "top" "art" "main" "foot";
+    min-height: 0;
+  }
+
+  .auth-side {
+    display: contents;
+  }
+
+  .auth-top {
+    grid-area: top;
+    padding: 0.875rem 1rem;
+  }
+
+  .auth-top .brand-logo {
+    height: 2rem;
+  }
+
+  .auth-art {
+    grid-area: art;
+    justify-content: flex-start;
+    margin: 0 1rem;
+  }
+
+  .auth-main {
+    grid-area: main;
+    padding: 1.75rem 1rem 1.25rem;
+  }
+
+  .auth-foot {
+    grid-area: foot;
+    padding: 1rem 1rem 1.75rem;
+  }
+
+  .auth-perks {
+    padding: 1.125rem 1.25rem;
+  }
+
+  .auth-perks-title {
+    margin-bottom: 0;
+    font-size: 1.35rem;
+  }
+
+  /* On a phone the panel says only what the trial gives; the rest is on the
+     landing, and the form should not be pushed down for it. */
+  .auth-perks-mark,
+  .auth-perks-note,
+  .auth-perk-list {
     display: none;
   }
 }

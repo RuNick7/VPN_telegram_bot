@@ -258,6 +258,20 @@ export function daysLabel(n) {
 }
 
 /**
+ * The free period /api/config describes, as the pages quote it: `base` days
+ * whichever way someone signs up, `web`/`bot` per route, `bonus` for linking
+ * both, `most` with everything. Null when there is no trial at all.
+ */
+export function trialOffer(config) {
+  const web = Number(config?.trial_days) || 0;
+  const bot = config?.telegram_trial_days === undefined ? web : Number(config.telegram_trial_days) || 0;
+  const bonus = Number(config?.trial_link_bonus_days) || 0;
+  const base = web > 0 && bot > 0 ? Math.min(web, bot) : Math.max(web, bot);
+  if (base <= 0) return null;
+  return { web, bot, bonus, base, most: Math.max(web, bot) + bonus };
+}
+
+/**
  * Pulls a promo code out of whatever the customer pasted.
  *
  * A gift reaches people two ways -- as a code to type into the bot, and as a

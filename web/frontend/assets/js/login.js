@@ -8,7 +8,7 @@
  * so does the copy below.
  */
 
-import { $, api, ApiError, clientConfig, el, flash, clearFlash, safePath, withBusy } from "./core.js";
+import { $, api, ApiError, clientConfig, daysLabel, el, flash, clearFlash, safePath, trialOffer, withBusy } from "./core.js";
 
 const form = $("[data-email-form]");
 const sent = $("[data-sent]");
@@ -63,10 +63,10 @@ form?.addEventListener("submit", async (event) => {
 
   await withBusy($("[data-submit]"), async () => {
     try {
-      const result = await api("/api/auth/magic-link", { method: "POST", body: { email } });
+      await api("/api/auth/magic-link", { method: "POST", body: { email } });
       form.hidden = true;
       sent.hidden = false;
-      $("[data-sent-detail]").textContent = result.detail || "Ссылка отправлена.";
+      $("[data-sent-to]").textContent = email;
     } catch (err) {
       flash(err instanceof ApiError ? err.message : "Не удалось отправить письмо.");
     }
@@ -140,7 +140,23 @@ function mountTelegram(botID) {
   });
 }
 
+// -- the right half: what the trial gives -----------------------------------
+
+/** "7 дней бесплатно" in the panel, from the same config as the landing. */
+function renderTrial(config) {
+  const offer = trialOffer(config);
+  if (!offer) return;
+  $("[data-perk-trial]").textContent = `${daysLabel(offer.base)} бесплатно`;
+  const note = $("[data-perk-note]");
+  note.textContent =
+    offer.bonus > 0
+      ? `Привяжите к аккаунту и почту, и Telegram — будет до ${daysLabel(offer.most)}. Карта не нужна.`
+      : "Сразу после регистрации. Карта не нужна.";
+  note.hidden = false;
+}
+
 clientConfig().then((config) => {
+  renderTrial(config);
   if (config.telegram_login && config.telegram_bot_id) {
     mountTelegram(String(config.telegram_bot_id));
   }
