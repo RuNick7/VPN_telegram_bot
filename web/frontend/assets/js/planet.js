@@ -147,6 +147,13 @@ const clamp01 = (t) => Math.min(1, Math.max(0, t));
 const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 const easeOutExpo = (t) => (t >= 1 ? 1 : 1 - 2 ** (-10 * t));
 
+/** Area two boxes share, counting `pad` pixels around `b` as part of it. */
+function overlap(a, b, pad = 6) {
+  const w = Math.min(a.r, b.r + pad) - Math.max(a.l, b.l - pad);
+  const h = Math.min(a.b, b.b + pad) - Math.max(a.t, b.t - pad);
+  return w > 0 && h > 0 ? w * h : 0;
+}
+
 function vec([lon, lat]) {
   return [Math.cos(lat * DEG) * Math.cos(lon * DEG), Math.cos(lat * DEG) * Math.sin(lon * DEG), Math.sin(lat * DEG)];
 }
@@ -169,6 +176,9 @@ export class Planet {
    *   origin:  { lon, lat, label }  the visitor
    *   cities:  [{ id, lon, lat, ... }]
    *   onLand:  (city) => void       called as each comet lands
+   *   avoid:   [HTMLElement]        what the ping card and the visitor's
+   *                                 label must not cover (the location bar,
+   *                                 the copy)
    */
   constructor(root, opts) {
     this.root = root;
@@ -295,6 +305,8 @@ export class Planet {
     const fy = top + Math.max(40, heroH - top - bar) * 0.5;
     const lat0 = focus[1] - Math.asin(Math.min(1, (cy - fy) / R)) / DEG;
     this.geo = { w, h, heroH, R, cx, cy, lon0: focus[0], lat0 };
+    this.blocked = null; // measured again on the next placement
+    this.youSize = null;
 
     // A tall canvas is a lot of pixels: hold the shader to about 2.5 million
     // and the 2D layer to about 3 million, whatever the screen's density.
@@ -357,22 +369,123 @@ export class Planet {
       el.hidden = !p.visible;
       return p;
     };
-    put(this.youPin, [this.origin.lon, this.origin.lat]);
+    const placingCard = this.card && this.cardCity;
+    // What to keep clear of is measured once, not every intro frame: reading
+    // boxes right after moving pins would force a layout per frame. A landing
+    // measures again, since the bar widens as its chips get their pings.
+    if (placingCard || !this.blocked) this.blocked = this.measureAvoided();
+    this.youPoint = put(this.youPin, [this.origin.lon, this.origin.lat]);
+    this.placeYouLabel(this.youPoint);
     for (const c of this.cities) put(c.pin, [c.lon, c.lat]);
-    if (this.card && this.cardCity) {
-      const p = put(this.card, [this.cardCity.lon, this.cardCity.lat]);
-      // Right of the city if it fits, else left, else underneath.
-      const need = this.card.offsetWidth + 32;
-      const right = p.x + need <= this.geo.w;
-      const left = p.x - need >= 0;
-      this.card.classList.toggle("is-left", !right && left);
-      this.card.classList.toggle("is-below", !right && !left);
+    if (placingCard) this.placeCard(put(this.card, [this.cardCity.lon, this.cardCity.lat]));
+  }
+
+  /** The `avoid` elements' boxes, in the pins layer's coordinates. */
+  measureAvoided() {
+    const base = this.pins.getBoundingClientRect();
+    return (this.opts.avoid || [])
+      .filter((el) => el && el.getClientRects().length)
+      .map((el) => {
+        const r = el.getBoundingClientRect();
+        return { l: r.left - base.left, t: r.top - base.top, r: r.right - base.left, b: r.bottom - base.top };
+      });
+  }
+
+  /**
+   * How far to slide a box centred on `x` so it stays on screen. Only while
+   * the point itself is on screen: a label pulled in from a city out of view
+   * would point at nothing.
+   */
+  slideOnScreen(x, w, edge = 8) {
+    if (x < 0 || x > this.geo.w) return 0;
+    const l = x - w / 2;
+    return Math.min(Math.max(l, edge), Math.max(edge, this.geo.w - edge - w)) - l;
+  }
+
+  /** What a box at this spot costs: being off screen most, then what it covers. */
+  spotCost(box, blocks, edge = 8) {
+    const outside =
+      Math.max(0, edge - box.l) +
+      Math.max(0, box.r - (this.geo.w - edge)) +
+      Math.max(0, edge - box.t) +
+      Math.max(0, box.b - this.geo.heroH);
+    return outside * 1e4 + blocks.reduce((sum, o) => sum + overlap(box, o), 0);
+  }
+
+  /** The first of `spots` that costs nothing, else the cheapest. */
+  pickSpot(spots, blocks, edge) {
+    let best = null;
+    for (const [side, l, t, w, h] of spots) {
+      const box = { l, t, r: l + w, b: t + h };
+      const cost = this.spotCost(box, blocks, edge);
+      if (!best || cost < best.cost) best = { side, box, cost };
+      if (cost === 0) break;
     }
+    return best;
+  }
+
+  /**
+   * The visitor's label: under their dot by default, else above, right or
+   * left -- whichever keeps it off the `avoid` elements and `extra` boxes.
+   */
+  placeYouLabel(p, extra = []) {
+    this.youBox = null;
+    if (!p.visible) return;
+    const label = this.youPin.querySelector(".pin-label");
+    if (!this.youSize && label.offsetWidth) this.youSize = { w: label.offsetWidth, h: label.offsetHeight };
+    if (!this.youSize) return;
+    const { w, h } = this.youSize;
+    const gap = 12;
+    const shift = this.slideOnScreen(p.x, w);
+    const best = this.pickSpot(
+      [
+        ["below", p.x - w / 2 + shift, p.y + gap, w, h],
+        ["above", p.x - w / 2 + shift, p.y - gap - h, w, h],
+        ["right", p.x + gap, p.y - h / 2, w, h],
+        ["left", p.x - gap - w, p.y - h / 2, w, h],
+      ],
+      [...this.blocked, ...extra]
+    );
+    this.youPin.dataset.side = best.side;
+    label.style.setProperty("--shift", `${shift}px`);
+    this.youBox = best.box;
+  }
+
+  /**
+   * The ping card beside its city: right, left, above or below, whichever
+   * first covers neither the `avoid` elements nor the visitor's label and stays
+   * on screen; failing that, whichever covers least.
+   */
+  placeCard(p) {
+    const w = this.card.offsetWidth;
+    const h = this.card.offsetHeight;
+    const gap = 20;
+    const edge = 8;
+    // Above and below slide sideways to stay on screen; the arrow stays on
+    // the city.
+    const shift = this.slideOnScreen(p.x, w, edge);
+    const spots = [
+      ["right", p.x + gap, p.y - h / 2, w, h],
+      ["left", p.x - gap - w, p.y - h / 2, w, h],
+      ["above", p.x - w / 2 + shift, p.y - gap - h, w, h],
+      ["below", p.x - w / 2 + shift, p.y + gap, w, h],
+    ];
+    // Clear of everything if possible. If the visitor's label is all that is
+    // in the way (their city right next to this one), the card takes the spot
+    // that is clear of the rest and the label moves aside instead.
+    let best = this.pickSpot(spots, this.youBox ? [...this.blocked, this.youBox] : this.blocked, edge);
+    if (best.cost > 0 && this.youBox) {
+      best = this.pickSpot(spots, this.blocked, edge);
+      this.placeYouLabel(this.youPoint, [best.box]);
+    }
+    this.card.dataset.side = best.side;
+    this.card.style.setProperty("--shift", `${shift}px`);
   }
 
   setOrigin(origin) {
     this.origin = origin;
     this.youPin.querySelector(".pin-label").textContent = origin.label;
+    this.youSize = null;
     this.placePins();
   }
 

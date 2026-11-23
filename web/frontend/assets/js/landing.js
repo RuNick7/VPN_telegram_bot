@@ -59,6 +59,7 @@ function setUpPlanet() {
     cities: CITIES,
     hero: $(".hero"),
     clearOf: $(".hero-copy"),
+    avoid: [bar, $(".hero-copy")],
     onLand(city) {
       const ms = estimatePing(origin, city);
       card.querySelector(".ping-place b").replaceChildren(flag(city.id), city.city);

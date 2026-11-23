@@ -506,13 +506,36 @@ h3 {
   top: 12px;
   left: 0;
   padding: 3px 10px;
-  transform: translateX(-50%);
+  /* --shift (planet.js) keeps the visitor's label on screen near an edge. */
+  transform: translateX(calc(-50% + var(--shift, 0px)));
   border: 1px solid rgb(255 255 255 / 0.1);
   border-radius: 999px;
   background: rgb(15 11 29 / 0.86);
   color: #fff;
   font-size: 0.78rem;
   white-space: nowrap;
+}
+
+/* Under the dot by default; planet.js moves it above or to a side when the
+   location bar, the copy or the ping card is in the way. */
+.pin--you[data-side="above"] .pin-label {
+  top: auto;
+  bottom: 12px;
+}
+
+.pin--you[data-side="right"] .pin-label,
+.pin--you[data-side="left"] .pin-label {
+  top: 0;
+  transform: translateY(-50%);
+}
+
+.pin--you[data-side="right"] .pin-label {
+  left: 12px;
+}
+
+.pin--you[data-side="left"] .pin-label {
+  left: auto;
+  right: 12px;
 }
 
 .planet .pin-label {
@@ -564,25 +587,39 @@ h3 {
   background: rgb(15 11 29 / 0.95);
 }
 
-/* Where there is no room on the right, the card goes left; on a phone, where
-   there is room on neither side, it goes under the city. */
-.ping-card.is-left {
+/* planet.js picks the side: right of the city by default, or whichever of
+   left, above and below keeps the card off the location bar, the copy and
+   the visitor's own label. */
+.ping-card[data-side="left"] {
   transform: translate(calc(-100% - 20px), -50%);
 }
 
-.ping-card.is-left::after {
+.ping-card[data-side="left"]::after {
   left: auto;
   right: -6px;
   transform: translateY(-50%) rotate(-135deg);
 }
 
-.ping-card.is-below {
-  transform: translate(-50%, 22px);
+/* Above and below, --shift slides the card along to keep it on screen and the
+   arrow back the other way, so it still points at the city. */
+.ping-card[data-side="above"] {
+  transform: translate(calc(-50% + var(--shift, 0px)), calc(-100% - 20px));
 }
 
-.ping-card.is-below::after {
+.ping-card[data-side="above"]::after {
+  top: auto;
+  bottom: -6px;
+  left: calc(50% - var(--shift, 0px));
+  transform: translateX(-50%) rotate(-45deg);
+}
+
+.ping-card[data-side="below"] {
+  transform: translate(calc(-50% + var(--shift, 0px)), 20px);
+}
+
+.ping-card[data-side="below"]::after {
   top: -6px;
-  left: 50%;
+  left: calc(50% - var(--shift, 0px));
   transform: translateX(-50%) rotate(135deg);
 }
 
