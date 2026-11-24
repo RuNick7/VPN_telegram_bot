@@ -167,6 +167,8 @@ export function distanceKm(a, b) {
 
 const FLIGHT = 1.4; // seconds from launch to landing
 const HOLD = 2.6;   // seconds the result stays before the next comet
+const INTRO_MS = 1700;     // the rise (1.6 s) and a frame to spare: never paused
+const SCROLL_PAUSE = 150;  // ms after the last scroll event before drawing resumes
 
 export class Planet {
   /**
@@ -224,6 +226,22 @@ export class Planet {
       this.kick();
     }).observe(opts.hero || root);
     document.addEventListener("visibilitychange", () => this.kick());
+
+    // While the page is being scrolled the planet holds still. The browser
+    // draws the scrolling on the GPU too, and a fresh multi-million-pixel
+    // frame competing with it is what made scrolling stutter in full-size
+    // windows. Drawing resumes a moment after the scroll stops; the clock
+    // runs on meanwhile, so a comet simply lands where it would have.
+    this.scrollingUntil = 0;
+    addEventListener(
+      "scroll",
+      () => {
+        this.scrollingUntil = performance.now() + SCROLL_PAUSE;
+        clearTimeout(this.resumeTimer);
+        this.resumeTimer = setTimeout(() => this.kick(), SCROLL_PAUSE + 20);
+      },
+      { passive: true }
+    );
     if (!this.gl) this.ready = true;
   }
 
@@ -559,6 +577,9 @@ export class Planet {
   frame(now) {
     this.raf = 0;
     if (!this.visible || document.hidden) return;
+    // Held while scrolling (see the constructor) -- but never during the
+    // intro, which finishes rising whatever the visitor does.
+    if (now < this.scrollingUntil && now - this.start > INTRO_MS) return;
     const t = (now - this.start) / 1000;
     const g = this.geo;
 
