@@ -345,6 +345,16 @@ function setUpHeader() {
   };
   update();
   window.addEventListener("scroll", update, { passive: true });
+
+  // The header's blur goes on only once it is over the page below the hero
+  // (see .is-past-hero): watched against the top tenth of the window, where
+  // the header sits.
+  const hero = $(".hero");
+  if (hero) {
+    new IntersectionObserver(([entry]) => header.classList.toggle("is-past-hero", !entry.isIntersecting), {
+      rootMargin: "0px 0px -90% 0px",
+    }).observe(hero);
+  }
 }
 
 function setUpReveal() {
