@@ -87,10 +87,10 @@ def test_the_menu_is_connect_renew_then_referral_and_help(monkeypatch):
     ]
 
 
-def test_connect_and_renew_are_the_main_colour_normally():
+def test_connect_is_the_main_colour_and_renew_is_plain_normally():
     keyboard = main_menu_keyboard(renew_urgent=False)
     assert _by_callback(keyboard, "connect").style == MAIN
-    assert _by_callback(keyboard, "renew_menu").style == MAIN
+    assert _by_callback(keyboard, "renew_menu").style is None
     assert _by_callback(keyboard, "referral").style is None
     assert _by_callback(keyboard, "help").style is None
 
@@ -102,8 +102,8 @@ def test_renew_turns_red_when_it_matters():
 @pytest.mark.parametrize(
     "ends, style",
     [
-        (NOW + 30 * DAY, MAIN),
-        (NOW + 4 * DAY, MAIN),
+        (NOW + 30 * DAY, None),
+        (NOW + 4 * DAY, None),
         (NOW + 3 * DAY, URGENT),
         (NOW + 1 * DAY, URGENT),
         (NOW - 2 * DAY, URGENT),  # expired, still inside the free grace window

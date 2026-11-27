@@ -1,12 +1,11 @@
 """
 Button colours follow their meaning, one rule per colour:
 
-    MAIN    the screen's main action -- «Подключиться», «Продлить» while it is
-            not urgent, «Оплатить»
+    MAIN    the screen's main action -- «Подключиться», «Оплатить»
     DONE    a step completed or confirmed -- «Я подписался», «Добавить в Incy»
     URGENT  irreversible actions and urgent renewal -- «Сбросить ссылку»,
             removing a device, «Продлить» near or past the end
-    none    everything else, support included
+    none    everything else, support and «Продлить» while there is time
 """
 
 import pytest
@@ -69,3 +68,8 @@ def test_support_and_navigation_stay_uncoloured():
     setup = keyboards.manual_setup_keyboard("ios", region_help=True)
     assert _style(setup, text="Не нахожу Incy") is None
     assert _style(setup, text="Назад") is None
+
+
+def test_renew_is_plain_until_it_is_urgent():
+    assert _style(keyboards.main_menu_keyboard(renew_urgent=False), callback="renew_menu") is None
+    assert _style(keyboards.main_menu_keyboard(renew_urgent=True), callback="renew_menu") == URGENT

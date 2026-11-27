@@ -17,9 +17,9 @@ CABINET_URL = f"{_SITE}/app" if _SITE else ""
 # ordinary buttons, so a colour may only ever add emphasis -- never carry
 # meaning a plain button would lose.
 #
-#   MAIN    the one main action of a screen: «Подключиться», «Продлить» while
-#           it is not urgent, «Оплатить». Bot API "primary": blue by default,
-#           and apps may tint it to the chat theme (violet on a violet one).
+#   MAIN    the one main action of a screen: «Подключиться», «Оплатить».
+#           Bot API "primary": blue by default, and apps may tint it to the
+#           chat theme (violet on a violet one).
 #   DONE    a step completed or confirmed: «Я подписался», «Добавить в Incy».
 #   URGENT  irreversible actions, and renewal when it is urgent: «Сбросить
 #           ссылку», removing a device, «Продлить» from three days before the
@@ -54,9 +54,10 @@ def main_menu_keyboard(*, renew_urgent: bool = False) -> InlineKeyboardMarkup:
     """
     The main menu under the subscription summary.
 
-    «Подключиться» is the one most people came for, so it is green and on its
-    own row. «Продлить» turns red when the subscription has three days or less
-    left, or has run out -- the moment the button matters is exactly the
+    «Подключиться» is the one most people came for, so it is the main colour
+    and on its own row. «Продлить» stays plain while there is time, so it does
+    not compete with it, and turns red when the subscription has three days or
+    less left, or has run out -- the moment the button matters is exactly the
     moment it should be hard to miss.
     """
     return InlineKeyboardMarkup(
@@ -70,7 +71,7 @@ def main_menu_keyboard(*, renew_urgent: bool = False) -> InlineKeyboardMarkup:
                 InlineKeyboardButton(
                     text="💳 Продлить",
                     callback_data="renew_menu",
-                    style=URGENT if renew_urgent else MAIN,
+                    style=URGENT if renew_urgent else None,
                 )
             ],
             [
